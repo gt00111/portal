@@ -1,0 +1,21 @@
+/** PixoConverter 内蔵版 IPC（`module:action`） */
+export const PIXO_CHANNELS = {
+  openPdf: "pixo-converter:openPdf",
+  convertPdf: "pixo-converter:convertPdf",
+  saveOutputImages: "pixo-converter:saveOutputImages",
+  resetTempDirs: "pixo-converter:resetTempDirs",
+  openTiff: "pixo-converter:openTiff",
+  convertTiff: "pixo-converter:convertTiff",
+  openImages: "pixo-converter:openImages",
+  convertImage: "pixo-converter:convertImage",
+  mergePdfs: "pixo-converter:mergePdfs",
+  mergeAndSave: "pixo-converter:mergeAndSave",
+  mergeSaveDialog: "pixo-converter:mergeSaveDialog",
+  copyPdf: "pixo-converter:copyPdf",
+  deleteTempFile: "pixo-converter:deleteTempFile",
+  readAsDataUrl: "pixo-converter:readAsDataUrl",
+  getPdfPages: "pixo-converter:getPdfPages",
+  manipulatePage: "pixo-converter:manipulatePage",
+  savePdfDialog: "pixo-converter:savePdfDialog",
+  saveTempFile: "pixo-converter:saveTempFile",
+} as const;

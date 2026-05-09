@@ -1,0 +1,866 @@
+import { Download, FileText, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import type { AppRole } from "@shared/auth.js";
+import { canWrite } from "@shared/auth.js";
+import type {
+  DrawingListParams,
+  DrawingListResult,
+  DrawingListSortColumn,
+  DrawingUpsertInput,
+  DrawingWorkCascadeResult,
+  LibCommentRow,
+  LibDrawingRow,
+  LibEdrawingsFileRow,
+} from "@shared/drawingLibrary.js";
+import type { SkuRow } from "@shared/sku.js";
+
+import { Button } from "@renderer/components/ui/Button.js";
+import { Modal } from "@renderer/components/ui/Modal.js";
+import { Select } from "@renderer/components/ui/Select.js";
+import { TextField } from "@renderer/components/ui/TextField.js";
+import { useToast } from "@renderer/components/ui/Toast.js";
+import { invoke } from "@renderer/lib/api.js";
+import { cn } from "@renderer/lib/cn.js";
+import { ObsoleteOverlay } from "@renderer/routes/drawing-library/ObsoleteOverlay.js";
+import { PdfCardThumbnail, PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
+
+interface Props {
+  role: AppRole;
+}
+
+const DRAWING_TYPE = "work" as const;
+
+const WORK_SORT_OPTIONS: { id: string; label: string }[] = [
+  { id: "updated_at|desc", label: "更新日（新しい順）" },
+  { id: "updated_at|asc", label: "更新日（古い順）" },
+  { id: "customer_name|asc", label: "客先（A→Z）" },
+  { id: "customer_name|desc", label: "客先（Z→A）" },
+  { id: "model|asc", label: "機種（A→Z）" },
+  { id: "model|desc", label: "機種（Z→A）" },
+  { id: "product_name|asc", label: "図面番号・品番（A→Z）" },
+  { id: "product_name|desc", label: "図面番号・品番（Z→A）" },
+  { id: "revision|asc", label: "リビジョン（A→Z）" },
+  { id: "revision|desc", label: "リビジョン（Z→A）" },
+  { id: "title|asc", label: "名称（A→Z）" },
+  { id: "title|desc", label: "名称（Z→A）" },
+];
+
+function parseWorkSortId(sortId: string): { sortBy: DrawingListSortColumn; sortOrder: "asc" | "desc" } {
+  const [col, ord] = sortId.split("|");
+  const sortOrder = ord === "asc" ? "asc" : "desc";
+  const allowed: DrawingListSortColumn[] = [
+    "updated_at",
+    "customer_name",
+    "model",
+    "product_name",
+    "revision",
+    "title",
+  ];
+  const sortBy = (allowed.includes(col as DrawingListSortColumn) ? col : "updated_at") as DrawingListSortColumn;
+  return { sortBy, sortOrder };
+}
+
+/** カード主行: 客先_機種_図面番号(品番)_名称_リビジョン（空は除く・全部空なら名称） */
+function workDrawingCardPrimaryLabel(row: LibDrawingRow): string {
+  const partNum = row.product_name?.trim() || row.drawing_number?.trim();
+  const parts = [
+    row.customer_name?.trim(),
+    row.model?.trim(),
+    partNum,
+    row.title?.trim(),
+    row.revision?.trim(),
+  ].filter((s): s is string => Boolean(s));
+  return parts.length > 0 ? parts.join("_") : (row.title?.trim() || "—");
+}
+
+function fileBasenameFromPath(p: string | null | undefined): string {
+  const s = p?.trim();
+  if (!s) return "";
+  const u = s.replace(/\\/g, "/");
+  const i = u.lastIndexOf("/");
+  return i >= 0 ? u.slice(i + 1) : u;
+}
+
+function useWorkPdfThumbDataUrl(filePath: string | null | undefined): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const p = filePath?.trim();
+    if (!p || !p.toLowerCase().endsWith(".pdf")) {
+      setUrl(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const { base64, mime } = await invoke<{ base64: string; mime: string }>("drawing:readFile", {
+          relativePath: p,
+        });
+        if (alive) setUrl(`data:${mime};base64,${base64}`);
+      } catch {
+        if (alive) setUrl(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [filePath]);
+  return url;
+}
+
+function WorkDrawingCard({
+  row,
+  writable,
+  onOpen,
+  onDelete,
+  onToggleObsolete,
+}: {
+  row: LibDrawingRow;
+  writable: boolean;
+  onOpen: (r: LibDrawingRow) => void;
+  onDelete: (r: LibDrawingRow) => void;
+  onToggleObsolete: (r: LibDrawingRow, next: boolean) => void;
+}): JSX.Element {
+  const thumbDataUrl = useWorkPdfThumbDataUrl(row.file_path);
+  const obsolete = row.is_obsolete === 1;
+  const isPdf = Boolean(row.file_path?.trim().toLowerCase().endsWith(".pdf"));
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(row)}
+      className={cn(
+        "group relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-left shadow-sm transition hover:border-accent-primary/40 hover:shadow-md"
+      )}
+    >
+      <ObsoleteOverlay show={obsolete} />
+      <div className="relative flex aspect-[4/3] w-full shrink-0 items-center justify-center overflow-hidden bg-bg-elevated/40">
+        {isPdf ? (
+          <PdfCardThumbnail dataUrl={thumbDataUrl} className="h-full w-full rounded-none border-0 bg-transparent" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <FileText className="h-16 w-16 text-fg-subtle/50" />
+          </div>
+        )}
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex flex-col gap-1.5 px-3 pt-3">
+          <p className="line-clamp-2 text-sm font-semibold leading-snug">{workDrawingCardPrimaryLabel(row)}</p>
+          <p className="line-clamp-2 font-mono text-[11px] text-fg-muted">
+            {fileBasenameFromPath(row.file_path) || "—"}
+          </p>
+          <p className="text-[11px] text-fg-subtle">更新 {row.updated_at}</p>
+        </div>
+        <div className="mt-auto flex w-full min-w-0 items-center justify-between gap-2 border-t border-border-subtle/60 px-3 pb-3 pt-2">
+          <label
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-xs text-fg-muted"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={obsolete}
+              disabled={!writable}
+              onChange={(e): void => {
+                void onToggleObsolete(row, e.target.checked);
+              }}
+              className="shrink-0 rounded border-border-strong"
+            />
+            <span className="truncate">旧図面</span>
+          </label>
+          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+            {writable ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void onDelete(row)}
+                className="h-8 w-8 !p-0 text-state-danger"
+                aria-label="削除"
+              >
+                <Trash2 size={14} />
+              </Button>
+            ) : (
+              <span className="inline-block h-8 w-8 shrink-0" aria-hidden />
+            )}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+export function DrawingDbTab({ role }: Props): JSX.Element {
+  const toast = useToast();
+  const writable = canWrite(role);
+  const [result, setResult] = useState<DrawingListResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 30;
+  const [fcCustomer, setFcCustomer] = useState("");
+  const [fcModel, setFcModel] = useState("");
+  const [fcProduct, setFcProduct] = useState("");
+  const [sortId, setSortId] = useState("updated_at|desc");
+  const [cascade, setCascade] = useState<DrawingWorkCascadeResult>({
+    customers: [],
+    models: [],
+    productNames: [],
+  });
+
+  const [detail, setDetail] = useState<LibDrawingRow | null>(null);
+  const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [comments, setComments] = useState<LibCommentRow[]>([]);
+  const [edrawingsFiles, setEdrawingsFiles] = useState<LibEdrawingsFileRow[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [skus, setSkus] = useState<SkuRow[]>([]);
+  const [skuListLoading, setSkuListLoading] = useState(false);
+  const [selectedSkuId, setSelectedSkuId] = useState("");
+  const [newTitle, setNewTitle] = useState("");
+  const [newCustomer, setNewCustomer] = useState("");
+  const [newModel, setNewModel] = useState("");
+  const [newProductName, setNewProductName] = useState("");
+  const [newDrawingNumber, setNewDrawingNumber] = useState("");
+  const [newRevision, setNewRevision] = useState("");
+  const [newFilePath, setNewFilePath] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { sortBy, sortOrder } = parseWorkSortId(sortId);
+      const params: DrawingListParams = {
+        drawingType: DRAWING_TYPE,
+        search: search.trim() || undefined,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+        customerName: fcCustomer.trim() || undefined,
+        model: fcModel.trim() || undefined,
+        productName: fcProduct.trim() || undefined,
+        sortBy,
+        sortOrder,
+      };
+      const data = await invoke<DrawingListResult>("drawing:list", params);
+      setResult(data);
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, page, toast, pageSize, fcCustomer, fcModel, fcProduct, sortId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const o = await invoke<DrawingWorkCascadeResult>("drawing:workCascadeOptions", {
+          customerName: fcCustomer.trim() || undefined,
+          model: fcModel.trim() || undefined,
+        });
+        setCascade(o);
+      } catch (err) {
+        toast.push("error", err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, [fcCustomer, fcModel, toast]);
+
+  const skuSelectOptions = useMemo(() => {
+    const labelFor = (s: SkuRow): string => {
+      const parts = [s.customerName, s.modelName, s.partNumberName, s.componentNameName].filter(Boolean);
+      const head = parts.join(" / ");
+      const rev = s.revision?.trim() ? ` Rev.${s.revision}` : "";
+      const label = head + rev;
+      return label.length > 110 ? `${label.slice(0, 107)}…` : label;
+    };
+    const sorted = [...skus].sort((a, b) => {
+      const ca = (a.customerName ?? "").localeCompare(b.customerName ?? "", "ja");
+      if (ca !== 0) return ca;
+      const ma = (a.modelName ?? "").localeCompare(b.modelName ?? "", "ja");
+      if (ma !== 0) return ma;
+      return (a.partNumberName ?? "").localeCompare(b.partNumberName ?? "", "ja");
+    });
+    return [
+      { value: "", label: "— 中央マスタの SKU から選ばず手入力 —" },
+      ...sorted.map((s) => ({ value: String(s.id), label: labelFor(s) })),
+    ];
+  }, [skus]);
+
+  useEffect(() => {
+    if (!createOpen) return;
+    setSkus([]);
+    setSkuListLoading(true);
+    setSelectedSkuId("");
+    setNewTitle("");
+    setNewCustomer("");
+    setNewModel("");
+    setNewProductName("");
+    setNewDrawingNumber("");
+    setNewRevision("");
+    setNewFilePath(null);
+    void (async () => {
+      try {
+        const rows = await invoke<SkuRow[]>("sku:list", {});
+        setSkus(rows.filter((r) => r.isActive));
+      } catch (err) {
+        toast.push("error", err instanceof Error ? err.message : String(err));
+        setSkus([]);
+      } finally {
+        setSkuListLoading(false);
+      }
+    })();
+  }, [createOpen]);
+
+  function applySkuById(id: string): void {
+    if (!id) return;
+    const sku = skus.find((s) => String(s.id) === id);
+    if (!sku) return;
+    setNewCustomer(sku.customerName ?? "");
+    setNewTitle(sku.componentNameName || sku.partNumberName || "");
+    setNewModel(sku.modelName ?? "");
+    setNewProductName(sku.partNumberName ?? "");
+    setNewDrawingNumber((sku.drawingNumber ?? sku.partNumberCode ?? "").trim() || sku.partNumberName || "");
+    setNewRevision(sku.revision ?? "");
+  }
+
+  async function openDetail(row: LibDrawingRow): Promise<void> {
+    setDetail(row);
+    setPdfDataUrl(null);
+    setPdfLoading(false);
+    setCommentDraft("");
+    try {
+      const [c, e] = await Promise.all([
+        invoke<LibCommentRow[]>("drawing-comment:list", { drawing_id: row.id }),
+        invoke<LibEdrawingsFileRow[]>("drawing-edrawings:list", { drawing_id: row.id }),
+      ]);
+      setComments(c);
+      setEdrawingsFiles(e);
+      const fp = row.file_path?.trim();
+      if (fp && fp.toLowerCase().endsWith(".pdf")) {
+        setPdfLoading(true);
+        try {
+          const { base64, mime } = await invoke<{ base64: string; mime: string }>("drawing:readFile", {
+            relativePath: fp,
+          });
+          setPdfDataUrl(`data:${mime};base64,${base64}`);
+        } finally {
+          setPdfLoading(false);
+        }
+      }
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function closeDetail(): void {
+    setPdfDataUrl(null);
+    setDetail(null);
+  }
+
+  function defaultExportName(row: LibDrawingRow): string {
+    const fromPath = row.file_path?.split(/[/\\]/).pop()?.trim();
+    if (fromPath) return fromPath;
+    const base = `${row.customer_name ?? "図面"}_${row.title ?? "file"}`.replace(/[<>:"/\\|?*]/g, "_");
+    return `${base}.pdf`;
+  }
+
+  async function exportRegisteredPdf(): Promise<void> {
+    if (!detail?.file_path?.trim()) {
+      toast.push("warning", "保存するファイルがありません。");
+      return;
+    }
+    try {
+      await invoke<{ path: string }>("drawing:exportFile", {
+        relativePath: detail.file_path.trim(),
+        defaultName: defaultExportName(detail),
+      });
+      toast.push("success", "保存しました。");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("キャンセル")) return;
+      toast.push("error", msg);
+    }
+  }
+
+  async function exportEdrawingFile(relPath: string, fileName: string): Promise<void> {
+    try {
+      await invoke<{ path: string }>("drawing:exportFile", {
+        relativePath: relPath,
+        defaultName: fileName,
+      });
+      toast.push("success", "保存しました。");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("キャンセル")) return;
+      toast.push("error", msg);
+    }
+  }
+
+  async function toggleWorkObsolete(row: LibDrawingRow, isObsolete: boolean): Promise<void> {
+    if (!writable) return;
+    try {
+      await invoke<LibDrawingRow>("drawing:setObsolete", { id: row.id, isObsolete });
+      toast.push("success", isObsolete ? "旧図面にしました。" : "最新として扱います。");
+      await load();
+      if (detail?.id === row.id) {
+        setDetail((d) => (d ? { ...d, is_obsolete: isObsolete ? 1 : 0 } : null));
+      }
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleDelete(row: LibDrawingRow): Promise<void> {
+    if (!window.confirm(`「${row.title}」を削除しますか？`)) return;
+    try {
+      await invoke("drawing:delete", { id: row.id });
+      toast.push("success", "削除しました。");
+      closeDetail();
+      await load();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handlePickPdf(): Promise<void> {
+    if (!newCustomer.trim()) {
+      toast.push("warning", "先に顧客名（フォルダ名）を入力してください。");
+      return;
+    }
+    try {
+      const r = await invoke<{ file_path: string }>("drawing:pickPdf", {
+        customerName: newCustomer.trim(),
+        drawingType: DRAWING_TYPE,
+      });
+      setNewFilePath(r.file_path);
+      toast.push("success", "PDF を取り込みました。");
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleCreateSubmit(): Promise<void> {
+    if (!newTitle.trim()) {
+      toast.push("warning", "名称を入力してください。");
+      return;
+    }
+    if (!newFilePath) {
+      toast.push("warning", "PDF を選択してください。");
+      return;
+    }
+    const input: DrawingUpsertInput = {
+      title: newTitle.trim(),
+      customer_name: newCustomer.trim() || null,
+      model: newModel.trim() || null,
+      product_name: newProductName.trim() || null,
+      drawing_number: newDrawingNumber.trim() || null,
+      revision: newRevision.trim() || null,
+      file_path: newFilePath,
+      drawingType: DRAWING_TYPE,
+    };
+    try {
+      await invoke("drawing:create", { input });
+      toast.push("success", "登録しました。");
+      setCreateOpen(false);
+      await load();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function addComment(): Promise<void> {
+    if (!detail || !commentDraft.trim()) return;
+    try {
+      await invoke("drawing-comment:create", {
+        drawing_id: detail.id,
+        comment_text: commentDraft.trim(),
+      });
+      setCommentDraft("");
+      const c = await invoke<LibCommentRow[]>("drawing-comment:list", { drawing_id: detail.id });
+      setComments(c);
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function attachEdrawings(): Promise<void> {
+    if (!detail?.customer_name?.trim()) {
+      toast.push("warning", "図面に客先名が無い場合は eDrawings を紐付けできません。");
+      return;
+    }
+    try {
+      await invoke("drawing-edrawings:upload", {
+        drawing_id: detail.id,
+        customerName: detail.customer_name,
+      });
+      const list = await invoke<LibEdrawingsFileRow[]>("drawing-edrawings:list", { drawing_id: detail.id });
+      setEdrawingsFiles(list);
+      toast.push("success", "eDrawings ファイルを追加しました。");
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function deleteEdrawingRow(id: number): Promise<void> {
+    if (!window.confirm("この eDrawings ファイルを削除しますか？")) return;
+    if (!detail) return;
+    try {
+      await invoke("drawing-edrawings:delete", { id });
+      const list = await invoke<LibEdrawingsFileRow[]>("drawing-edrawings:list", { drawing_id: detail.id });
+      setEdrawingsFiles(list);
+      toast.push("success", "削除しました。");
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const totalPages = result?.totalPages ?? 1;
+
+  function displayPartNumber(r: LibDrawingRow): string {
+    const p = r.product_name?.trim();
+    if (p) return p;
+    const d = r.drawing_number?.trim();
+    if (d) return d;
+    return "—";
+  }
+
+  const detailObsolete = detail ? detail.is_obsolete === 1 : false;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-fg-muted">
+          自社発行図面。データはポータル DB と隣接する drawing-library.db に保存されます。
+        </p>
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            更新
+          </Button>
+          {writable && (
+            <Button type="button" variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus size={16} />
+              新規
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <input
+          type="search"
+          placeholder="客先・機種・図面番号・名称・リビジョン など"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+          className="h-10 min-w-[200px] flex-1 rounded-lg border border-border-strong bg-bg-surface px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+        />
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex min-w-[140px] flex-col gap-1 text-xs text-fg-muted">
+          客先で絞る
+          <select
+            value={fcCustomer}
+            onChange={(e) => {
+              setFcCustomer(e.target.value);
+              setFcModel("");
+              setFcProduct("");
+              setPage(1);
+            }}
+            className="h-10 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg"
+          >
+            <option value="">（すべて）</option>
+            {cascade.customers.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-[140px] flex-col gap-1 text-xs text-fg-muted">
+          機種で絞る
+          <select
+            value={fcModel}
+            disabled={!fcCustomer}
+            onChange={(e) => {
+              setFcModel(e.target.value);
+              setFcProduct("");
+              setPage(1);
+            }}
+            className="h-10 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg disabled:opacity-50"
+          >
+            <option value="">（すべて）</option>
+            {cascade.models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-[160px] flex-col gap-1 text-xs text-fg-muted">
+          図面番号(品番)で絞る
+          <select
+            value={fcProduct}
+            disabled={!fcCustomer || !fcModel}
+            onChange={(e) => {
+              setFcProduct(e.target.value);
+              setPage(1);
+            }}
+            className="h-10 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg disabled:opacity-50"
+          >
+            <option value="">（すべて）</option>
+            {cascade.productNames.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-xs text-fg-muted">
+          並び順
+          <select
+            value={sortId}
+            onChange={(e) => {
+              setSortId(e.target.value);
+              setPage(1);
+            }}
+            className="h-10 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg"
+          >
+            {WORK_SORT_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {loading ? (
+        <p className="py-8 text-center text-fg-muted">読み込み中...</p>
+      ) : !result?.drawings.length ? (
+        <p className="rounded-xl border border-border-subtle py-8 text-center text-sm text-fg-muted">
+          データがありません。
+        </p>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {result.drawings.map((r) => (
+              <WorkDrawingCard
+                key={r.id}
+                row={r}
+                writable={writable}
+                onOpen={(row) => void openDetail(row)}
+                onDelete={(row) => void handleDelete(row)}
+                onToggleObsolete={(row, next) => void toggleWorkObsolete(row, next)}
+              />
+            ))}
+          </div>
+          <div className="flex items-center justify-between text-sm text-fg-muted">
+            <span>
+              {result.total} 件中 {page}/{totalPages} ページ
+            </span>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                前へ
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                次へ
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+
+      <Modal open={createOpen} title="図面を新規登録（自社発行）" onClose={() => setCreateOpen(false)} width="lg">
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-fg-muted">
+            下の順で入力してください。SKU を選ぶと自動入力されます。図面番号(品番)とリビジョンの組み合わせは重複登録できません。
+          </p>
+          {skuListLoading ? (
+            <p className="text-xs text-fg-muted">SKU 一覧を読み込み中…</p>
+          ) : (
+            <Select
+              label="SKU（任意・中央マスタの SKU 台帳）"
+              value={selectedSkuId}
+              options={skuSelectOptions}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelectedSkuId(v);
+                if (v) applySkuById(v);
+              }}
+            />
+          )}
+          <TextField
+            label="客先（保存フォルダ名）"
+            value={newCustomer}
+            onChange={(e) => setNewCustomer(e.target.value)}
+          />
+          <TextField label="機種" value={newModel} onChange={(e) => setNewModel(e.target.value)} />
+          <TextField
+            label="図面番号(品番)"
+            value={newProductName}
+            onChange={(e) => setNewProductName(e.target.value)}
+          />
+          <TextField label="リビジョン" value={newRevision} onChange={(e) => setNewRevision(e.target.value)} />
+          <TextField label="名称" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => void handlePickPdf()}>
+              PDF を選択して取り込み
+            </Button>
+            {newFilePath && <span className="truncate text-xs text-fg-muted">{newFilePath}</span>}
+          </div>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>
+              キャンセル
+            </Button>
+            <Button type="button" variant="primary" onClick={() => void handleCreateSubmit()}>
+              登録
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {detail && (
+        <Modal open title="図面の詳細" onClose={closeDetail} width="full">
+          <div className="relative flex min-h-[60vh] flex-col gap-6">
+            <ObsoleteOverlay show={detailObsolete} className="rounded-lg" />
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border-subtle pb-4">
+              <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
+                <div>
+                  <dt className="text-xs text-fg-muted">客先</dt>
+                  <dd className="font-medium">{detail.customer_name ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-fg-muted">機種</dt>
+                  <dd>{detail.model ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-fg-muted">図面番号(品番)</dt>
+                  <dd className="font-mono text-xs">{displayPartNumber(detail)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-fg-muted">リビジョン</dt>
+                  <dd>{detail.revision ?? "—"}</dd>
+                </div>
+                <div className="col-span-2 sm:col-span-3 lg:col-span-4">
+                  <dt className="text-xs text-fg-muted">名称</dt>
+                  <dd className="font-medium">{detail.title}</dd>
+                </div>
+              </dl>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                {detail.file_path?.trim() && (
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void exportRegisteredPdf()}>
+                    <Download size={14} />
+                    PDF を保存…
+                  </Button>
+                )}
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-muted">
+                  <input
+                    type="checkbox"
+                    checked={detailObsolete}
+                    disabled={!writable}
+                    onChange={(e) => void toggleWorkObsolete(detail, e.target.checked)}
+                    className="rounded border-border-strong"
+                  />
+                  旧図面として表示（一覧にオーバーレイ）
+                </label>
+              </div>
+            </div>
+
+            <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-12 lg:gap-8">
+              <div className="relative flex min-h-[min(72vh,900px)] flex-col gap-2 lg:col-span-7">
+                {pdfLoading ? (
+                  <p className="text-sm text-fg-muted">PDF を読み込み中…</p>
+                ) : (
+                  <PdfJsViewer dataUrl={pdfDataUrl} />
+                )}
+              </div>
+              <div className="flex min-h-0 flex-col gap-4 border-t border-border-subtle pt-6 lg:col-span-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+                <p className="text-xs font-semibold text-fg-muted">eDrawings</p>
+                <ul className="max-h-[min(40vh,420px)] min-h-[8rem] flex-1 space-y-0 divide-y divide-border-subtle overflow-y-auto border-y border-border-subtle text-sm">
+                  {edrawingsFiles.map((f) => (
+                    <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs">{f.file_name}</span>
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => void exportEdrawingFile(f.file_path, f.file_name)}
+                        >
+                          <Download size={12} />
+                        </Button>
+                        {writable && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void deleteEdrawingRow(f.id)}
+                            aria-label="削除"
+                          >
+                            <Trash2 size={14} className="text-state-danger" />
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                {edrawingsFiles.length === 0 && <p className="text-xs text-fg-subtle">紐付けなし</p>}
+                {writable && (
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void attachEdrawings()}>
+                    eDrawings を追加
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-border-subtle pt-4">
+              <p className="text-xs font-semibold text-fg-muted">コメント</p>
+              <ul className="mt-3 max-h-[min(35vh,360px)] space-y-0 divide-y divide-border-subtle overflow-y-auto border-y border-border-subtle text-sm">
+                {comments.map((c) => (
+                  <li key={c.id} className="py-2.5">
+                    {c.comment_text}
+                    <span className="ml-2 text-xs text-fg-subtle">{c.created_at}</span>
+                  </li>
+                ))}
+              </ul>
+              {writable && (
+                <div className="mt-3 flex gap-2">
+                  <input
+                    type="text"
+                    value={commentDraft}
+                    onChange={(e) => setCommentDraft(e.target.value)}
+                    placeholder="コメント"
+                    className="flex-1 rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm"
+                  />
+                  <Button type="button" variant="primary" size="sm" onClick={() => void addComment()}>
+                    追加
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

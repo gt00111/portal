@@ -1,0 +1,57 @@
+---
+alwaysApply: true
+---
+
+# Electron Rules (STRICT)
+You MUST follow Electron best practices.
+## Security
+- contextIsolation MUST be true
+- nodeIntegration MUST be false
+- sandbox SHOULD be enabled
+## Architecture
+- Main process:
+  - Node.js access allowed
+  - DB access allowed
+- Renderer:
+  - NO Node.js access
+  - ONLY browser APIs
+- Preload:
+  - Bridge ONLY
+  - NO business logic
+## Preload Rules
+- MUST use contextBridge
+Example:
+contextBridge.exposeInMainWorld("api", {
+  invoke: (channel, data) => ipcRenderer.invoke(channel, data)
+})
+- DO NOT expose unnecessary APIs
+- Keep API minimal and generic
+## IPC Rules
+- Use ipcMain.handle ONLY
+- DO NOT use ipcMain.on unless necessary
+## Native Modules
+- Native modules (e.g. better-sqlite3):
+  - MUST be used ONLY in main process
+  - MUST NOT be used in renderer
+## electron-vite Rules
+- Use electron-vite for build
+- Output directory MUST be:
+  out/
+Structure:
+- out/main/
+- out/preload/
+- out/renderer/
+## Entry Point
+- Electron main entry MUST be:
+  ./out/main/index.js
+## Build Rules
+- Use electron-builder for packaging
+- Native modules MUST be installed via:
+  postinstall:
+  electron-builder install-app-deps
+## Performance
+- Avoid heavy logic in renderer
+- Move heavy processing to main process
+## Enforcement
+If any code violates these rules:
+- You MUST fix it to follow Electron best practices

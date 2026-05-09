@@ -1,0 +1,49 @@
+---
+alwaysApply: true
+---
+
+# Modular Architecture Rules (STRICT)
+You MUST follow this architecture when generating code.
+## Module Structure
+- All business logic MUST be inside src/main/modules/
+- Each module MUST contain:
+  - *.repo.ts (database access only)
+  - *.handler.ts (IPC handler only)
+- Modules MUST be auto-loaded by a module loader
+- NEVER manually import modules in main index
+## Separation Rules
+- Repositories:
+  - MUST contain only database logic (CRUD)
+  - MUST NOT contain IPC or UI logic
+- Handlers:
+  - MUST call repositories
+  - MUST NOT contain raw SQL
+## IPC Rules
+- All IPC channels MUST follow:
+  format: module:action
+Examples:
+- project:create
+- task:update
+- Renderer MUST NOT define its own API names
+- Renderer MUST use generic invoke:
+  window.api.invoke(channel, data)
+## Renderer Rules
+- Renderer MUST NOT directly call specific functions like:
+  ❌ createProject()
+  ❌ getTasks()
+- ALWAYS use:
+  window.api.invoke("module:action", data)
+## Dependency Rules
+- Modules MUST NOT import other modules directly
+- Shared logic MUST go into shared/
+## Enforcement
+If any code violates these rules:
+- You MUST refactor it to follow the architecture
+## Module Interface Rules  
+Each module MUST export a register(ipcMain) function.  
+Example:  
+export function register(ipcMain) {  
+ipcMain.handle("module:action", async () => {  
+...  
+})  
+}

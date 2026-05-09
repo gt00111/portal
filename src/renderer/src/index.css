@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg-base: 11 13 18;
+  --color-bg-surface: 17 21 28;
+  --color-bg-elevated: 24 29 39;
+
+  --color-fg-primary: 236 240 247;
+  --color-fg-muted: 166 175 193;
+  --color-fg-subtle: 115 124 142;
+
+  --color-accent-primary: 96 165 250;
+  --color-accent-secondary: 167 139 250;
+
+  --color-state-success: 74 222 128;
+  --color-state-warning: 250 204 21;
+  --color-state-danger: 248 113 113;
+
+  --color-border-subtle: 31 37 50;
+  --color-border-strong: 55 65 81;
+
+  /* shadcn tokens（生産ボード UI）— ダーク寄りでポータルと共存 */
+  --radius: 0.5rem;
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  --card: 222.2 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 212.7 26.8% 83.9%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: rgb(var(--color-bg-base));
+  color: rgb(var(--color-fg-primary));
+  font-family: "Inter", "Noto Sans JP", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background-color: rgb(var(--color-accent-primary) / 0.35);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-border-strong));
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-fg-subtle));
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* 生産ボード: 週末セル・ガント印刷など */
+.weekend-cell {
+  background: #ffe5e5 !important;
+}
+.wx-progress-marker,
+.wx-progress-wrapper,
+.wx-progress-percent {
+  display: none !important;
+}

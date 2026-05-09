@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+
+# PixoConverter 同梱（win-unpacked はビルド成果。リポジトリに置かずパッケージ前にローカル配置）
+resources/tools/pixo-converter/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.vite/

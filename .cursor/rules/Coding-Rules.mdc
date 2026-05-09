@@ -1,0 +1,57 @@
+---
+alwaysApply: true
+---
+
+# Coding Rules (STRICT)
+You MUST follow these coding standards.
+## General
+- Use TypeScript for ALL code
+- Use ESM (import/export)
+- NEVER use require()
+## File Design
+- Keep files small and focused
+- Separate responsibilities:
+  - repository (DB access)
+  - handler (IPC)
+  - UI (React)
+## Error Handling
+- ALL IPC handlers MUST use try/catch
+- ALWAYS return structured response:
+Example:
+{
+  success: true,
+  data: ...
+}
+or
+{
+  success: false,
+  error: "message"
+}
+## Async Rules
+- ALWAYS use async/await
+- NEVER use .then()
+## Naming
+- variables → camelCase
+- functions → camelCase
+- components → PascalCase
+- constants → UPPER_CASE
+## React Rules
+- Use functional components ONLY
+- Use hooks
+- NO class components
+## State Management
+- Prefer local state first
+- Avoid global state unless necessary
+## Code Quality
+- NO console.log in production code
+- Remove unused imports
+- Avoid duplicate logic (reuse functions)
+## Imports
+- Use absolute imports if possible
+- Keep import order clean:
+  1. external libs
+  2. shared
+  3. local files
+## Enforcement
+If code violates these rules:
+- You MUST refactor it to follow the rules
