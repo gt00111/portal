@@ -1,43 +1,41 @@
 // renderer/components/PdfPreview.jsx
 import { useState, useEffect } from "react";
 
+import PixoPdfDataUrlViewer from "./PixoPdfDataUrlViewer.jsx";
+
 export default function PdfPreview({ pdfFiles = [] }) {
   const [dataURLs, setDataURLs] = useState({});
 
   useEffect(() => {
     const loadPDFs = async () => {
-      const newDataURLs = {};
+      const next = {};
       for (const filePath of pdfFiles) {
-        if (!dataURLs[filePath]) {
-          try {
-            const result = await window.electronAPI.readFileAsDataURL(filePath);
-            if (result.success) {
-              newDataURLs[filePath] = result.dataURL;
-            }
-          } catch (error) {
-            console.error(`PDF読み込みエラー (${filePath}):`, error);
+        try {
+          const result = await window.electronAPI.readFileAsDataURL(filePath);
+          if (result.success && result.dataURL) {
+            next[filePath] = result.dataURL;
           }
-        } else {
-          newDataURLs[filePath] = dataURLs[filePath];
+        } catch {
+          /* 未取得のまま */
         }
       }
-      if (Object.keys(newDataURLs).length > 0) {
-        setDataURLs((prev) => ({ ...prev, ...newDataURLs }));
+      if (Object.keys(next).length > 0) {
+        setDataURLs((prev) => ({ ...prev, ...next }));
       }
     };
 
     if (pdfFiles.length > 0) {
-      loadPDFs();
+      void loadPDFs();
     }
   }, [pdfFiles]);
 
-  if (!pdfFiles.length) return null;
+  if (!pdfFiles.length) {
+    return null;
+  }
 
   return (
     <div style={{ marginTop: "30px" }}>
-      <h3 style={{ marginBottom: "20px", color: "black", textAlign: "center" }}>
-        ＜PDFプレビュー＞
-      </h3>
+      <h3 style={{ marginBottom: "20px", color: "var(--text-primary)", textAlign: "center" }}>＜PDFプレビュー＞</h3>
 
       <div
         style={{
@@ -53,11 +51,11 @@ export default function PdfPreview({ pdfFiles = [] }) {
 
           return (
             <div
-              key={index}
+              key={`${filePath}-${index}`}
               style={{
                 width: "300px",
                 textAlign: "center",
-                background: "#fff",
+                background: "var(--bg-secondary, #fff)",
                 padding: "10px",
                 borderRadius: "10px",
                 boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
@@ -66,7 +64,7 @@ export default function PdfPreview({ pdfFiles = [] }) {
               <div
                 style={{
                   marginBottom: "10px",
-                  color: "#333",
+                  color: "var(--text-primary, #333)",
                   fontSize: "14px",
                   fontWeight: "bold",
                   wordBreak: "break-word",
@@ -76,27 +74,20 @@ export default function PdfPreview({ pdfFiles = [] }) {
               </div>
 
               {dataURL ? (
-                <iframe
-                  src={dataURL}
-                  title={`PDF Preview ${index}`}
-                  style={{
-                    width: "100%",
-                    height: "400px",
-                    border: "1px solid #ccc",
-                    borderRadius: "10px",
-                  }}
-                />
+                <div style={{ width: "100%" }}>
+                  <PixoPdfDataUrlViewer dataUrl={dataURL} viewerMaxHeight="520px" />
+                </div>
               ) : (
                 <div
                   style={{
                     width: "100%",
                     height: "400px",
-                    border: "1px solid #ccc",
+                    border: "1px solid var(--border-color, #ccc)",
                     borderRadius: "10px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    color: "#999",
+                    color: "var(--text-secondary, #999)",
                   }}
                 >
                   読み込み中...

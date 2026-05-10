@@ -1,6 +1,6 @@
-// renderer/pages/PdfMergePage.jsx
+// renderer/pages/PdfMergePage.jsx — Acrobat 風ワークスペース
 import { useState } from "react";
-import MergeDropArea from "../components/MergeDropArea";
+import PdfMergeWorkspace from "../components/PdfMergeWorkspace.jsx";
 import SinglePdfPreview from "../components/SinglePdfPreview";
 import LoadingModal from "../components/LoadingModal";
 import { useToastContext } from "../contexts/ToastContext";
@@ -19,53 +19,50 @@ export default function PdfMergePage() {
       return;
     }
 
-    setIsLoading(true); // 🔵 ローディング表示開始
-
+    setIsLoading(true);
     try {
-    const filePaths = pdfFiles.map((file) => file.path);
-    const result = await window.electronAPI.mergePDFs(filePaths);
+      const filePaths = pdfFiles.map((file) => file.path);
+      const result = await window.electronAPI.mergePDFs(filePaths);
 
-    if (result.success && result.path) {
-      setConvertedImages([result.path]);
-      setIsConverted(true);
-      addToast("PDFの結合が完了しました", "success");
-    } else {
-      addToast("PDFの結合に失敗しました: " + (result.error || "不明なエラー"), "error");
+      if (result.success && result.path) {
+        setConvertedImages([result.path]);
+        setIsConverted(true);
+        addToast("PDFの結合が完了しました", "success");
+      } else {
+        addToast("PDFの結合に失敗しました: " + (result.error || "不明なエラー"), "error");
       }
-      } finally {
-      setIsLoading(false); // 🔴 ローディング非表示
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  
-
   const handleSave = async () => {
-  if (!convertedImages.length) {
-    addToast("保存対象がありません", "warning");
-    return;
-  }
+    if (!convertedImages.length) {
+      addToast("保存対象がありません", "warning");
+      return;
+    }
 
-  const result = await window.electronAPI.saveMergedPDF(); // 保存先パス取得
-  if (!result.success) {
-    addToast("保存がキャンセルされました", "warning");
-    return;
-  }
+    const result = await window.electronAPI.saveMergedPDF();
+    if (!result.success) {
+      addToast("保存がキャンセルされました", "warning");
+      return;
+    }
 
-  const sourcePath = convertedImages[0]; // 一時フォルダのPDFパス
-  const targetPath = result.filePath;
+    const sourcePath = convertedImages[0];
+    const targetPath = result.filePath;
 
-  const saveResult = await window.electronAPI.copyPDFFile(sourcePath, targetPath);
-  if (saveResult.success) {
-    addToast("PDFを保存しました！", "success");
-    resetPageState({
-      setFiles: setPdfFiles,
-      setConvertedFiles: setConvertedImages,
-      setIsConverted,
-    });
-  } else {
-    addToast("保存に失敗しました: " + saveResult.error, "error");
-  }
-};
+    const saveResult = await window.electronAPI.copyPDFFile(sourcePath, targetPath);
+    if (saveResult.success) {
+      addToast("PDFを保存しました！", "success");
+      resetPageState({
+        setFiles: setPdfFiles,
+        setConvertedFiles: setConvertedImages,
+        setIsConverted,
+      });
+    } else {
+      addToast("保存に失敗しました: " + saveResult.error, "error");
+    }
+  };
 
   const handleCancel = async () => {
     const result = await window.electronAPI.resetTempDirs();
@@ -82,25 +79,23 @@ export default function PdfMergePage() {
 
   return (
     <div>
-      <div className="page-title">
-        PDFファイル連結
+      <div className="page-title">PDF ファイル連結</div>
+      <div className="main-text" style={{ marginBottom: "0.75rem" }}>
+        複数の PDF を 1 つにまとめます。ドキュメントの並びがそのままページ順になります。
       </div>
 
-      <div className="main-text">
-        PDFファイルを連結して1PDFファイルに変換します。
-      </div>
-
-      <MergeDropArea
-        selectedFile={pdfFiles}
+      <PdfMergeWorkspace
+        pdfFiles={pdfFiles}
         onFileSelect={setPdfFiles}
         onConvert={handleConvert}
         onSave={handleSave}
         onCancel={handleCancel}
         isConverted={isConverted}
+        isLoading={isLoading}
       />
 
       {isConverted && convertedImages.length > 0 && (
-        <SinglePdfPreview filePath={convertedImages[0]} />
+        <SinglePdfPreview filePath={convertedImages[0]} heading="＜連結PDFプレビュー＞" />
       )}
 
       {isLoading && <LoadingModal />}

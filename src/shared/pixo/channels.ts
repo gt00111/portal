@@ -15,6 +15,7 @@ export const PIXO_CHANNELS = {
   deleteTempFile: "pixo-converter:deleteTempFile",
   readAsDataUrl: "pixo-converter:readAsDataUrl",
   getPdfPages: "pixo-converter:getPdfPages",
+  getPdfPageCount: "pixo-converter:getPdfPageCount",
   manipulatePage: "pixo-converter:manipulatePage",
   savePdfDialog: "pixo-converter:savePdfDialog",
   saveTempFile: "pixo-converter:saveTempFile",

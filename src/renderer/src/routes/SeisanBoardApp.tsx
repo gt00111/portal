@@ -23,7 +23,7 @@ interface Props {
 /** ポータル `/apps/seisan-board/*` 用のルートツリー（親のスプラット配下では相対 path のみ使う） */
 export function SeisanBoardApp({ session }: Props): JSX.Element {
   return (
-    <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-background text-foreground dark">
+    <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base text-fg-primary">
       <AuthProvider portalSession={session}>
         <Routes>
           <Route path="login" element={<LoginPage />} />

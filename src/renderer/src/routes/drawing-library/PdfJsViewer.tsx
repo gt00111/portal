@@ -105,7 +105,7 @@ export function PdfJsViewer({ dataUrl }: { dataUrl: string | null }): JSX.Elemen
     <div className="flex flex-col gap-2">
       {numPages > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs text-fg-muted">
+          <span className="text-xs text-fg-primary">
             {pageNum} / {numPages} ページ
           </span>
           <div className="flex gap-1">
@@ -180,7 +180,7 @@ export function PdfCardThumbnail({
     return (
       <div
         className={cn(
-          "flex h-full min-h-[4.5rem] w-full items-center justify-center rounded-lg border border-dashed border-border-subtle bg-bg-elevated/40 px-2 text-center text-xs text-fg-subtle",
+          "flex h-full min-h-[4.5rem] w-full items-center justify-center rounded-lg border border-dashed border-border-subtle bg-bg-elevated/40 px-2 text-center text-xs text-fg-primary",
           className
         )}
       >

@@ -34,7 +34,7 @@ export function AppSection({ app, onOpen }: Props): JSX.Element {
               )}
             </div>
             <h3 className="mb-1 text-2xl font-semibold text-fg-primary">{app.displayName}</h3>
-            <p className="text-sm leading-relaxed text-fg-muted">{app.description}</p>
+            <p className="break-words text-sm leading-relaxed text-fg-muted">{app.description}</p>
           </div>
           <div className="flex shrink-0">
             <Button variant="primary" size="lg" onClick={() => onOpen(app.id)}>

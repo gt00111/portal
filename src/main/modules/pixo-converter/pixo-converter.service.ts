@@ -469,6 +469,20 @@ export async function getPdfPages(filePath: string): Promise<
   }
 }
 
+/** サムネイル不要のとき用（連結 UI のページ数表示など） */
+export async function getPdfPageCount(filePath: string): Promise<
+  { success: true; pageCount: number } | { success: false; error: string }
+> {
+  try {
+    const pdfBytes = await readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    return { success: true, pageCount: pdfDoc.getPageCount() };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { success: false, error: message };
+  }
+}
+
 export interface ManipulatePdfInput {
   sourcePdfPath: string | null;
   targetPdfPath: string;

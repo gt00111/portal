@@ -1,4 +1,4 @@
-import { Download, FileText, FolderOpen, RefreshCw } from "lucide-react";
+import { Download, FileText, FolderOpen, HelpCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { AppRole } from "@shared/auth.js";
@@ -12,7 +12,16 @@ import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
 import { ObsoleteOverlay } from "@renderer/routes/drawing-library/ObsoleteOverlay.js";
+import {
+  DEFAULT_DRAWING_LIST_PAGE_SIZE,
+  DRAWING_LIST_PAGE_SIZES,
+  type DrawingListPageSize,
+} from "@renderer/routes/drawing-library/drawingListPageSize.js";
 import { PdfCardThumbnail } from "@renderer/routes/drawing-library/PdfJsViewer.js";
+import {
+  CUSTOMER_DRAWINGS_TAB_HELP,
+  DRAWING_LIBRARY_OVERVIEW,
+} from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
 
 interface Props {
   role: AppRole;
@@ -133,7 +142,7 @@ function CustomerDrawingCard({
     <button
       type="button"
       onClick={() => onOpenDetail(row)}
-      className="group relative flex w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-left shadow-sm transition hover:border-accent-secondary/50 hover:shadow-md"
+      className="group relative flex w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-left text-fg-primary shadow-sm transition hover:border-accent-secondary/50 hover:shadow-md"
     >
       <ObsoleteOverlay show={obsolete} />
       <div className="relative flex aspect-[4/3] w-full shrink-0 items-center justify-center overflow-hidden bg-bg-elevated/40">
@@ -146,14 +155,16 @@ function CustomerDrawingCard({
         )}
       </div>
       <div className="flex flex-col gap-1.5 p-3">
-        <p className="line-clamp-2 font-mono text-xs font-medium leading-snug">{customerDrawingCardPrimaryLabel(row)}</p>
-        <p className="line-clamp-2 font-mono text-[11px] text-fg-muted">{row.file_name}</p>
+        <p className="line-clamp-2 font-mono text-xs font-medium leading-snug text-fg-primary">
+          {customerDrawingCardPrimaryLabel(row)}
+        </p>
+        <p className="line-clamp-2 font-mono text-[11px] text-fg-primary">{row.file_name}</p>
         {row.project_no ? (
-          <p className="text-[11px] text-fg-subtle">案件 {row.project_no}</p>
+          <p className="text-[11px] text-fg-primary">案件 {row.project_no}</p>
         ) : null}
-        <p className="text-[11px] text-fg-subtle">更新 {row.updated_at}</p>
+        <p className="text-[11px] text-fg-muted">更新 {row.updated_at}</p>
         <label
-          className="mt-1 flex cursor-pointer items-center gap-2 text-xs text-fg-muted"
+          className="mt-1 flex cursor-pointer items-center gap-2 text-xs text-fg-primary"
           onClick={(e) => e.stopPropagation()}
         >
           <input
@@ -182,6 +193,8 @@ export function SeisanProvidedFilesTab({ role }: Props): JSX.Element {
   const [fcModel, setFcModel] = useState("");
   const [fcPart, setFcPart] = useState("");
   const [sortId, setSortId] = useState("updated_at|desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<DrawingListPageSize>(DEFAULT_DRAWING_LIST_PAGE_SIZE);
 
   const [detailContext, setDetailContext] = useState<{
     projectId: string;
@@ -190,6 +203,7 @@ export function SeisanProvidedFilesTab({ role }: Props): JSX.Element {
   } | null>(null);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -271,6 +285,21 @@ export function SeisanProvidedFilesTab({ role }: Props): JSX.Element {
     return sortSeisanRows(list, sortId);
   }, [rows, fcCompany, fcModel, fcPart, query, sortId]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
+
+  useEffect(() => {
+    setPage((p) => Math.min(p, totalPages));
+  }, [totalPages]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, fcCompany, fcModel, fcPart, sortId, pageSize]);
+
   async function handleOpen(id: string): Promise<void> {
     try {
       await invoke<void>(SEISAN_CHANNELS.file.open, { id });
@@ -324,14 +353,22 @@ export function SeisanProvidedFilesTab({ role }: Props): JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-fg-muted">
-          顧客図面は生産ボードの「提供ファイル」と同一です。カードを開くと案件に登録された全ファイルをダウンロードできます。
-        </p>
+        <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+          <HelpCircle size={16} aria-hidden />
+          ヘルプ
+        </Button>
         <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           更新
         </Button>
       </div>
+
+      <Modal open={helpOpen} title="図面ライブラリ（顧客図面）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
+        <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
+          <p>{DRAWING_LIBRARY_OVERVIEW}</p>
+          <p>{CUSTOMER_DRAWINGS_TAB_HELP}</p>
+        </div>
+      </Modal>
 
       <input
         type="search"
@@ -419,29 +456,79 @@ export function SeisanProvidedFilesTab({ role }: Props): JSX.Element {
           {rows.length === 0 ? "提供ファイルがありません。" : "条件に一致する行がありません。"}
         </p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((r) => (
-            <CustomerDrawingCard
-              key={r.id}
-              row={r}
-              writable={writable}
-              onOpenDetail={openDetail}
-              onToggleObsolete={(id, next) => void toggleObsolete(id, next)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {paginatedRows.map((r) => (
+              <CustomerDrawingCard
+                key={r.id}
+                row={r}
+                writable={writable}
+                onOpenDetail={openDetail}
+                onToggleObsolete={(id, next) => void toggleObsolete(id, next)}
+              />
+            ))}
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm text-fg-muted">
+              {filtered.length} 件中 {page}/{totalPages} ページ
+            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-fg-muted">
+                <span className="whitespace-nowrap">表示件数</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (v === 20 || v === 50 || v === 100) {
+                      setPageSize(v);
+                    }
+                  }}
+                  className="h-9 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg-primary"
+                >
+                  {DRAWING_LIST_PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n} 件
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  前へ
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  次へ
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {detailContext && (
         <Modal open title="案件の提供ファイル" onClose={closeDetail} width="full">
           <div className="relative flex min-h-[50vh] flex-col gap-5">
-            <div className="border-b border-border-subtle pb-4 text-sm">
-              <p className="text-base font-semibold">{detailContext.meta.project_name ?? "無題の案件"}</p>
-              <p className="mt-1 text-xs text-fg-muted">
+            <div className="border-b border-border-subtle pb-4 text-sm text-fg-primary">
+              <p className="text-base font-semibold text-fg-primary">
+                {detailContext.meta.project_name ?? "無題の案件"}
+              </p>
+              <p className="mt-1 text-xs text-fg-primary">
                 案件 {detailContext.meta.project_no ?? "—"} ・ {detailContext.meta.company_id ?? "—"} ・ Rev.{" "}
                 {detailContext.meta.revision ?? "—"}
               </p>
-              <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-fg-muted">
+              <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-fg-primary">
                 <input
                   type="checkbox"
                   checked={detailAnyObsolete}
@@ -471,8 +558,8 @@ export function SeisanProvidedFilesTab({ role }: Props): JSX.Element {
                       <ObsoleteOverlay show={obs} />
                       <div className="relative z-[1] flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
                         <div className="min-w-0 flex-1">
-                          <p className="font-mono text-sm font-medium">{f.file_name}</p>
-                          <p className="text-[11px] text-fg-subtle">
+                          <p className="font-mono text-sm font-medium text-fg-primary">{f.file_name}</p>
+                          <p className="text-[11px] text-fg-muted">
                             更新 {f.updated_at} {obs ? "・旧図面" : ""}
                           </p>
                         </div>
@@ -485,7 +572,7 @@ export function SeisanProvidedFilesTab({ role }: Props): JSX.Element {
                             <Download size={14} />
                             保存
                           </Button>
-                          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-fg-muted">
+                          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-fg-primary">
                             <input
                               type="checkbox"
                               checked={obs}

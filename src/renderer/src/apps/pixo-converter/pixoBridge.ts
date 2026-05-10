@@ -30,6 +30,9 @@ export type PixoElectronApi = {
     pages?: { index: number; number: number; thumbnail: unknown }[];
     error?: string;
   }>;
+  getPdfPageCount: (filePath: string) => Promise<
+    { success: true; pageCount: number } | { success: false; error: string }
+  >;
   manipulatePdfPage: (params: Record<string, unknown>) => Promise<{
     success: boolean;
     outputPath?: string;
@@ -77,6 +80,11 @@ export const pixoElectronApi: PixoElectronApi = {
   readFileAsDataURL: (filePath) => inv(PIXO_CHANNELS.readAsDataUrl, filePath),
   selectPDFFiles: () => inv<string[]>(PIXO_CHANNELS.openPdf),
   getPdfPages: (filePath) => inv(PIXO_CHANNELS.getPdfPages, filePath),
+  getPdfPageCount: (filePath) =>
+    inv<{ success: true; pageCount: number } | { success: false; error: string }>(
+      PIXO_CHANNELS.getPdfPageCount,
+      filePath,
+    ),
   manipulatePdfPage: (params) => inv(PIXO_CHANNELS.manipulatePage, params),
   savePDF: () => inv(PIXO_CHANNELS.savePdfDialog),
   saveTempFile: (params) => inv(PIXO_CHANNELS.saveTempFile, params),

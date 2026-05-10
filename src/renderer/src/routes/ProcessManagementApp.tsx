@@ -1,4 +1,11 @@
-import { ClipboardList, ClipboardPenLine, LayoutGrid, User } from "lucide-react";
+import {
+  ClipboardList,
+  ClipboardPenLine,
+  ExternalLink,
+  HelpCircle,
+  LayoutGrid,
+  User,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { AppRole } from "@shared/auth.js";
@@ -11,8 +18,26 @@ import { PROJECT_STATUS_LABELS } from "@shared/seisan/status.js";
 import type { SessionUser } from "@shared/types.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
+import { Modal } from "@renderer/components/ui/Modal.js";
 import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
+import {
+  BOARD_HELP_ACTIVE_HISTORY_HINT,
+  BOARD_HELP_HISTORY,
+  BOARD_HELP_OVERVIEW,
+  BOARD_HELP_PROGRESS,
+  BOARD_HELP_UNDO_ADMIN,
+  BOARD_HELP_UNDO_VIEWER,
+  BOARD_HELP_VIEW_ACTIVE_TEMPLATE,
+  BOARD_PAGE_TAGLINE,
+  HELP_DB_PATH_LABEL,
+  HELP_DB_STORAGE_NOTE,
+  MY_TASKS_HELP_CASE_VIEW,
+  MY_TASKS_HELP_COMPLETE_MISTAKE_VIEWER,
+  MY_TASKS_HELP_INPUT,
+  MY_TASKS_HELP_SCOPE_TEMPLATE,
+  MY_TASKS_PAGE_TAGLINE,
+} from "@renderer/routes/process-management/processManagementHelpCopy.js";
 
 const ROLE_LABELS: Record<AppRole, string> = {
   admin: "管理者",
@@ -211,18 +236,56 @@ function dashIfEmpty(s: string | null | undefined): string {
   return t.length > 0 ? t : "—";
 }
 
+/** 一覧セルに表示するプレビュー文字数（クリックでモーダル全文） */
+const BOARD_PROGRESS_NOTE_PREVIEW_CHARS = 15;
+
+function boardProgressNotePreviewLabel(text: string): { preview: string; truncated: boolean } {
+  const max = BOARD_PROGRESS_NOTE_PREVIEW_CHARS;
+  if (text.length <= max) return { preview: text, truncated: false };
+  return { preview: `${text.slice(0, max)}…`, truncated: true };
+}
+
 function BoardProgressCell({ task }: { task: PmBoardTask }): JSX.Element {
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
   const text = task.progressNote.trim();
+
   if (text.length > 0) {
+    const { preview, truncated } = boardProgressNotePreviewLabel(text);
+
     return (
-      <div
-        className="min-w-[11rem] max-w-[24rem] rounded-lg border border-accent-secondary/35 bg-accent-secondary/8 px-3 py-2 text-sm leading-relaxed text-fg-primary shadow-sm [box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.04)]"
-        title="担当者がマイタスクで申告した進捗（全員が閲覧可能）"
-      >
-        <p className="whitespace-pre-wrap break-words">{text}</p>
-      </div>
+      <>
+        <button
+          type="button"
+          onClick={() => setNoteModalOpen(true)}
+          className={cn(
+            "min-w-0 max-w-[14rem] rounded-lg border border-accent-secondary/45 bg-accent-secondary/10 px-2.5 py-2 text-left text-sm leading-snug text-fg-primary shadow-sm transition-colors",
+            "hover:border-accent-secondary/70 hover:bg-accent-secondary/16 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary/50",
+            "[box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.04)]"
+          )}
+          title="クリックで全文を表示"
+        >
+          <span className="block break-all">{preview}</span>
+          {truncated ? (
+            <span className="mt-1.5 block text-[0.7rem] font-semibold text-accent-secondary">クリックで全文</span>
+          ) : null}
+        </button>
+        <Modal
+          open={noteModalOpen}
+          title="進捗メモ（共有）"
+          onClose={() => setNoteModalOpen(false)}
+          width="lg"
+        >
+          <div className="max-h-[min(70vh,32rem)] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed text-fg-primary">
+            {text}
+          </div>
+          <p className="mt-4 border-t border-border-subtle pt-3 text-xs text-fg-muted">
+            担当者がマイタスクで申告した進捗メモです（全員が閲覧可能）。
+          </p>
+        </Modal>
+      </>
     );
   }
+
   return (
     <div
       className="min-w-[11rem] max-w-[24rem] rounded-lg border border-dashed border-fg-muted/35 bg-bg-elevated/40 px-3 py-2 text-center text-xs leading-relaxed text-fg-muted"
@@ -574,6 +637,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
   const canOperatePmTasks = canOperateProcessMgmtTasks(session.role);
   const [tab, setTab] = useState<TabId>("board");
   const [statusPath, setStatusPath] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const [boardMode, setBoardMode] = useState<"active" | "history">("active");
@@ -947,11 +1011,6 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
 
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <div className="mx-3 w-auto max-w-none py-2 sm:mx-10 sm:py-3">
-          {statusPath && (
-            <p className="mb-3 text-xs text-fg-subtle">
-              工程 DB: <span className="font-mono text-fg-muted">{statusPath}</span>
-            </p>
-          )}
           {message && (
             <div className="mb-4 rounded-lg border border-state-danger/40 bg-state-danger/10 p-3 text-sm text-state-danger">
               {message}
@@ -960,24 +1019,13 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
 
           {tab === "board" && (
             <section className="space-y-3">
-              <p className="text-sm text-fg-muted">
-                <span className="font-medium text-fg-primary">全体俯瞰</span>
-                ：案件の正は生産ボードです。こちらは全員が同じ一覧で工程状況を確認します（担当者による一覧の絞り込みはしません）。
-                <span className="mt-1 block text-fg-subtle">
-                  担当者がマイタスクで入力した
-                  <span className="font-medium text-fg-primary">進捗（0〜100％のスライダー）</span> と{" "}
-                  <span className="font-medium text-fg-primary">進捗メモ</span>
-                  は下表で全員が閲覧でき、メモ未記入の行は区別して表示されます。
-                  案件列の「案件内容」から生産ボードの案件詳細を閲覧だけできます。
-                </span>
-                表示モードは{" "}
-                <span className="text-fg-primary">{PROCESS_VIEW_LABELS[session.processView]}</span>{" "}
-                に連動します（アクティブ一覧のみ）。
-                <span className="mt-1 block text-fg-subtle">
-                  <span className="font-medium text-fg-primary">履歴</span>
-                  では SolidWorks / CADMAC / 両方を切り替えて、完了タスクだけを確認できます。
-                </span>
-              </p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="max-w-3xl text-sm leading-relaxed text-fg-muted">{BOARD_PAGE_TAGLINE}</p>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+                  <HelpCircle size={16} aria-hidden />
+                  ヘルプ
+                </Button>
+              </div>
               <div className="flex flex-wrap items-end gap-3">
                 <div>
                   <label className="mb-1 block text-xs text-fg-subtle">表示</label>
@@ -1024,20 +1072,6 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                     </div>
                   </div>
                 )}
-                <p className="max-w-md text-xs text-fg-subtle">
-                  アクティブ＝完了以外（工程の絞り込みは上記アカウント設定どおり）。履歴＝完了のみ。CADMAC はアクティブ時
-                  SolidWorks 完了条件どおりゲートされます。
-                  {!adminUser && (
-                    <span className="mt-1 block">
-                      誤って完了した場合は管理者へ報告し、管理者が履歴から「完了取り消し」を行います。
-                    </span>
-                  )}
-                  {adminUser && (
-                    <span className="mt-1 block">
-                      管理者は履歴の「完了取り消し」で担当からの報告を記録したうえ、作業中に戻せます。
-                    </span>
-                  )}
-                </p>
                 <div className="min-w-[8rem]">
                   <label className="mb-1 block text-xs text-fg-subtle">客先</label>
                   <select
@@ -1229,11 +1263,16 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                           {t.seisanProjectId ? (
                             <Button
                               type="button"
-                              variant="ghost"
+                              variant="secondary"
                               size="sm"
-                              className="mt-1 h-7 px-2 text-xs text-accent-secondary hover:text-accent-secondary"
+                              title="生産ボードの案件詳細を閲覧（表示のみ）"
+                              className={cn(
+                                "mt-1.5 h-8 gap-1.5 border border-accent-secondary/45 bg-accent-secondary/12 px-3 text-xs font-semibold text-accent-secondary shadow-sm",
+                                "hover:border-accent-secondary/75 hover:bg-accent-secondary/22 hover:text-accent-secondary"
+                              )}
                               onClick={() => void openCaseDetailReadOnly(t.seisanProjectId)}
                             >
+                              <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
                               案件内容
                             </Button>
                           ) : null}
@@ -1354,17 +1393,13 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
 
           {tab === "mytasks" && (
             <section className="space-y-3">
-              <p className="text-sm text-fg-muted">
-                <span className="font-medium text-fg-primary">マイタスク</span>
-                ：ログイン「{session.username}」が担当の未完了タスクです。{" "}
-                <span className="text-fg-primary">スライダーで進捗％、テキストで進捗メモ</span>を申告できます（保存はまとめて実行）。メモ・％の更新は担当者または管理者のみです。
-                生産ボード連携タスクは「案件内容（閲覧）」から案件の詳細を表示だけできます。
-                {!isAdmin(session.role) && (
-                  <span className="mt-1 block">
-                    誤って工程を完了した場合は管理者へ報告し、履歴から戻してもらってください。
-                  </span>
-                )}
-              </p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="max-w-3xl text-sm leading-relaxed text-fg-muted">{MY_TASKS_PAGE_TAGLINE}</p>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+                  <HelpCircle size={16} aria-hidden />
+                  ヘルプ
+                </Button>
+              </div>
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -1401,6 +1436,41 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
           )}
         </div>
       </main>
+      <Modal
+        open={helpOpen}
+        title={tab === "board" ? "工程管理（ボード）のヘルプ" : "工程管理（マイタスク）のヘルプ"}
+        onClose={() => setHelpOpen(false)}
+        width="lg"
+      >
+        <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
+          {statusPath ? (
+            <div>
+              <p>{HELP_DB_STORAGE_NOTE}</p>
+              <p className="mt-2 text-xs font-medium text-fg-muted">{HELP_DB_PATH_LABEL}</p>
+              <p className="mt-1 break-all font-mono text-xs text-fg-muted">{statusPath}</p>
+            </div>
+          ) : (
+            <p>{HELP_DB_STORAGE_NOTE}</p>
+          )}
+          {tab === "board" ? (
+            <>
+              <p>{BOARD_HELP_OVERVIEW}</p>
+              <p>{BOARD_HELP_PROGRESS}</p>
+              <p>{BOARD_HELP_VIEW_ACTIVE_TEMPLATE(PROCESS_VIEW_LABELS[session.processView])}</p>
+              <p>{BOARD_HELP_HISTORY}</p>
+              <p className="text-xs text-fg-muted">{BOARD_HELP_ACTIVE_HISTORY_HINT}</p>
+              <p className="text-xs text-fg-muted">{adminUser ? BOARD_HELP_UNDO_ADMIN : BOARD_HELP_UNDO_VIEWER}</p>
+            </>
+          ) : (
+            <>
+              <p>{MY_TASKS_HELP_SCOPE_TEMPLATE(session.username)}</p>
+              <p>{MY_TASKS_HELP_INPUT}</p>
+              <p>{MY_TASKS_HELP_CASE_VIEW}</p>
+              {!adminUser && <p className="text-xs text-fg-muted">{MY_TASKS_HELP_COMPLETE_MISTAKE_VIEWER}</p>}
+            </>
+          )}
+        </div>
+      </Modal>
       <UndoCompleteDialog
         task={undoTarget}
         reason={undoReason}

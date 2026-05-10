@@ -1,4 +1,4 @@
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Image as ImageIcon, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { SettingsSnapshot } from "@shared/types.js";
@@ -18,11 +18,13 @@ export function AdminSettings({ settings, onUpdated }: Props): JSX.Element {
   const toast = useToast();
   const [companyName, setCompanyName] = useState(settings.company.companyName);
   const [mottos, setMottos] = useState<string[]>(settings.company.mottos);
+  const [heroBgPath, setHeroBgPath] = useState<string | null>(settings.company.homeHeroBackgroundPath);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setCompanyName(settings.company.companyName);
     setMottos(settings.company.mottos);
+    setHeroBgPath(settings.company.homeHeroBackgroundPath);
   }, [settings]);
 
   function setMotto(index: number, value: string): void {
@@ -41,6 +43,7 @@ export function AdminSettings({ settings, onUpdated }: Props): JSX.Element {
       await invoke<SettingsSnapshot>("settings:updateCompanyInfo", {
         companyName,
         mottos: mottos.map((m) => m.trim()).filter((m) => m.length > 0),
+        homeHeroBackgroundPath: heroBgPath,
       });
       await onUpdated();
       toast.push("success", "会社情報を保存しました。");
@@ -48,6 +51,15 @@ export function AdminSettings({ settings, onUpdated }: Props): JSX.Element {
       toast.push("error", err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function pickHeroBg(): Promise<void> {
+    try {
+      const res = await invoke<{ path: string | null }>("settings:pickHomeLpImage");
+      if (res.path) setHeroBgPath(res.path);
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -66,7 +78,7 @@ export function AdminSettings({ settings, onUpdated }: Props): JSX.Element {
       <header>
         <h1 className="text-2xl font-semibold">設定</h1>
         <p className="text-sm text-fg-muted">
-          ポータルのトップに表示される会社名・モットー、および接続中のデータベースを管理します。
+          ポータルのトップに表示される会社名・モットー・ヒーロー背景画像、および接続中のデータベースを管理します。
         </p>
       </header>
 
@@ -101,6 +113,33 @@ export function AdminSettings({ settings, onUpdated }: Props): JSX.Element {
               モットーを追加
             </Button>
           </div>
+          <div className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <ImageIcon size={18} className="shrink-0 text-accent-secondary" aria-hidden />
+              <span className="text-sm font-medium text-fg-primary">ヒーロー背景（会社名エリア）</span>
+            </div>
+            <p className="text-xs text-fg-muted">
+              未設定のときはコード既定またはグラデーションのみです。PNG / JPG / WebP など。モットーのカルーセルには画像は付きません。
+            </p>
+            <p className="break-all rounded-md border border-border-subtle bg-bg-surface px-3 py-2 font-mono text-xs text-fg-muted">
+              {heroBgPath ?? "（未設定）"}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={() => void pickHeroBg()}>
+                ファイルを選択
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!heroBgPath}
+                onClick={() => setHeroBgPath(null)}
+              >
+                クリア
+              </Button>
+            </div>
+          </div>
+
           <div className="flex justify-end">
             <Button variant="primary" onClick={save} disabled={saving}>
               <Save size={16} />

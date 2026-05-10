@@ -94,7 +94,7 @@
 - [x] `src/renderer/src/lib/cn.ts`
 - [x] `src/renderer/src/routes/Bootstrap.tsx`（DB 新規作成 / 既存選択 / 前回パス表示）
 - [x] `src/renderer/src/routes/Login.tsx`（ログイン + DB 切替リンク）
-- [x] `src/renderer/src/routes/Home.tsx`（LP 風 Hero + 6 アプリセクション + フッタ）
+- [x] `src/renderer/src/routes/Home.tsx`（LP 風 Hero + **4 セクションのアプリ一覧** + フッタ）
 - [x] `src/renderer/src/routes/NotFound.tsx`
 - [x] `src/renderer/src/components/Navbar.tsx`（会社名 + アンカー scrollIntoView + ログアウト）
 - [x] `src/renderer/src/components/HeroCarousel.tsx`（3 モットーを framer-motion で rotateY 切替）
@@ -166,6 +166,7 @@
 ### 2-D. 設定画面
 - [x] DB パス変更（設定画面から既存選択 / 新規作成）
 - [x] 会社名・モットー複数件の編集（`app_settings`）
+- [x] **ヒーロー背景画像**（ローカルファイルを選択しパスを DB 保存・ホームで `file:` URL 反映）。**カルーセル用背景は実装しない**（後から削除済み）
 - [ ] ロゴ画像（任意）
 
 ### 2-E. ランチャー本実装
@@ -281,6 +282,45 @@
 
 ---
 
+## 直近の改善・修正（UI / ホーム / 図面ライブラリ / Pixo）
+
+チェックが付いた項目は実装済み。詳細はコミット・`README.md`・本書の変更履歴を参照。
+
+### ポータルホーム・アプリカタログ
+- [x] `APP_CATALOG` に `section` を追加し、ホームを **4 セクション**（ポータル内アプリ共有データベース／事務サポート／進捗確認／お助けアプリ）で表示（`Home.tsx`・`types.ts`・`constants.ts`）
+- [x] 各アプリの説明文を長文化（`constants.ts` の `PORTAL_APP_SECTION_*`）
+- [x] `README.md` に **保存ファイルのディレクトリ階層** を追記（中央 DB・隣接 DB・図面・精算添付・Pixo temp 等）
+
+### 内蔵アプリのテーマ（事務向けライト）
+- [x] 生産ボード・図面ライブラリ・工程管理を `.portal-app-calm-shell` で **ライトテーマ**（ポータルホームのダークは維持）
+- [x] 前景トークンを **ほぼ黒** に調整（長時間閲覧・白カード上の可読性）
+- [x] 共有 `Button` の primary を **`text-white`** に変更（青ボタン上の文字がライト背景変数と干渉しないよう）
+
+### 図面ライブラリ（視認性・一覧ページネーション）
+- [x] 顧客図面タブ：カード／モーダル／詳細で薄い文字を **`text-fg-primary` 等に修正**（`<button>` 内継承・Modal 見出し・`<dd>` 値）
+- [x] 共有 `Modal` のパネル・`h2` に **`text-fg-primary`**（図面以外のモーダルもトークンに追随）
+- [x] **顧客図面・自社発行**の一覧に **ページネーション**（表示件数 **20 / 50 / 100**、前へ／次へ）。共通定数 `renderer/.../drawingListPageSize.ts`。顧客はフィルタ後配列をクライアント分割、自社は既存 `drawing:list` の `limit`/`offset`
+
+### PixoConverter（作業用 temp）
+- [x] **`will-quit`** で `portal-pixo-converter/temp` の `uploadimages`・`outputimages` を空にする（`cleanupTempDirs`・`src/main/index.ts`）
+- [x] `README.md` に終了時クリアの注記
+
+### 図面ライブラリ（ヘルプ）
+- [x] 顧客図面／自社発行／PDF 比較タブの**説明文を削除**し、**ヘルプボタン＋モーダル**で文言を表示（`drawingLibraryHelpCopy.ts`、`SeisanProvidedFilesTab.tsx`、`DrawingDbTab.tsx`、`PdfCompareBonusTab.tsx`、`DrawingLibraryApp.tsx`）
+
+### 工程管理（ヘルプ・ボード UI）
+- [x] ボード／マイタスクの長い説明・DB パスを撤去し、**ヘルプモーダル**に集約（`processManagementHelpCopy.ts`、`ProcessManagementApp.tsx`）。画面上は短いタグラインのみ
+- [x] ボード「**案件内容**」を secondary＋`ExternalLink` で強調。**進捗（共有）**は先頭 **約15文字**表示し**クリックでモーダル全文**（一覧はアクティブ／履歴共通）
+- [x] 案件内容モーダルは閲覧のみ（優先度は表示のみ・入力欄なし）
+
+### ポータルホーム（LP・ヒーロー背景）
+- [x] constants の **`HOME_LP_BACKGROUNDS.hero`** と、**設定で選んだヒーロー画像**を統合（未設定時は constants／グラデのみ）
+- [x] メイン **`settings.handler`** で画像パスを保存・**存在時のみ `pathToFileURL`**（`normalize`）。**`settings:pickHomeLpImage`**。**レンダラー CSP** で **`img-src` に `file:`** を許可（`index.html`）。**`portalWebPreferences.ts`** に **`webSecurity: false`**（ローカル背景表示用）
+- [x] **カルーセル背景画像**は要件から外し設定・型・保存キーを削除
+- [x] **レイアウト**: ナビ下〜アプリ一覧ボタンまで **1 セクションで背景を全面表示**。会社名・モットーは **`w-fit` の半透明パネル**（backdrop-blur）。**HeroCarousel** は `inline-flex`・**縦 `min-h` 削除**・ドット上マージン縮小・パネル `py` 縮小で**縦方向のオーバーレイを文字に寄せる**
+
+---
+
 ## 変更履歴
 
 | 日付 | 内容 |
@@ -309,3 +349,5 @@
 | 2026-05-09 | **PixoConverter 計画変更**: 最終形を**内蔵**に変更（外部起動からの移行タスクを §3-E「将来」に記載。実装は未着手）。 |
 | 2026-05-09 | **生産ボード（内蔵）**: CSV インポートにフォーマット説明・**CSV テンプレ DL**・**リビジョン**列（任意・旧 CSV 互換）・エクスポートのリビジョン列。設定の **Excel テンプレ**は `resources/format.xlsx` を同梱して DL、記入注意を更新。**PixoConverter（単体）**: PDF 連結／ページ編集の Acrobat 風 UI と `PdfReplacePage` 不具合修正。 |
 | 2026-05-09 | **スタンドアロンアプリ 5 フォルダをリポジトリから削除**: `drawing-libraly` / `master-database` / `seisan-board` / `Process management` / `Process management desktop`（機能は `portal` 内蔵に集約済み）。`drawingCompare`・CSV フォーマット DL のフォールバックパス・ドキュメント索引を追随。 |
+| 2026-05-09 | **ホーム LP**: アプリ一覧を 4 セクション化・説明文拡充（`APP_CATALOG`・`AppDescriptor.section`）。**事務向けライトテーマ**（生産ボード・図面ライブラリ・工程管理の `.portal-app-calm-shell`）・文字色調整・共有 `Button` primary。**図面ライブラリ**の薄字修正・**顧客／自社の一覧ページネーション（20/50/100）**。**Pixo** temp 終了時クリア。**README** 保存階層・Pixo 注記。詳細は本書「直近の改善・修正」を参照。 |
+| 2026-05-09 | **図面ライブラリ**: 説明文をヘルプモーダル化。**工程管理**: 説明をヘルプ化・ボードの案件内容／進捗メモ UI 改善。**ホーム**: ヒーロー背景を設定＋constants で指定可能（`file:`・CSP・`webSecurity`）、カルーセル背景は撤去、LP セクション全面背景＋`w-fit` パネル・カルーセル縦オーバーレイ縮小。詳細は本書「直近の改善・修正」。 |

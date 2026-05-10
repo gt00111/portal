@@ -149,6 +149,15 @@ export function register(ipcMain: IpcMain): void {
     }
   });
 
+  ipcMain.handle(PIXO_CHANNELS.getPdfPageCount, async (_e, filePath: string) => {
+    try {
+      assertLoggedIn();
+      return ok(await pixo.getPdfPageCount(filePath));
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
   ipcMain.handle(PIXO_CHANNELS.manipulatePage, async (_e, input: pixo.ManipulatePdfInput) => {
     try {
       assertLoggedIn();

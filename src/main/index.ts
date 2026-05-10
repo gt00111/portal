@@ -2,13 +2,25 @@ import { app, BrowserWindow, ipcMain } from "electron";
 
 import { closeDatabase } from "./db/connection.js";
 import { loadModules } from "./modules/loader.js";
-import { ensurePixoTempOnStartup } from "./modules/pixo-converter/pixo-converter.service.js";
+import {
+  cleanupTempDirs,
+  ensurePixoTempOnStartup,
+} from "./modules/pixo-converter/pixo-converter.service.js";
 import { closeAllChildWindows } from "./modules/launcher/childWindow.js";
 import { createPortalWindow, getPortalWindow } from "./window.js";
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
+
+/** Pixo 作業用 temp（uploadimages / outputimages）を終了時に空にし、ディスク枯渇を防ぐ */
+app.on("will-quit", () => {
+  try {
+    cleanupTempDirs();
+  } catch {
+    /* 終了処理を阻害しない */
+  }
+});
 
 app.on("second-instance", () => {
   const wins = BrowserWindow.getAllWindows();

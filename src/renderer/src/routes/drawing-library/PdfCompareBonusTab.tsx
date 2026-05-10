@@ -1,11 +1,17 @@
-import { Download } from "lucide-react";
+import { Download, HelpCircle } from "lucide-react";
 import { useState } from "react";
 
 import type { CompareDrawingsResult } from "@shared/drawingLibrary.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
+import { Modal } from "@renderer/components/ui/Modal.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
+import {
+  DRAWING_LIBRARY_OVERVIEW,
+  PDF_COMPARE_TAB_HELP_NOTE,
+  PDF_COMPARE_TAB_HELP_PRIMARY,
+} from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
 
 /** おまけ: 外部 PDF 2 件を compare_drawings で差分表示 */
 export function PdfCompareBonusTab(): JSX.Element {
@@ -15,6 +21,7 @@ export function PdfCompareBonusTab(): JSX.Element {
   const [comparePage, setComparePage] = useState("");
   const [compareRunning, setCompareRunning] = useState(false);
   const [compareOutput, setCompareOutput] = useState<CompareDrawingsResult | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   async function pickCompareFile(which: "a" | "b"): Promise<void> {
     try {
@@ -72,17 +79,21 @@ export function PdfCompareBonusTab(): JSX.Element {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-fg-muted">
-        補助機能です。登録図面 DB に依存せず、ローカルの PDF を2つ選んで比較します（compare_drawings.exe または Python
-        スクリプト）。
-      </p>
-      <p className="text-xs text-fg-subtle">
-        初回のみ: 社内配布用に <strong className="font-medium text-fg-muted">compare_drawings.exe</strong> を使う場合は、
-        <code className="rounded bg-bg-elevated px-1">resources/tools/</code> に配置するか、環境変数{" "}
-        <code className="rounded bg-bg-elevated px-1">DRAWING_COMPARE_EXE</code> で指定してください（詳細は同フォルダの
-        README）。Python 利用時は Poppler を{" "}
-        <code className="rounded bg-bg-elevated px-1">POPPLER_PATH</code> で指定できます。
-      </p>
+      <div className="flex justify-start">
+        <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+          <HelpCircle size={16} aria-hidden />
+          ヘルプ
+        </Button>
+      </div>
+
+      <Modal open={helpOpen} title="図面ライブラリ（PDF比較）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
+        <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
+          <p>{DRAWING_LIBRARY_OVERVIEW}</p>
+          <p>{PDF_COMPARE_TAB_HELP_PRIMARY}</p>
+          <p className="text-xs text-fg-muted">{PDF_COMPARE_TAB_HELP_NOTE}</p>
+        </div>
+      </Modal>
+
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-2 rounded-lg border border-border-subtle p-3">
           <span className="text-xs font-medium text-fg-muted">比較元（A）</span>

@@ -76,11 +76,6 @@ export function DrawingLibraryApp({ session }: Props): JSX.Element {
 
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <div className="mx-auto max-w-6xl px-4 py-6">
-          <p className="mb-4 text-sm text-fg-muted">
-            顧客図面は生産ボードの提供ファイルと同一です。自社発行は drawing-library.db に保存します。PDF
-            比較は補助機能です。
-          </p>
-
           {tab === "seisan" && <SeisanProvidedFilesTab role={session.role} />}
           {tab === "workDb" && <DrawingDbTab role={session.role} />}
           {tab === "pdfCompare" && <PdfCompareBonusTab />}

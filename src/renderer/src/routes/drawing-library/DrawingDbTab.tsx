@@ -1,4 +1,4 @@
-import { Download, FileText, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Download, FileText, HelpCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { AppRole } from "@shared/auth.js";
@@ -23,6 +23,15 @@ import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
 import { ObsoleteOverlay } from "@renderer/routes/drawing-library/ObsoleteOverlay.js";
+import {
+  DEFAULT_DRAWING_LIST_PAGE_SIZE,
+  DRAWING_LIST_PAGE_SIZES,
+  type DrawingListPageSize,
+} from "@renderer/routes/drawing-library/drawingListPageSize.js";
+import {
+  DRAWING_LIBRARY_OVERVIEW,
+  WORK_DRAWINGS_TAB_HELP,
+} from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
 import { PdfCardThumbnail, PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
 
 interface Props {
@@ -130,7 +139,7 @@ function WorkDrawingCard({
       type="button"
       onClick={() => onOpen(row)}
       className={cn(
-        "group relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-left shadow-sm transition hover:border-accent-primary/40 hover:shadow-md"
+        "group relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-left text-fg-primary shadow-sm transition hover:border-accent-primary/40 hover:shadow-md"
       )}
     >
       <ObsoleteOverlay show={obsolete} />
@@ -145,15 +154,17 @@ function WorkDrawingCard({
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex flex-col gap-1.5 px-3 pt-3">
-          <p className="line-clamp-2 text-sm font-semibold leading-snug">{workDrawingCardPrimaryLabel(row)}</p>
-          <p className="line-clamp-2 font-mono text-[11px] text-fg-muted">
+          <p className="line-clamp-2 text-sm font-semibold leading-snug text-fg-primary">
+            {workDrawingCardPrimaryLabel(row)}
+          </p>
+          <p className="line-clamp-2 font-mono text-[11px] text-fg-primary">
             {fileBasenameFromPath(row.file_path) || "—"}
           </p>
-          <p className="text-[11px] text-fg-subtle">更新 {row.updated_at}</p>
+          <p className="text-[11px] text-fg-muted">更新 {row.updated_at}</p>
         </div>
         <div className="mt-auto flex w-full min-w-0 items-center justify-between gap-2 border-t border-border-subtle/60 px-3 pb-3 pt-2">
           <label
-            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-xs text-fg-muted"
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-xs text-fg-primary"
             onClick={(e) => e.stopPropagation()}
           >
             <input
@@ -196,7 +207,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const pageSize = 30;
+  const [pageSize, setPageSize] = useState<DrawingListPageSize>(DEFAULT_DRAWING_LIST_PAGE_SIZE);
   const [fcCustomer, setFcCustomer] = useState("");
   const [fcModel, setFcModel] = useState("");
   const [fcProduct, setFcProduct] = useState("");
@@ -225,6 +236,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
   const [newDrawingNumber, setNewDrawingNumber] = useState("");
   const [newRevision, setNewRevision] = useState("");
   const [newFilePath, setNewFilePath] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -533,9 +545,10 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-fg-muted">
-          自社発行図面。データはポータル DB と隣接する drawing-library.db に保存されます。
-        </p>
+        <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+          <HelpCircle size={16} aria-hidden />
+          ヘルプ
+        </Button>
         <div className="flex gap-2">
           <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
@@ -549,6 +562,13 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
           )}
         </div>
       </div>
+
+      <Modal open={helpOpen} title="図面ライブラリ（自社発行）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
+        <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
+          <p>{DRAWING_LIBRARY_OVERVIEW}</p>
+          <p>{WORK_DRAWINGS_TAB_HELP}</p>
+        </div>
+      </Modal>
 
       <div className="flex flex-wrap gap-2">
         <input
@@ -662,29 +682,51 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
               />
             ))}
           </div>
-          <div className="flex items-center justify-between text-sm text-fg-muted">
-            <span>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm text-fg-muted">
               {result.total} 件中 {page}/{totalPages} ページ
             </span>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                前へ
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                次へ
-              </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-fg-muted">
+                <span className="whitespace-nowrap">表示件数</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (v === 20 || v === 50 || v === 100) {
+                      setPageSize(v);
+                      setPage(1);
+                    }
+                  }}
+                  className="h-9 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg-primary"
+                >
+                  {DRAWING_LIST_PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n} 件
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  前へ
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  次へ
+                </Button>
+              </div>
             </div>
           </div>
         </>
@@ -747,23 +789,23 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
               <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
                 <div>
                   <dt className="text-xs text-fg-muted">客先</dt>
-                  <dd className="font-medium">{detail.customer_name ?? "—"}</dd>
+                  <dd className="font-medium text-fg-primary">{detail.customer_name ?? "—"}</dd>
                 </div>
                 <div>
                   <dt className="text-xs text-fg-muted">機種</dt>
-                  <dd>{detail.model ?? "—"}</dd>
+                  <dd className="text-fg-primary">{detail.model ?? "—"}</dd>
                 </div>
                 <div>
                   <dt className="text-xs text-fg-muted">図面番号(品番)</dt>
-                  <dd className="font-mono text-xs">{displayPartNumber(detail)}</dd>
+                  <dd className="font-mono text-xs text-fg-primary">{displayPartNumber(detail)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs text-fg-muted">リビジョン</dt>
-                  <dd>{detail.revision ?? "—"}</dd>
+                  <dd className="text-fg-primary">{detail.revision ?? "—"}</dd>
                 </div>
                 <div className="col-span-2 sm:col-span-3 lg:col-span-4">
                   <dt className="text-xs text-fg-muted">名称</dt>
-                  <dd className="font-medium">{detail.title}</dd>
+                  <dd className="font-medium text-fg-primary">{detail.title}</dd>
                 </div>
               </dl>
               <div className="flex flex-col items-end gap-2 shrink-0">
@@ -773,7 +815,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
                     PDF を保存…
                   </Button>
                 )}
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-muted">
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-primary">
                   <input
                     type="checkbox"
                     checked={detailObsolete}
@@ -795,11 +837,11 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
                 )}
               </div>
               <div className="flex min-h-0 flex-col gap-4 border-t border-border-subtle pt-6 lg:col-span-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-                <p className="text-xs font-semibold text-fg-muted">eDrawings</p>
+                <p className="text-xs font-semibold text-fg-primary">eDrawings</p>
                 <ul className="max-h-[min(40vh,420px)] min-h-[8rem] flex-1 space-y-0 divide-y divide-border-subtle overflow-y-auto border-y border-border-subtle text-sm">
                   {edrawingsFiles.map((f) => (
                     <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs">{f.file_name}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-primary">{f.file_name}</span>
                       <div className="flex shrink-0 gap-1">
                         <Button
                           type="button"
@@ -824,7 +866,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
                     </li>
                   ))}
                 </ul>
-                {edrawingsFiles.length === 0 && <p className="text-xs text-fg-subtle">紐付けなし</p>}
+                {edrawingsFiles.length === 0 && <p className="text-xs text-fg-primary">紐付けなし</p>}
                 {writable && (
                   <Button type="button" variant="secondary" size="sm" onClick={() => void attachEdrawings()}>
                     eDrawings を追加
@@ -834,12 +876,12 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
             </div>
 
             <div className="border-t border-border-subtle pt-4">
-              <p className="text-xs font-semibold text-fg-muted">コメント</p>
-              <ul className="mt-3 max-h-[min(35vh,360px)] space-y-0 divide-y divide-border-subtle overflow-y-auto border-y border-border-subtle text-sm">
+              <p className="text-xs font-semibold text-fg-primary">コメント</p>
+              <ul className="mt-3 max-h-[min(35vh,360px)] space-y-0 divide-y divide-border-subtle overflow-y-auto border-y border-border-subtle text-sm text-fg-primary">
                 {comments.map((c) => (
                   <li key={c.id} className="py-2.5">
                     {c.comment_text}
-                    <span className="ml-2 text-xs text-fg-subtle">{c.created_at}</span>
+                    <span className="ml-2 text-xs text-fg-muted">{c.created_at}</span>
                   </li>
                 ))}
               </ul>
@@ -850,7 +892,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
                     value={commentDraft}
                     onChange={(e) => setCommentDraft(e.target.value)}
                     placeholder="コメント"
-                    className="flex-1 rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm"
+                    className="flex-1 rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm text-fg-primary"
                   />
                   <Button type="button" variant="primary" size="sm" onClick={() => void addComment()}>
                     追加

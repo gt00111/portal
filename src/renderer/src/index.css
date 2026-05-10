@@ -79,6 +79,56 @@ html {
   scroll-behavior: smooth;
 }
 
+/**
+ * 生産ボード・図面ライブラリ・工程管理ウィンドウ用。
+ * 社内向け・長時間の事務作業を想定したライトテーマ（ダーク UI ではない）。
+ * ポータルホームのダークテーマとは別ルートのため、ここで RGB / shadcn どちらも上書きする。
+ */
+.portal-app-calm-shell {
+  --color-bg-base: 241 243 247;
+  --color-bg-surface: 255 255 255;
+  --color-bg-elevated: 249 250 252;
+
+  /* メインはほぼ黒で視認性を優先 */
+  --color-fg-primary: 15 17 21;
+  --color-fg-muted: 55 65 81;
+  --color-fg-subtle: 82 91 103;
+
+  --color-accent-primary: 37 99 235;
+  --color-accent-secondary: 91 110 140;
+
+  --color-state-success: 22 163 74;
+  --color-state-warning: 180 83 9;
+  --color-state-danger: 220 38 38;
+
+  --color-border-subtle: 226 232 240;
+  --color-border-strong: 203 213 225;
+
+  --background: 210 40% 98%;
+  --foreground: 0 0% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 0 0% 12%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215 16% 35%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 0 0% 12%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 221 83% 53%;
+}
+
+.portal-app-calm-shell ::selection {
+  background-color: rgb(var(--color-accent-primary) / 0.22);
+}
+
 /* 生産ボード: 週末セル・ガント印刷など */
 .weekend-cell {
   background: #ffe5e5 !important;

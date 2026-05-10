@@ -12,5 +12,7 @@ export function createPortalRendererWebPreferences(): WebPreferences {
     contextIsolation: true,
     nodeIntegration: false,
     sandbox: false,
+    /** 設定で選んだローカル画像をホーム背景（file URL）で表示するため */
+    webSecurity: false,
   };
 }

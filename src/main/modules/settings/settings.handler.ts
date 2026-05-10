@@ -1,4 +1,6 @@
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { join, normalize } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { app, BrowserWindow, dialog, type IpcMain } from "electron";
 
@@ -93,6 +95,34 @@ export function register(ipcMain: IpcMain): void {
     }
   });
 
+  ipcMain.handle("settings:pickHomeLpImage", async () => {
+    try {
+      assertAdmin();
+      const parent = BrowserWindow.getFocusedWindow() ?? getPortalWindow() ?? undefined;
+      const filters = [
+        { name: "画像", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] },
+        { name: "すべて", extensions: ["*"] },
+      ];
+      const result = parent
+        ? await dialog.showOpenDialog(parent, {
+            title: "ホーム背景画像を選択",
+            properties: ["openFile"],
+            filters,
+          })
+        : await dialog.showOpenDialog({
+            title: "ホーム背景画像を選択",
+            properties: ["openFile"],
+            filters,
+          });
+      if (result.canceled || result.filePaths.length === 0) {
+        return ok<{ path: string | null }>({ path: null });
+      }
+      return ok<{ path: string | null }>({ path: result.filePaths[0] });
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
   ipcMain.handle(
     "settings:updateCompanyInfo",
     async (_event, data: Partial<CompanyInfo>) => {
@@ -106,6 +136,12 @@ export function register(ipcMain: IpcMain): void {
           putSetting(
             SETTINGS_KEYS.mottos,
             JSON.stringify(cleaned.length > 0 ? cleaned : DEFAULT_MOTTOS)
+          );
+        }
+        if (data.homeHeroBackgroundPath !== undefined) {
+          putSetting(
+            SETTINGS_KEYS.homeHeroBackgroundPath,
+            data.homeHeroBackgroundPath?.trim() ? data.homeHeroBackgroundPath.trim() : ""
           );
         }
         return ok<SettingsSnapshot>(buildSnapshot(getDbPath()));
@@ -127,6 +163,8 @@ function buildSnapshot(dbPath: string | null): SettingsSnapshot {
       company: {
         companyName: DEFAULT_COMPANY_NAME,
         mottos: [...DEFAULT_MOTTOS],
+        homeHeroBackgroundPath: null,
+        homeHeroBackgroundFileUrl: null,
       },
     };
   }
@@ -141,11 +179,35 @@ function buildSnapshot(dbPath: string | null): SettingsSnapshot {
     dbPath,
     bootstrapped,
     stage,
-    company: {
-      companyName: getSetting(SETTINGS_KEYS.companyName) ?? DEFAULT_COMPANY_NAME,
-      mottos: readMottos(),
-    },
+    company: buildCompanySnapshot(),
   };
+}
+
+function buildCompanySnapshot(): CompanyInfo {
+  const heroPath = readStoredImagePath(SETTINGS_KEYS.homeHeroBackgroundPath);
+  return {
+    companyName: getSetting(SETTINGS_KEYS.companyName) ?? DEFAULT_COMPANY_NAME,
+    mottos: readMottos(),
+    homeHeroBackgroundPath: heroPath,
+    homeHeroBackgroundFileUrl: resolveLocalImageFileUrl(heroPath),
+  };
+}
+
+function readStoredImagePath(key: string): string | null {
+  const raw = getSetting(key);
+  const t = raw?.trim();
+  return t && t.length > 0 ? t : null;
+}
+
+function resolveLocalImageFileUrl(storedPath: string | null): string | null {
+  if (!storedPath) return null;
+  try {
+    const normalized = normalize(storedPath.trim());
+    if (!existsSync(normalized)) return null;
+    return pathToFileURL(normalized).href;
+  } catch {
+    return null;
+  }
 }
 
 function readMottos(): string[] {

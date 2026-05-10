@@ -20,7 +20,7 @@ export function HeroCarousel({ mottos, intervalMs = 4200 }: Props): JSX.Element 
   const current = mottos[index] ?? "";
 
   return (
-    <div className="relative flex h-72 flex-col items-center justify-center overflow-hidden">
+    <div className="relative inline-flex w-max max-w-[min(100%,calc(100vw-3rem))] flex-col items-center overflow-visible">
       <AnimatePresence mode="wait">
         <motion.div
           key={index}
@@ -30,14 +30,14 @@ export function HeroCarousel({ mottos, intervalMs = 4200 }: Props): JSX.Element 
           transition={{ duration: 0.9, ease: "easeInOut" }}
           className="text-center"
         >
-          <p className="mb-4 text-sm tracking-[0.3em] text-accent-secondary">OUR PHILOSOPHY</p>
-          <p className="bg-gradient-to-r from-accent-primary via-fg-primary to-accent-secondary bg-clip-text text-5xl font-bold tracking-wide text-transparent md:text-6xl">
+          <p className="mb-2 text-sm tracking-[0.3em] text-accent-secondary">OUR PHILOSOPHY</p>
+          <p className="bg-gradient-to-r from-accent-primary via-fg-primary to-accent-secondary bg-clip-text text-5xl font-bold leading-tight tracking-wide text-transparent md:text-6xl">
             {current}
           </p>
         </motion.div>
       </AnimatePresence>
 
-      <div className="mt-8 flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-2">
         {mottos.map((_, i) => (
           <span
             key={i}

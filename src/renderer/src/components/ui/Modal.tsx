@@ -44,7 +44,7 @@ export function Modal({ open, title, onClose, children, width = "md" }: Props): 
             transition={{ duration: 0.2 }}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              "flex w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface shadow-xl",
+              "flex w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-fg-primary shadow-xl",
               isFull
                 ? "max-h-full min-h-0 flex-1"
                 : `${widths[width as keyof typeof widths]} max-h-[calc(100vh-2rem)] overflow-y-auto`
@@ -58,7 +58,7 @@ export function Modal({ open, title, onClose, children, width = "md" }: Props): 
                   : "px-6 pt-6 pb-3"
               )}
             >
-              <h2 className="text-lg font-semibold">{title}</h2>
+              <h2 className="text-lg font-semibold text-fg-primary">{title}</h2>
               <button
                 type="button"
                 onClick={onClose}
