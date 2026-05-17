@@ -118,9 +118,14 @@ export function Home({ session, settings, onLogout }: Props): JSX.Element {
         </div>
 
         <div className="relative z-10 mx-auto flex max-w-7xl justify-center px-6 pb-20 pt-2">
-          <Button variant="secondary" size="lg" onClick={scrollToApps}>
-            アプリ一覧へ
-            <ArrowDown size={18} />
+          <Button
+            variant="secondary"
+            size="lg"
+            className="w-full max-w-md min-w-0 sm:w-auto"
+            onClick={scrollToApps}
+          >
+            <span className="min-w-0">アプリ一覧へ</span>
+            <ArrowDown size={18} className="shrink-0" />
           </Button>
         </div>
       </section>

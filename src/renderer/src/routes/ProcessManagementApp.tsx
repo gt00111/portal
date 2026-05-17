@@ -1,5 +1,4 @@
 import {
-  ClipboardList,
   ClipboardPenLine,
   ExternalLink,
   HelpCircle,
@@ -19,6 +18,7 @@ import type { SessionUser } from "@shared/types.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { Modal } from "@renderer/components/ui/Modal.js";
+import { PortalAppHeaderLogo } from "@renderer/components/PortalAppHeaderLogo.js";
 import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
 import {
@@ -570,14 +570,14 @@ function MyTaskCard({
           ) : null}
         </div>
         {showActions && (
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex shrink-0 flex-nowrap gap-2">
             {task.status !== "作業中" && (
-              <Button type="button" size="sm" onClick={() => void handleStart()}>
+              <Button type="button" size="sm" className="whitespace-nowrap" onClick={() => void handleStart()}>
                 開始
               </Button>
             )}
             {task.status === "作業中" && (
-              <Button type="button" size="sm" onClick={() => void handleComplete()}>
+              <Button type="button" size="sm" className="whitespace-nowrap" onClick={() => void handleComplete()}>
                 完了
               </Button>
             )}
@@ -967,13 +967,13 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-base">
-      <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-surface px-3 sm:px-4">
-        <div className="flex min-w-0 items-center gap-4 lg:gap-6">
-          <div className="flex shrink-0 items-center gap-2">
-            <ClipboardList className="h-7 w-7 shrink-0 text-accent-secondary" aria-hidden />
-            <span className="truncate text-sm font-semibold text-fg-primary sm:text-base">工程管理</span>
-          </div>
-          <nav className="flex min-w-0 items-center gap-1 sm:gap-2">
+      <header className="sticky top-0 z-40 flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 border-b border-border-subtle bg-bg-surface px-3 py-2 sm:flex-nowrap sm:px-4 sm:py-0">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-y-2 sm:flex-nowrap sm:gap-4 lg:gap-6">
+          <PortalAppHeaderLogo
+            appId="process-management"
+            className="h-8 w-auto max-h-9 max-w-[min(200px,50vw)] shrink-0 object-contain sm:h-9 sm:max-w-[min(200px,28vw)]"
+          />
+          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5 sm:gap-2 sm:pb-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {(
               [
                 ["board", "ボード", LayoutGrid] as const,
@@ -997,9 +997,9 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
             ))}
           </nav>
         </div>
-        <div className="flex shrink-0 items-center gap-2 text-sm text-fg-muted">
+        <div className="flex w-full min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 text-sm text-fg-muted sm:w-auto">
           <User className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden />
-          <span className="max-w-[6rem] truncate sm:max-w-[8rem]">{session.username}</span>
+          <span className="max-w-[min(8rem,35vw)] truncate sm:max-w-[8rem]">{session.username}</span>
           <span className="hidden rounded-md bg-bg-elevated px-1.5 py-0.5 text-xs text-fg-subtle sm:inline">
             {PROCESS_VIEW_LABELS[session.processView]}
           </span>
@@ -1196,6 +1196,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                         activeKey={boardSortKey}
                         dir={boardSortDir}
                         onSort={handleBoardSort}
+                        className="min-w-[4.5rem] whitespace-nowrap"
                       />
                       <BoardSortHeader
                         label="更新"
@@ -1240,7 +1241,9 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                         className="min-w-[12rem]"
                       />
                       {showBoardOpsCol && (
-                        <th className="align-middle px-3 py-2 text-fg-subtle">操作</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-left align-middle text-fg-subtle">
+                          操作
+                        </th>
                       )}
                     </tr>
                   </thead>
@@ -1267,7 +1270,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                               size="sm"
                               title="生産ボードの案件詳細を閲覧（表示のみ）"
                               className={cn(
-                                "mt-1.5 h-8 gap-1.5 border border-accent-secondary/45 bg-accent-secondary/12 px-3 text-xs font-semibold text-accent-secondary shadow-sm",
+                                "mt-1.5 h-8 gap-1.5 whitespace-nowrap border border-accent-secondary/45 bg-accent-secondary/12 px-3 text-xs font-semibold text-accent-secondary shadow-sm",
                                 "hover:border-accent-secondary/75 hover:bg-accent-secondary/22 hover:text-accent-secondary"
                               )}
                               onClick={() => void openCaseDetailReadOnly(t.seisanProjectId)}
@@ -1280,7 +1283,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                         <td className="align-middle px-3 py-2">{t.title}</td>
                         <td className="align-middle px-3 py-2 text-fg-muted">{t.processType}</td>
                         <td className="align-middle px-3 py-2 text-fg-muted">{t.assignee || "—"}</td>
-                        <td className="align-middle px-3 py-2">{t.status}</td>
+                        <td className="align-middle whitespace-nowrap px-3 py-2">{t.status}</td>
                         <td className="align-middle whitespace-nowrap px-3 py-2 text-xs text-fg-muted tabular-nums">
                           {formatBoardDateTime(t.updatedAt)}
                         </td>
@@ -1303,15 +1306,25 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                           <BoardProgressCell task={t} />
                         </td>
                         {showBoardOpsCol && (
-                          <td className="align-middle px-3 py-2">
-                            <div className="flex flex-wrap items-center gap-2">
+                          <td className="align-middle whitespace-nowrap px-3 py-2">
+                            <div className="inline-flex flex-nowrap items-center gap-2">
                               {canOperatePmTasks && boardMode === "active" && t.status !== "作業中" && t.status !== "完了" && (
-                                <Button type="button" size="sm" onClick={() => void handleStartTask(t.id)}>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="whitespace-nowrap"
+                                  onClick={() => void handleStartTask(t.id)}
+                                >
                                   開始
                                 </Button>
                               )}
                               {canOperatePmTasks && boardMode === "active" && t.status === "作業中" && (
-                                <Button type="button" size="sm" onClick={() => void handleCompleteTask(t.id)}>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="whitespace-nowrap"
+                                  onClick={() => void handleCompleteTask(t.id)}
+                                >
                                   完了
                                 </Button>
                               )}
@@ -1320,6 +1333,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                                   type="button"
                                   variant="danger"
                                   size="sm"
+                                  className="whitespace-nowrap"
                                   onClick={() => {
                                     setUndoTarget(t);
                                     setUndoReason("");

@@ -15,6 +15,7 @@ const mainAlias = {
 const rendererAlias = {
   ...sharedAlias,
   "@renderer": resolve(__dirname, "src/renderer/src"),
+  "@branding": resolve(__dirname, "resources/branding"),
   "@": resolve(__dirname, "src/renderer/src/apps/seisan-board"),
   shared: resolve(__dirname, "src/shared/seisan/index.ts"),
 };

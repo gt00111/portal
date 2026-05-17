@@ -112,7 +112,7 @@ export function SettingsGeneralPage() {
             {dbPath ?? '未接続'}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={handleSelectFile}>DBを選択</Button>
           <Button variant="outline" onClick={handleCreateNew}>
             新規DB作成
@@ -140,7 +140,7 @@ export function SettingsGeneralPage() {
             </span>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={handleSelectMasterFile}>マスターDBを選択</Button>
           {masterConnected && (
             <Button variant="outline" onClick={handleDisconnectMaster}>
@@ -187,12 +187,12 @@ export function SettingsGeneralPage() {
           </ul>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={handleDownloadFormat}>
-            <Download className="mr-2 h-4 w-4" />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Button variant="outline" className="w-full min-w-0 sm:w-auto" onClick={handleDownloadFormat}>
+            <Download className="mr-2 h-4 w-4 shrink-0" />
             CSVインポート用フォーマットをダウンロード
           </Button>
-          {dlMsg && <span className="text-sm text-muted-foreground">{dlMsg}</span>}
+          {dlMsg && <span className="min-w-0 text-sm text-muted-foreground">{dlMsg}</span>}
         </div>
       </div>
     </div>

@@ -74,8 +74,8 @@ export function Login({ dbPath, onLogin, onReconfigureDb }: Props): JSX.Element 
           </Button>
         </form>
 
-        <div className="mt-6 flex items-center justify-between text-xs text-fg-subtle">
-          <span className="truncate">DB: {dbPath ?? "(未接続)"}</span>
+        <div className="mt-6 flex flex-col gap-3 text-xs text-fg-subtle sm:flex-row sm:items-start sm:justify-between">
+          <span className="min-w-0 break-all sm:max-w-[65%]">DB: {dbPath ?? "(未接続)"}</span>
           <button
             type="button"
             onClick={onReconfigureDb}

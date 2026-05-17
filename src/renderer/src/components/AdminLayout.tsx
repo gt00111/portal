@@ -22,8 +22,14 @@ export function AdminLayout({ session, onLogout }: Props): JSX.Element {
   const visible = links.filter((l) => !l.adminOnly || session.role === "admin");
 
   return (
-    <div className="flex min-h-screen bg-bg-base">
-      <aside className="flex w-60 shrink-0 flex-col gap-1 border-r border-border-subtle bg-bg-surface/60 p-4">
+    <div className="flex min-h-screen flex-col bg-bg-base md:flex-row">
+      <aside
+        className={cn(
+          "flex w-full shrink-0 flex-col gap-1 border-b border-border-subtle bg-bg-surface/60 p-4",
+          "sticky top-0 z-20 max-h-screen overflow-y-auto",
+          "md:w-60 md:border-b-0 md:border-r md:self-start md:max-h-[100dvh]"
+        )}
+      >
         <button
           type="button"
           onClick={() => navigate("/home")}
@@ -67,7 +73,7 @@ export function AdminLayout({ session, onLogout }: Props): JSX.Element {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         <div className="mx-auto max-w-6xl p-6">
           <Outlet />
         </div>

@@ -184,22 +184,27 @@ export function ProjectsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">案件一覧</h1>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleExport} disabled={projects.length === 0}>
-            <Download className="mr-2 h-4 w-4" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <h1 className="min-w-0 text-xl font-bold sm:text-2xl">案件一覧</h1>
+        <div className="flex w-full min-w-0 flex-wrap items-stretch gap-2 sm:w-auto sm:justify-end">
+          <Button
+            variant="outline"
+            className="min-w-0 flex-1 sm:flex-initial"
+            onClick={handleExport}
+            disabled={projects.length === 0}
+          >
+            <Download className="mr-2 h-4 w-4 shrink-0" />
             CSVエクスポート
           </Button>
           {canEdit && (
-            <Button variant="outline" onClick={() => setCsvOpen(true)}>
-              <FileUp className="mr-2 h-4 w-4" />
+            <Button variant="outline" className="min-w-0 flex-1 sm:flex-initial" onClick={() => setCsvOpen(true)}>
+              <FileUp className="mr-2 h-4 w-4 shrink-0" />
               CSVインポート
             </Button>
           )}
           {canEdit && (
-            <Button onClick={() => setFormOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
+            <Button className="min-w-0 flex-1 sm:flex-initial" onClick={() => setFormOpen(true)}>
+              <Plus className="mr-2 h-4 w-4 shrink-0" />
               新規案件
             </Button>
           )}

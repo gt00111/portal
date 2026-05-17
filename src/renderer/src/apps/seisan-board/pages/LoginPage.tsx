@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { Database, CheckCircle2 } from 'lucide-react'
-import logoImg from '../assets/seisan-board.png'
+import { PortalAppHeaderLogo } from '@renderer/components/PortalAppHeaderLogo.js'
 import { seisanPath } from '../paths'
 
 interface MasterItem { id: number; name: string }
@@ -119,7 +119,7 @@ export function LoginPage() {
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-gradient-to-b from-background to-muted/30">
       <div className="w-full max-w-sm space-y-8 px-6 py-8">
         <div className="flex flex-col items-center gap-4">
-          <img src={logoImg} alt="Seisan-Board" className="h-16 w-auto" />
+          <PortalAppHeaderLogo appId="seisan-board" className="h-16 w-auto max-w-[min(280px,85vw)] object-contain" />
           <p className="text-sm text-muted-foreground">ログインしてください</p>
         </div>
         <div className="space-y-4">

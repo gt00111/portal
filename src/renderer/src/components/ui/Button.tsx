@@ -22,9 +22,9 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-10 px-4 text-sm",
-  lg: "h-12 px-6 text-base",
+  sm: "h-8 min-w-0 px-2.5 text-xs sm:px-3 sm:text-sm",
+  md: "h-10 min-w-0 px-3 text-sm sm:px-4",
+  lg: "min-h-12 min-w-0 px-4 text-sm sm:h-12 sm:px-6 sm:text-base",
 };
 
 export function Button({
@@ -38,6 +38,8 @@ export function Button({
     <button
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors",
+        "min-w-0 max-w-full whitespace-normal break-words text-center leading-snug",
+        "[&_svg]:shrink-0",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary",
         variants[variant],
         sizes[size],

@@ -197,14 +197,14 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">ダッシュボード</h1>
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <h1 className="min-w-0 text-xl font-bold sm:text-2xl">ダッシュボード</h1>
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
           <Select
             value={groupFilterId ?? '__all__'}
             onValueChange={(v) => setGroupFilterId(v === '__all__' ? undefined : v)}
           >
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full min-w-0 max-w-full sm:w-[180px] sm:max-w-[180px]">
               <SelectValue placeholder="グループ" />
             </SelectTrigger>
             <SelectContent>

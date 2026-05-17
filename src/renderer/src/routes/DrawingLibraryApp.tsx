@@ -1,9 +1,10 @@
-import { FileSearch, FolderOpen, GitCompare, PenLine, User } from "lucide-react";
+import { FolderOpen, GitCompare, PenLine, User } from "lucide-react";
 import { useState } from "react";
 
 import type { AppRole } from "@shared/auth.js";
 import type { SessionUser } from "@shared/types.js";
 
+import { PortalAppHeaderLogo } from "@renderer/components/PortalAppHeaderLogo.js";
 import { cn } from "@renderer/lib/cn.js";
 import { DrawingDbTab } from "@renderer/routes/drawing-library/DrawingDbTab.js";
 import { PdfCompareBonusTab } from "@renderer/routes/drawing-library/PdfCompareBonusTab.js";
@@ -26,13 +27,13 @@ export function DrawingLibraryApp({ session }: Props): JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-base">
-      <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-surface px-4">
-        <div className="flex min-w-0 items-center gap-4 lg:gap-6">
-          <div className="flex shrink-0 items-center gap-2">
-            <FileSearch className="h-7 w-7 shrink-0 text-accent-secondary" aria-hidden />
-            <span className="truncate text-sm font-semibold text-fg-primary sm:text-base">図面ライブラリ</span>
-          </div>
-          <nav className="flex min-w-0 items-center gap-1 sm:gap-2">
+      <header className="sticky top-0 z-40 flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 border-b border-border-subtle bg-bg-surface px-3 py-2 sm:flex-nowrap sm:px-4 sm:py-0">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-y-2 sm:flex-nowrap sm:gap-4 lg:gap-6">
+          <PortalAppHeaderLogo
+            appId="drawing-library"
+            className="h-8 w-auto max-h-9 max-w-[min(200px,50vw)] shrink-0 object-contain sm:h-9 sm:max-w-[min(200px,28vw)]"
+          />
+          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5 sm:gap-2 sm:pb-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {(
               [
                 ["seisan", "顧客図面", FolderOpen, "main"] as const,
@@ -65,9 +66,9 @@ export function DrawingLibraryApp({ session }: Props): JSX.Element {
             ))}
           </nav>
         </div>
-        <div className="flex shrink-0 items-center gap-2 text-sm text-fg-muted">
+        <div className="flex w-full min-w-0 shrink-0 items-center justify-end gap-2 text-sm text-fg-muted sm:w-auto">
           <User className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden />
-          <span className="max-w-[6rem] truncate sm:max-w-[8rem]">{session.username}</span>
+          <span className="max-w-[min(8rem,35vw)] truncate sm:max-w-[8rem]">{session.username}</span>
           <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-xs text-fg-subtle">
             {ROLE_LABELS[session.role] ?? session.role}
           </span>

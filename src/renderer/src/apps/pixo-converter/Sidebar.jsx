@@ -1,6 +1,7 @@
 // renderer/Sidebar.jsx（ポータル内蔵: 相対ルート）
 import { NavLink } from "react-router-dom";
 import { useState, useEffect } from "react";
+import pixoLogo from "@branding/pixo-converter/logo.png?url";
 import "./components/style/sidebar.css";
 
 export default function Sidebar({ isOpen, onToggle }) {
@@ -27,6 +28,7 @@ export default function Sidebar({ isOpen, onToggle }) {
     <>
       <aside className={`sidebar ${isOpen ? "open" : ""}`}>
         <div className="sidebar-logo">
+          <img src={pixoLogo} alt="" className="sidebar-brand-logo" decoding="async" aria-hidden />
           <h1 className="logo-title">PixoConvert</h1>
         </div>
 
