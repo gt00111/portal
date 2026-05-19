@@ -71,12 +71,12 @@ resources/          配布用アセット（package.json の files / extraResour
 │   ├── <顧客名>/                          … 顧客向け PDF
 │   └── mycompany/
 │       └── <顧客名>/                     … 自社（ワーク）PDF
-├── dxf/
-│   └── <顧客名>/                         … DXF
 └── mycompany/
     └── edraw/
         └── <顧客名>/                     … eDrawings
 ```
+
+> 図面ライブラリでの **DXF 取り扱いは廃止済み**。過去の DB に `dxf/` フォルダが残っている場合があるが、新規には作成されない（既存 DB 内のテーブルは互換のため残置）。
 
 ### 生産ボード（精算）— 案件に紐づく添付ファイル
 

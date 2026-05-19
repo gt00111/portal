@@ -397,6 +397,31 @@ export function getTaskDetail(id: number): PmTask {
   return mapDbToPmTask(row);
 }
 
+/** 単一タスクをボード表示用に解決（完了通知の概要用） */
+export function getBoardTaskById(id: number): PmBoardTask {
+  const db = getProcessMgmtDb();
+  const row = db
+    .prepare(
+      `
+        SELECT
+          ${TASK_SELECT},
+          p.name AS legacy_name,
+          p.client AS legacy_client,
+          p.drawing_number AS legacy_drawing_number,
+          p.revision AS legacy_revision,
+          p.note AS legacy_note
+        FROM tasks t
+        LEFT JOIN projects p ON t.seisan_project_id IS NULL AND p.id = t.project_id
+        WHERE t.id = ?
+      `
+    )
+    .get(id) as DbBoardRow | undefined;
+  if (!row) {
+    throw new Error("タスクが見つかりません。");
+  }
+  return enrichBoardRow(row);
+}
+
 export function updateTask(payload: UpdatePmTaskPayload): PmTask {
   const title = payload.title.trim();
   const description = payload.description.trim();

@@ -2,16 +2,18 @@ import type { IpcMain } from "electron";
 
 import { isAdmin } from "@shared/auth.js";
 import { fail, ok } from "@shared/ipcResponse.js";
-import type { PmBoardTask, PmProject, PmTask } from "@shared/processMgmt.js";
+import type { PmBoardTask, PmProject, PmTask, PmTaskCompletionNotification } from "@shared/processMgmt.js";
 import type { SessionUser } from "@shared/types.js";
 
 import { assertCanOperateProcessMgmtTasks, assertCanWrite, assertLoggedIn } from "@main/auth-guard.js";
 import { getProcessMgmtDbPath } from "@main/db/processMgmtConnection.js";
+import { listActiveAdminUsernames } from "@main/modules/operator/operator.repo.js";
 import { ensureProcessMgmt } from "@main/process-mgmt-guard.js";
 import { ensureSeisanSatellite } from "@main/seisan-guard.js";
 
 import type { CreatePmProjectPayload, UpdatePmProjectPayload } from "./pm-projects.repo.js";
 import * as projects from "./pm-projects.repo.js";
+import * as notifications from "./pm-notifications.repo.js";
 import * as sync from "./pm-seisan-sync.repo.js";
 import type {
   CreatePmTaskPayload,
@@ -239,7 +241,19 @@ export function register(ipcMain: IpcMain): void {
       ensureProcessMgmt();
       const existing = tasks.getTaskDetail(payload?.id ?? 0);
       tasks.assertTaskMatchesProcessView(existing, session.processView);
-      return ok<PmTask>(tasks.completeTask(payload?.id ?? 0));
+      const completed = tasks.completeTask(payload?.id ?? 0);
+      const boardTask = tasks.getBoardTaskById(completed.id);
+      const completer = (session.username ?? "").trim();
+      const recipients = listActiveAdminUsernames().filter((u) => u !== completer);
+      if (recipients.length > 0 && completed.completedAt) {
+        notifications.insertCompletionNotifications(
+          recipients,
+          boardTask,
+          completer,
+          completed.completedAt
+        );
+      }
+      return ok<PmTask>(completed);
     } catch (err) {
       return fail(err);
     }
@@ -259,12 +273,38 @@ export function register(ipcMain: IpcMain): void {
         const existing = tasks.getTaskDetail(id);
         tasks.assertTaskMatchesProcessView(existing, session.processView);
         const reason = (payload?.reason ?? "").toString();
-        return ok<PmTask>(
-          tasks.undoComplete(id, reason, session.username ?? "")
-        );
+        const restored = tasks.undoComplete(id, reason, session.username ?? "");
+        notifications.deleteNotificationsForTask(id);
+        return ok<PmTask>(restored);
       } catch (err) {
         return fail(err);
       }
     }
   );
+
+  ipcMain.handle("process-mgmt:notify:listPending", async () => {
+    try {
+      const session = assertLoggedIn();
+      ensureProcessMgmt();
+      const list = notifications.listPendingForRecipient(session.username ?? "");
+      return ok<PmTaskCompletionNotification[]>(list);
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle("process-mgmt:notify:acknowledge", async (_event, payload: { id: number }) => {
+    try {
+      const session = assertLoggedIn();
+      ensureProcessMgmt();
+      const rawId = Number(payload?.id);
+      if (!Number.isFinite(rawId) || rawId <= 0) {
+        throw new Error("不正な通知 ID です。");
+      }
+      notifications.acknowledgeNotification(rawId, session.username ?? "");
+      return ok<{ acknowledged: true }>({ acknowledged: true });
+    } catch (err) {
+      return fail(err);
+    }
+  });
 }

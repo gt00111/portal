@@ -38,6 +38,7 @@ import {
   MY_TASKS_HELP_SCOPE_TEMPLATE,
   MY_TASKS_PAGE_TAGLINE,
 } from "@renderer/routes/process-management/processManagementHelpCopy.js";
+import { ProcessMgmtNotificationBell } from "@renderer/routes/process-management/ProcessMgmtNotificationBell.js";
 
 const ROLE_LABELS: Record<AppRole, string> = {
   admin: "管理者",
@@ -222,6 +223,21 @@ function formatBoardDateTime(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+}
+
+/** ボード「状態」列のみ — タスクの意味が一目で分かるようバッジ色分け */
+function boardTaskStatusBadgeClass(status: string): string {
+  const s = status.trim();
+  if (s === "完了" || s === "done") {
+    return "border-state-success/50 bg-state-success/12 text-state-success";
+  }
+  if (s === "作業中" || s === "in_progress") {
+    return "border-accent-primary/45 bg-accent-primary/12 text-accent-primary";
+  }
+  if (s === "blocked") {
+    return "border-state-warning/55 bg-state-warning/15 text-state-warning";
+  }
+  return "border-border-subtle bg-bg-elevated text-fg-muted";
 }
 
 function formatSeisanDeadline(raw: string): string {
@@ -998,6 +1014,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
           </nav>
         </div>
         <div className="flex w-full min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 text-sm text-fg-muted sm:w-auto">
+          <ProcessMgmtNotificationBell username={session.username} enabled={adminUser} />
           <User className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden />
           <span className="max-w-[min(8rem,35vw)] truncate sm:max-w-[8rem]">{session.username}</span>
           <span className="hidden rounded-md bg-bg-elevated px-1.5 py-0.5 text-xs text-fg-subtle sm:inline">
@@ -1283,7 +1300,16 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                         <td className="align-middle px-3 py-2">{t.title}</td>
                         <td className="align-middle px-3 py-2 text-fg-muted">{t.processType}</td>
                         <td className="align-middle px-3 py-2 text-fg-muted">{t.assignee || "—"}</td>
-                        <td className="align-middle whitespace-nowrap px-3 py-2">{t.status}</td>
+                        <td className="align-middle whitespace-nowrap px-3 py-2">
+                          <span
+                            className={cn(
+                              "inline-flex max-w-full rounded-md border px-2 py-0.5 text-xs font-semibold",
+                              boardTaskStatusBadgeClass(t.status)
+                            )}
+                          >
+                            {t.status}
+                          </span>
+                        </td>
                         <td className="align-middle whitespace-nowrap px-3 py-2 text-xs text-fg-muted tabular-nums">
                           {formatBoardDateTime(t.updatedAt)}
                         </td>

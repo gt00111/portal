@@ -48,3 +48,25 @@ export interface PmBoardTask extends PmTask {
   /** 生産ボードの製番（検索・表示用） */
   seisanProjectNo: string | null;
 }
+
+/** 完了通知に保存する表示用スナップショット */
+export interface PmTaskCompletionNotifySummary {
+  projectName: string;
+  title: string;
+  processType: string;
+  client: string;
+  drawingNumber: string;
+  revision: string;
+  assignee: string;
+  seisanProjectNo: string | null;
+}
+
+/** 未確認のインナー通知（確認するまで一覧に残す） */
+export interface PmTaskCompletionNotification {
+  id: number;
+  taskId: number;
+  summary: PmTaskCompletionNotifySummary;
+  completedBy: string;
+  taskCompletedAt: string;
+  createdAt: string;
+}

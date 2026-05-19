@@ -43,25 +43,6 @@ export async function ensurePdfInCustomerFolder(
   return { relativePath: relative, absolutePath: abs };
 }
 
-export async function ensureDxfInCustomerFolder(
-  sourceAbsolutePath: string,
-  customerName: string
-): Promise<{ relativePath: string; absolutePath: string }> {
-  const root = getDrawingLibraryDataDir();
-  const safeCustomer = safeSegment(customerName);
-  const dxfDir = path.join(root, "dxf", safeCustomer);
-  await mkdir(dxfDir, { recursive: true });
-  await access(sourceAbsolutePath);
-  const orig = path.basename(sourceAbsolutePath);
-  const timestamp = Date.now();
-  const safeName = safeSegment(orig);
-  const destName = `${timestamp}_${safeName}`;
-  const abs = path.join(dxfDir, destName);
-  await copyFile(sourceAbsolutePath, abs);
-  const relative = path.relative(root, abs).replace(/\\/g, "/");
-  return { relativePath: relative, absolutePath: abs };
-}
-
 export async function ensureEdrawingsInFolder(
   sourceAbsolutePath: string,
   customerName: string

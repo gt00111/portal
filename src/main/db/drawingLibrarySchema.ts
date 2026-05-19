@@ -56,16 +56,6 @@ export function initDrawingLibrarySchema(db: Database.Database): void {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS drawing_dxf_files (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      drawing_id INTEGER NOT NULL,
-      file_path TEXT NOT NULL,
-      file_name TEXT NOT NULL,
-      file_size INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (drawing_id) REFERENCES drawings(id) ON DELETE CASCADE
-    );
-
     CREATE TABLE IF NOT EXISTS drawing_edrawings_files (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       drawing_id INTEGER NOT NULL,
@@ -85,7 +75,6 @@ export function initDrawingLibrarySchema(db: Database.Database): void {
       FOREIGN KEY (drawing_id) REFERENCES drawings(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX IF NOT EXISTS idx_dxf_drawing_id ON drawing_dxf_files(drawing_id);
     CREATE INDEX IF NOT EXISTS idx_edrawings_drawing_id ON drawing_edrawings_files(drawing_id);
     CREATE INDEX IF NOT EXISTS idx_comments_drawing_id ON drawing_comments(drawing_id);
   `);

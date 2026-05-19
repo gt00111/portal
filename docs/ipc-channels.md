@@ -172,6 +172,7 @@ interface Sku {
 | `drawing-library:status` | 🔒 | `undefined` | `{ connected: boolean; path: string \| null }` |
 | `drawing-library:compare` | 🔒 | `CompareDrawingsInput`（`filePath1` / `filePath2` は**絶対パス推奨**。登録図面の相対パスは非推奨・顧客図面 UI からは利用しません） | `{ resultImage: string; message: string }`（PNG の data URL） |
 | `drawing-library:pickPdfForCompare` | 🔒 | `undefined` または `{}` | `{ path: string }`（単一 PDF の絶対パス。比較用にダイアログで選択） |
+| `drawing-library:getPdfPageCount` | 🔒 | `{ path: string }`（ローカル PDF の絶対パス） | `{ pageCount: number }`（PDF 比較タブでページ選択用） |
 | `drawing-library:categoryList` | 🔒 | `{ drawingType?: 'customer' \| 'work' }` | `string[]` |
 | `drawing-library:categoryAdd` | ✏️ | `{ drawingType?: 'customer' \| 'work'; name: string }` | `null` |
 | `drawing-library:categoryDelete` | ✏️ | `{ drawingType?: 'customer' \| 'work'; name: string }` | `null` |
@@ -203,13 +204,12 @@ interface Sku {
 
 ---
 
-## 6c. `drawing-dxf:*` / `drawing-edrawings:*` / `drawing-comment:*`
+## 6c. `drawing-edrawings:*` / `drawing-comment:*`
+
+DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削除）。
 
 | チャネル | 権限 | 備考 |
 |---------|------|------|
-| `drawing-dxf:list` | 🔒 | `{ drawing_id }` |
-| `drawing-dxf:upload` | ✏️ | ダイアログで DXF 選択、`drawing_id`, `customerName` |
-| `drawing-dxf:delete` | ✏️ | `{ id }` |
 | `drawing-edrawings:list` | 🔒 | `{ drawing_id }` |
 | `drawing-edrawings:upload` | ✏️ | eDrawings 拡張子、eDrawings 保存先は自社フォルダ規約 |
 | `drawing-edrawings:delete` | ✏️ | `{ id }` |
@@ -244,8 +244,10 @@ interface Sku {
 | `process-mgmt:task:start` | ✏️ | `{ id }` | `PmTask`（工程管理では**閲覧者含む**ログインユーザーが操作可。他アプリの ✏️ 定義とは別） |
 | `process-mgmt:task:complete` | ✏️ | `{ id }` | `PmTask`（同上） |
 | `process-mgmt:task:undoComplete` | 🔒 | `{ id; reason }` | `PmTask`（**管理者のみ**。完了→作業中。`reason` は取り消し報告として DB に保存。完了時は直前の取り消しメタをクリア） |
+| `process-mgmt:notify:listPending` | 🔒 | `undefined` | `PmTaskCompletionNotification[]`（ログイン管理者向けの**未確認**タスク完了通知。`acknowledged_at` が付いた行は含まない） |
+| `process-mgmt:notify:acknowledge` | 🔒 | `{ id }`（通知行の ID） | `{ acknowledged: true }`（自分宛の未確認通知のみ `acknowledged_at` をセット。他人宛・既に確認済みはエラー） |
 
-型は `shared/processMgmt.ts` の `PmProject` / `PmTask`（`completionUndoReason` ほか） / `PmBoardTask` を参照。
+型は `shared/processMgmt.ts` の `PmProject` / `PmTask`（`completionUndoReason` ほか） / `PmBoardTask` / `PmTaskCompletionNotification` を参照。
 
 **工程表示**: `task:listBoard` の **アクティブ**、`task:listMy`、`task:listByProject`、各タスク操作はセッションの `processView` で絞り込む。**履歴**のボード一覧だけはリクエストの `boardProcessView` で SW / CADMAC / 両方を切り替え可能。Flask 原型の「SolidWorks 一覧／CADMAC 一覧」の出し分けに相当（デスクトップは単一テーブル＋ SQL 条件）。
 
@@ -280,7 +282,7 @@ type AppId =
 |---------|-------------|
 | 1 | `settings:*`, `auth:*`, `operator:list/create/setActive/updateRole/resetPassword`, `launcher:openApp`（スケルトン） |
 | 2 | `master:*`, `sku:*`, `operator:*` 完全版, `launcher:*` 本実装 |
-| 3 | `seisan-*`, `drawing:*`, `drawing-dxf:*`, `drawing-edrawings:*`, `drawing-comment:*`, `drawing-library:*`, `process-mgmt:*`。サテライト / 隣接 DB |
+| 3 | `seisan-*`, `drawing:*`, `drawing-edrawings:*`, `drawing-comment:*`, `drawing-library:*`, `process-mgmt:*`。サテライト / 隣接 DB |
 | 4 | `grant:*`（アプリ別権限）, `audit:*`（監査ログ） |
 
 ---

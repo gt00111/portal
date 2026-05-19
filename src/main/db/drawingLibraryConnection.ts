@@ -18,7 +18,7 @@ export function getDrawingLibraryDbPath(): string | null {
   return libPath;
 }
 
-/** 図面ファイル（PDF/DXF 等）のルート: DB ファイルと同じディレクトリ */
+/** 図面ファイル（PDF 等）のルート: DB ファイルと同じディレクトリ */
 export function getDrawingLibraryDataDir(): string {
   if (!libPath) {
     throw new Error("図面ライブラリ DB パスが無効です。");

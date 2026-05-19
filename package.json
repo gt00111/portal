@@ -79,9 +79,14 @@
       }
     ],
     "win": {
+      "icon": "resources/branding/portal/icon.ico",
       "target": [
         "nsis"
       ]
+    },
+    "nsis": {
+      "installerIcon": "resources/branding/portal/icon.ico",
+      "uninstallerIcon": "resources/branding/portal/icon.ico"
     }
   }
 }

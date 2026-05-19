@@ -197,13 +197,13 @@
 - 以降の改善は別途。現状の到達点を「内蔵・再設計フェーズ完了」とみなす。
 - [x] **顧客図面**: 生産ボードの「提供ファイル」と**同一扱い**。`drawing-library:listSeisanCustomerDrawings` のみを UI で表示（別タブ「顧客図面（DB）」は廃止）。開く＝`seisan-file:open`。
 - [x] Express 撤去相当: 旧 `localhost:3001` API を **IPC** に置換（`drawing:*` / `drawing-dxf:*` / `drawing-edrawings:*` / `drawing-comment:*` / `drawing-library:*`）。専用 SQLite は中央 DB と**隣接**して `drawing-library.db` として自動オープン（`drawingLibraryConnection.ts`）。
-- [x] **自社発行のみ** `drawing-library.db` へ登録: `drawing:list` … `drawing:readFile` ほか DXF / eDrawings / コメント（`drawingType` は UI 上 `work` のみ）
-- [x] `drawing-dxf:list` / `drawing-dxf:upload` / `drawing-dxf:delete`
+- [x] **自社発行のみ** `drawing-library.db` へ登録: `drawing:list` … `drawing:readFile` ほか eDrawings / コメント（`drawingType` は UI 上 `work` のみ）
+- [x] ~~`drawing-dxf:list` / `drawing-dxf:upload` / `drawing-dxf:delete`~~ **廃止（2026-05-17）**: 図面ライブラリでの DXF 取り扱いをやめたため、IPC・repo・ストレージ補助・スキーマ作成・型を削除（既存 DB の `drawing_dxf_files` テーブル・`dxf/` ディレクトリは互換のため残置）
 - [x] `drawing-edrawings:list` / `drawing-edrawings:upload` / `drawing-edrawings:delete`
 - [x] `drawing-comment:list` / `drawing-comment:create` / `drawing-comment:update` / `drawing-comment:delete`
 - [x] PDF 等: レンダラは **`drawing:readFile` → Blob URL** でプレビュー（Express の `/api/files` 廃止）
 - [x] 図面比較（おまけ）: 外部 PDF 2 件を IPC で比較。**`compare_drawings.exe` 優先**（`resources/tools/` 開発配置、`electron-builder` の `extraResources` で `resources/tools` に同梱、`DRAWING_COMPARE_EXE` で上書き）。無い場合は Python スクリプト（`DRAWING_COMPARE_SCRIPT` 等）
-- [x] 自社発行タブ: 詳細モーダルで **eDrawings** の一覧・追加・削除（DXF と同様）
+- [x] 自社発行タブ: 詳細モーダルで **eDrawings** の一覧・追加・削除
 - [x] **一覧の絞り込み・並び替え（旧アプリ相当）**
   - [x] **自社発行**（`DrawingDbTab.tsx`）: 客先→機種→図面番号(品番) の **カスケード**（`drawing:workCascadeOptions`）。**並び替え**は `drawing:list` の `sortBy` / `sortOrder`（`drawings.repo.ts` で列ホワイトリスト + 動的 `ORDER BY`）
   - [x] **顧客図面＝提供ファイル**（`SeisanProvidedFilesTab.tsx`）: `company_id`→`model_type`→`part_number` の **カスケード**と **並び替え**（取得済み行に対するクライアント側。追加 IPC なし）
@@ -225,6 +225,7 @@
 - [x] **初回 UI**: `#/apps/process-management`・ヘッダ固定 + ビューポート内スクロール（図面ライブラリに準拠）。**ボード**（全体俯瞰・開始/完了・履歴・マイタスク）／**案件**（一覧 + 選択案件のタスク）
 - [x] **ボード一覧 UX**（`ProcessManagementApp.tsx`）: メイン余白（`mx-3` / `sm:mx-5`）。`process-mgmt:task:listBoard` は **`query` / `client` を空**で全件取得し、**レンダラ側**でカスケード（客先→案件→工程→担当）、テキスト検索、**列ヘッダクリックでソート**、**ページネーション**（表示件数 20 / 50 / 100）。テーブルに **更新**列（`updatedAt`）
 - [x] **完了時の進捗％**: `status === '完了'` は **常に 100% 扱い**（`pm-tasks.repo.ts` の `mapDbToPmTask`）。DB 更新は `completeTask` に加え **`updateTask` / `updateTaskStatus` が `完了` になったときも** `progress_percent = 100`・`completed_at` 等を整合。マイタスクの「完了」直後は UI 上 `setPercent(100)` してから再取得
+- [x] **タスク完了のインナー通知（メールなし）**: 完了時に `pm_task_completion_notifications` へ行を追加し、**他のアクティブ管理者**（完了操作者本人を除く）がヘッダのベル一覧で確認。**確認（ack）するまで一覧から消えない**。完了取り消しで当該タスクの通知行を削除。IPC: `process-mgmt:notify:listPending` / `process-mgmt:notify:acknowledge`
 
 #### 3-C 関連の実装メモ（2026-05-06 時点）
 - ボードの絞り込み・並び・ページングは **IPC 追加なし**（一覧は従来どおり `listBoard` の 1 回取得を前提）。
@@ -263,9 +264,125 @@
 
 ---
 
+## フェーズ 4-A: マスタ起点のユーザー権限・アプリ別権限（計画のみ・**未実装**）
+
+**目的**: ポータル「操作者」はログインとポータル内設定だけ。業務ユーザー・グループ・工程表示・各アプリの権限は **マスターデータ（中央 DB）** で定義する。工程完了通知は **ポータル全体 admin** ではなく **グループ単位の管理者**（マスタ定義）へ。
+
+### 現状（2026-05 時点）とギャップ
+
+| 項目 | 現状 | 望ましい姿 |
+|------|------|------------|
+| ログイン | `app_operators`（username / password / **role** / **processView**） | 操作者＝ログイン口のみ。業務属性はマスタへ |
+| 業務ユーザー | `m_user_names`（マスタ画面ラベルは「担当者」） | **ユーザー** として定義し、権限・通知の主体にする |
+| グループ | `m_group_names`（生産案件のグループ名のみ） | **グループ × ユーザー × 役割**（例: 一般 / グループ管理者） |
+| アプリ権限 | `app_operator_app_grants` は **DDL のみ**（未使用）。実効は `app_operators.role` が全アプリ共通 | **アプリごと**に admin / editor / viewer（＋工程管理だけ工程表示） |
+| 工程表示 | `app_operators.processView`・操作者画面で編集 | **マスタ側**（工程管理アプリ権限に紐づけ） |
+| 工程タスク担当 | `tasks.assignee` は **文字列**（ログイン名と一致させて運用） | **マスタユーザー**（ID または正規名）で紐づけ |
+| 完了通知宛先 | `listActiveAdminUsernames()`＝**有効な portal admin 全員**（完了者除く） | **当該案件グループの「グループ管理者」** などマスタ定義 |
+
+### 責務の切り分け（修正イメージ）
+
+```mermaid
+flowchart TB
+  subgraph portal [ポータル操作者 app_operators]
+    login[ログイン ID / パスワード]
+    portalCfg[ポータル設定のみ: DB パス / 会社情報 / LP 等]
+  end
+  subgraph master [マスターデータ 中央 DB]
+    users[m_user_names → ユーザー]
+    groups[m_group_names → グループ]
+    ug[m_user_group_memberships 新規: グループ内役割]
+    grants[m_user_app_grants 新規: アプリ別権限]
+  end
+  subgraph apps [内蔵アプリ]
+    pm[工程管理]
+    sb[生産ボード]
+    dl[図面ライブラリ]
+  end
+  login -->|1:1 紐づけ| users
+  users --> ug
+  groups --> ug
+  users --> grants
+  grants --> pm
+  grants --> sb
+  grants --> dl
+  ug -->|グループ管理者| pmNotify[完了通知宛先]
+```
+
+- **ポータル操作者（`app_operators`）**: 認証・`mustChangePassword`・有効/無効。**ポータル管理画面**では DB 設定・会社情報・（必要なら）操作者アカウントの追加/無効化のみ。**工程表示・アプリ別 role は編集しない**。
+- **マスターデータ**: ユーザー・グループ・**グループ所属と役割**・**アプリ別権限**（＋工程管理向け **工程表示**）を編集。**編集権限はポータル admin のみ**（マスターデータ画面もポータル admin が操作）。生産ボード CSV の「ユーザー」列等と整合する **正のユーザー名** をここで管理。
+- **セッション**: ログイン後、`app_operators` → 紐づく `m_user_names` を解決し、**アプリ起動時・IPC 時**に `m_user_app_grants`（＋グループ役割）を参照して権限判定。
+
+### 合意済み方針（2026-05-17）
+
+| # | 論点 | 決定 |
+|---|------|------|
+| 1 | ログインとユーザー | **1 ログイン = 1 マスタユーザー（固定）**。**ログイン名（`app_operators.username`）とマスタの名前（`m_user_names.name`）は同一**とする |
+| 2 | ポータル `admin` | **ポータル設定のみ**（DB・会社情報・操作者アカウント等）。生産・工程・図面・Pixo 等の業務権限は **すべてマスタの `m_user_app_grants`** |
+| 3 | 完了通知 | **当該案件のグループの「グループ管理者」** のみ（完了したユーザーは除外）。**複数グループ所属は想定しない**（1 ユーザー = 最大 1 グループ） |
+| 4 | グループ未設定案件 | 生産ボードで **グループは必須入力**のため、通常は未設定にならない。通知ロジックは **グループに紐づく group_admin のみ**（特別フォールバックは設けない。データ不整合時は通知なし＋ログ等で検知する程度） |
+| 5 | 用語 | `m_user_names` の表示を **「ユーザー」** に統一。生産ボード CSV・画面の **「入力者」「担当者」表記も「ユーザー」に揃える** |
+| 6 | マスタ編集権 | **ポータル admin のみ**。各アプリ admin やグループ管理者によるマスタ編集は **しない** |
+
+### データモデル案（スキーマ追加・移行は別タスク）
+
+- [ ] **`app_operators` から業務属性を外す（移行後）**
+  - [ ] `processView` 列は **廃止**（既存値は migrate で `m_user_app_grants` へコピー）
+  - [ ] `role` は **ポータル用のみ**: 現行 `admin`＝ポータル設定可、`editor`/`viewer` はポータル内の補助ロールとして残すか整理（業務アプリの editor/viewer は **マスタ側のみ**）
+- [ ] **`app_operators.userNameId`**（移行後は **必須**）: ログインと `m_user_names.id` の **1:1**。`username` と `m_user_names.name` は **同一文字列を維持**（作成・改名時に両方更新）
+- [ ] **`m_user_group_memberships`**（新規）例:
+  - `userNameId` → `m_user_names`（**1 ユーザーは 0 または 1 グループのみ** — `UNIQUE(userNameId)` で担保）
+  - `groupNameId` → `m_group_names`
+  - `roleInGroup`: `member` | `group_admin`（表示名: 一般 / グループ管理者）
+- [ ] **`m_user_app_grants`**（新規、または既存 `app_operator_app_grants` を **userNameId 基準**に作り直し）例:
+  - `userNameId`, `appId`（`process-management` / `seisan-board` / `drawing-library` / `pixo-converter` 等）
+  - `appRole`: `admin` | `editor` | `viewer`
+  - `processView`: **工程管理のみ** `solidworks` | `cadmac` | `both`（他アプリは NULL）
+  - PRIMARY KEY (userNameId, appId)
+- [ ] **用語統一**: `MASTER_TABLE_LABELS`・生産ボード（CSV ヘッダー／案件フォーム／一覧）・工程管理（ボード「担当」列・マイタスク・通知文）の **「担当者」「入力者」→「ユーザー」**（合意どおり横断）
+
+### UI / IPC の修正イメージ
+
+- [ ] **マスターデータ画面**（内蔵 master-database）— **ポータル admin のみ表示・編集可**
+  - [ ] ユーザー一覧に **ログイン紐づけ**・**所属グループ（0〜1）**・**アプリ別権限**のサマリ列（または詳細モーダル）
+  - [ ] **グループ × ユーザー** 編集 UI（ユーザーは **1 グループのみ** 所属・**グループ管理者** フラグ）
+  - [ ] **アプリ別権限** 編集 UI（アプリ選択 × role × 工程管理時のみ工程表示）
+- [ ] **ポータル管理 › 操作者**（`AdminOperators.tsx`）
+  - [ ] **工程表示**列・`operator:updateProcessView` 呼び出しを **削除**
+  - [ ] 新規操作者作成時は **マスタユーザーを選択**（または作成後にマスタで紐づけ）— パスワードと有効/無効のみ
+  - [ ] 説明文: 「業務権限はマスターデータで設定」
+- [ ] **認証・セッション**（`auth` / `SessionUser`）
+  - [ ] `SessionUser` を拡張または置換: `userNameId`, `displayName`, **アプリ別権限のキャッシュ**（または都度 DB 参照）
+  - [ ] `auth:syncSession` でマスタ側の変更（工程表示・app grants）を反映
+- [ ] **権限ガード**（`auth-guard.ts` 等）
+  - [ ] `assertCanWrite` / `assertAdmin` を **アプリ文脈付き**に（例: `assertAppRole('process-management', 'editor')`）
+  - [ ] 工程管理の `canOperateProcessMgmtTasks` は **process-management の app grant** から判定
+- [ ] **工程管理**
+  - [ ] `tasks.assignee` → **`userNameId` 参照**（またはマスタ `name` の正規化キー）。開始時はログインユーザーのマスタ ID をセット
+  - [ ] マイタスク・ボード担当フィルタをマスタユーザー基準に
+  - [ ] **完了通知**: 完了タスクの `seisan_project_id` → 生産案件の **group** → そのグループの **`group_admin`**（マスタ）へ通知行を作成（完了者は除外）。**portal admin 全員には送らない**。グループ未解決時は **通知なし**
+  - [ ] 通知ベル表示: ログインユーザーが **当該グループの group_admin** のときのみ（＋必要なら工程管理アプリの利用権限あり）
+- [ ] **既存 `app_operator_app_grants`**
+  - [ ] `operatorId` ベースの DDL は **非推奨化**し、`m_user_app_grants` に移行するか、テーブル定義を差し替え（マイグレーション方針を `db-schema.md` に記載）
+
+### ドキュメント（実装前に更新）
+
+- [ ] `requirements.md` — 認証・権限の二層構造（ポータル / マスタ）
+- [ ] `db-schema.md` — 新テーブル・FK・移行手順
+- [ ] `ipc-channels.md` — `operator:updateProcessView` 廃止、`master:userGroup:*` / `master:userAppGrant:*` 等の新チャネル
+- [ ] `bootstrap-and-auth.md` — 初回 admin とマスタユーザーの関係
+
+### 実装時の残タスク（合意後の細部）
+
+- [ ] 初回 seed: `admin` 操作者と同名の `m_user_names` 行・`m_user_app_grants`・（任意）グループ所属の初期データ
+- [ ] 既存 DB 移行: `app_operators.processView` → `m_user_app_grants`、文字列 `assignee` → `userNameId` の名寄せ
+- [ ] ポータル `editor`/`viewer` の扱い（ポータル設定に一切触れないなら `portal_user` 1 種のみでも可）— 実装時に最小構成を決める
+
+---
+
 ## フェーズ 4: 運用強化
 
-- [ ] アプリ別利用権限（`app_operator_app_grants`）
+- [ ] アプリ別利用権限 — **フェーズ 4-A に統合して設計**。旧タスク `app_operator_app_grants`（operator 基準）は **user 基準へ作り直し**
 - [ ] 操作ログ・監査テーブル
 - [ ] 更新通知（バージョンチェック）
 - [ ] インストーラ作成（`electron-builder`、NSIS）
@@ -350,4 +467,9 @@
 | 2026-05-09 | **生産ボード（内蔵）**: CSV インポートにフォーマット説明・**CSV テンプレ DL**・**リビジョン**列（任意・旧 CSV 互換）・エクスポートのリビジョン列。設定の **Excel テンプレ**は `resources/format.xlsx` を同梱して DL、記入注意を更新。**PixoConverter（単体）**: PDF 連結／ページ編集の Acrobat 風 UI と `PdfReplacePage` 不具合修正。 |
 | 2026-05-09 | **スタンドアロンアプリ 5 フォルダをリポジトリから削除**: `drawing-libraly` / `master-database` / `seisan-board` / `Process management` / `Process management desktop`（機能は `portal` 内蔵に集約済み）。`drawingCompare`・CSV フォーマット DL のフォールバックパス・ドキュメント索引を追随。 |
 | 2026-05-09 | **ホーム LP**: アプリ一覧を 4 セクション化・説明文拡充（`APP_CATALOG`・`AppDescriptor.section`）。**事務向けライトテーマ**（生産ボード・図面ライブラリ・工程管理の `.portal-app-calm-shell`）・文字色調整・共有 `Button` primary。**図面ライブラリ**の薄字修正・**顧客／自社の一覧ページネーション（20/50/100）**。**Pixo** temp 終了時クリア。**README** 保存階層・Pixo 注記。詳細は本書「直近の改善・修正」を参照。 |
+| 2026-05-09 | **工程管理**: タスク完了時に DB へ通知行を追加し、**管理者**ヘッダのベルで未確認一覧表示。**確認するまで消えない**（`acknowledge`）。`process-mgmt:notify:listPending` / `notify:acknowledge`。`ipc-channels.md`・`task-progress.md` 追記。 |
 | 2026-05-09 | **図面ライブラリ**: 説明文をヘルプモーダル化。**工程管理**: 説明をヘルプ化・ボードの案件内容／進捗メモ UI 改善。**ホーム**: ヒーロー背景を設定＋constants で指定可能（`file:`・CSP・`webSecurity`）、カルーセル背景は撤去、LP セクション全面背景＋`w-fit` パネル・カルーセル縦オーバーレイ縮小。詳細は本書「直近の改善・修正」。 |
+| 2026-05-17 | **工程管理**: ボード「状態」列をバッジ色分け（完了=success / 作業中=accent / blocked=warning / その他=ニュートラル）。通知ベルに **更新ボタン** を追加し、ポーリング・タブ復帰時の再取得は静かに実行（チラつき抑制）。 |
+| 2026-05-17 | **図面ライブラリ**: **DXF 取り扱いを廃止**。`drawing-dxf:*` IPC、`drawingAttachments.repo` の DXF 関数、`ensureDxfInCustomerFolder`、`LibDxfFileRow`、`drawing_dxf_files` テーブル DDL、`drawingFilesRead.repo` の `.dxf` MIME 分岐、`drawingCompare` の `dxf/` プレフィックス分岐、`drawingLibraryConnection` のコメント、`docs/ipc-channels.md`・`README.md`・本書の DXF 記述を削除／更新（既存 DB の `drawing_dxf_files` テーブル・`dxf/` フォルダは互換のため残置）。 |
+| 2026-05-17 | **権限・通知の再設計（計画のみ）**: フェーズ **4-A** を追記。マスタのユーザー／グループ所属（グループ管理者）／アプリ別権限＋工程表示をマスタで管理。ポータル操作者はポータル設定のみ。工程完了通知はグループ管理者へ（現状の portal admin 全員から変更予定）。**実装は未着手**。 |
+| 2026-05-17 | **フェーズ 4-A 合意**: 1 ログイン=1 ユーザー・ログイン名=マスタ名同一／ポータル admin=ポータル設定のみ・業務権限はマスタ／通知=グループ管理者のみ・複数グループ所属なし／グループは生産で必須・用語は「ユーザー」に統一／マスタ編集はポータル admin のみ。本書 4-A「合意済み方針」表に反映。 |

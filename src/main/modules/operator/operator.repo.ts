@@ -28,6 +28,16 @@ function toOperatorRow(row: Row): OperatorRow {
   };
 }
 
+/** 工程タスク完了通知の宛先（アクティブな admin のユーザー名） */
+export function listActiveAdminUsernames(): string[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT username FROM app_operators WHERE role = 'admin' AND isActive = 1 ORDER BY id ASC`
+    )
+    .all() as { username: string }[];
+  return rows.map((r) => (r.username ?? "").trim()).filter((u) => u.length > 0);
+}
+
 export function listOperators(): OperatorRow[] {
   const rows = getDb()
     .prepare(

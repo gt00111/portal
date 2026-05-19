@@ -1,50 +1,8 @@
-import type { LibCommentRow, LibDxfFileRow, LibEdrawingsFileRow } from "@shared/drawingLibrary.js";
+import type { LibCommentRow, LibEdrawingsFileRow } from "@shared/drawingLibrary.js";
 
 import { getDrawingLibraryDb } from "@main/db/drawingLibraryConnection.js";
 
 import { resolveUnderDataDir, unlinkIfExists } from "./drawingStorage.js";
-
-export function listDxfByDrawing(drawingId: number): LibDxfFileRow[] {
-  const db = getDrawingLibraryDb();
-  return db
-    .prepare(
-      "SELECT * FROM drawing_dxf_files WHERE drawing_id = ? ORDER BY created_at ASC"
-    )
-    .all(drawingId) as LibDxfFileRow[];
-}
-
-export function insertDxfRow(
-  drawingId: number,
-  relativePath: string,
-  originalName: string,
-  fileSize: number
-): LibDxfFileRow {
-  const db = getDrawingLibraryDb();
-  const r = db
-    .prepare(
-      `INSERT INTO drawing_dxf_files (drawing_id, file_path, file_name, file_size)
-       VALUES (?, ?, ?, ?)`
-    )
-    .run(drawingId, relativePath, originalName, fileSize);
-  const id = Number(r.lastInsertRowid);
-  const row = db.prepare("SELECT * FROM drawing_dxf_files WHERE id = ?").get(id) as LibDxfFileRow;
-  return row;
-}
-
-export async function deleteDxfFile(id: number): Promise<void> {
-  const db = getDrawingLibraryDb();
-  const file = db.prepare("SELECT * FROM drawing_dxf_files WHERE id = ?").get(id) as LibDxfFileRow | undefined;
-  if (!file) {
-    throw new Error("DXF ファイルが見つかりません。");
-  }
-  try {
-    const abs = resolveUnderDataDir(file.file_path);
-    await unlinkIfExists(abs);
-  } catch {
-    /* continue */
-  }
-  db.prepare("DELETE FROM drawing_dxf_files WHERE id = ?").run(id);
-}
 
 export function listEdrawingsByDrawing(drawingId: number): LibEdrawingsFileRow[] {
   const db = getDrawingLibraryDb();

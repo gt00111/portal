@@ -20,11 +20,12 @@ import { getPortalWindow } from "@main/window.js";
 
 import * as attachments from "./drawingAttachments.repo.js";
 import { compareDrawings } from "./drawingCompare.js";
+import { getPdfPageCountFromPath } from "./drawing-pdf-page-count.js";
 import * as filesRead from "./drawingFilesRead.repo.js";
 import * as masters from "./drawingMasters.repo.js";
 import * as repo from "./drawing-library.repo.js";
 import * as drawings from "./drawings.repo.js";
-import { ensureDxfInCustomerFolder, ensureEdrawingsInFolder, ensurePdfInCustomerFolder, resolveUnderDataDir } from "./drawingStorage.js";
+import { ensureEdrawingsInFolder, ensurePdfInCustomerFolder, resolveUnderDataDir } from "./drawingStorage.js";
 
 function dialogParent(): BrowserWindow | undefined {
   return BrowserWindow.getFocusedWindow() ?? getPortalWindow() ?? undefined;
@@ -247,67 +248,6 @@ export function register(ipcMain: IpcMain): void {
     }
   );
 
-  ipcMain.handle("drawing-dxf:list", async (_event, data: { drawing_id?: number }) => {
-    try {
-      assertLoggedIn();
-      ensureDrawingLibrary();
-      if (data?.drawing_id == null) throw new Error("drawing_id が必要です。");
-      return ok(attachments.listDxfByDrawing(data.drawing_id));
-    } catch (err) {
-      return fail(err);
-    }
-  });
-
-  ipcMain.handle(
-    "drawing-dxf:upload",
-    async (_event, data: { drawing_id?: number; customerName?: string }) => {
-      try {
-        assertCanWrite();
-        ensureDrawingLibrary();
-        if (data?.drawing_id == null) throw new Error("drawing_id が必要です。");
-        if (!data?.customerName?.trim()) throw new Error("顧客名が必要です。");
-        const parent = dialogParent();
-        const res = parent
-          ? await dialog.showOpenDialog(parent, {
-              filters: [{ name: "DXF", extensions: ["dxf"] }],
-              properties: ["openFile"],
-            })
-          : await dialog.showOpenDialog({
-              filters: [{ name: "DXF", extensions: ["dxf"] }],
-              properties: ["openFile"],
-            });
-        if (res.canceled || !res.filePaths[0]) {
-          throw new Error("ファイルが選択されませんでした。");
-        }
-        const src = res.filePaths[0];
-        const { relativePath } = await ensureDxfInCustomerFolder(src, data.customerName);
-        const { statSync } = await import("node:fs");
-        const st = statSync(src);
-        const row = attachments.insertDxfRow(
-          data.drawing_id,
-          relativePath,
-          src.split(/[/\\]/).pop() ?? "file.dxf",
-          st.size
-        );
-        return ok(row);
-      } catch (err) {
-        return fail(err);
-      }
-    }
-  );
-
-  ipcMain.handle("drawing-dxf:delete", async (_event, data: { id?: number }) => {
-    try {
-      assertCanWrite();
-      ensureDrawingLibrary();
-      if (data?.id == null) throw new Error("id が必要です。");
-      await attachments.deleteDxfFile(data.id);
-      return ok(null);
-    } catch (err) {
-      return fail(err);
-    }
-  });
-
   ipcMain.handle("drawing-edrawings:list", async (_event, data: { drawing_id?: number }) => {
     try {
       assertLoggedIn();
@@ -461,6 +401,20 @@ export function register(ipcMain: IpcMain): void {
         throw new Error("ファイルが選択されませんでした。");
       }
       return ok<{ path: string }>({ path: res.filePaths[0] });
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle("drawing-library:getPdfPageCount", async (_event, payload: { path?: string }) => {
+    try {
+      assertLoggedIn();
+      const path = (payload?.path ?? "").trim();
+      if (!path) {
+        throw new Error("PDF パスが必要です。");
+      }
+      const pageCount = await getPdfPageCountFromPath(path);
+      return ok<{ pageCount: number }>({ pageCount });
     } catch (err) {
       return fail(err);
     }

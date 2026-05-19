@@ -79,7 +79,6 @@ function resolveCompareOutputDir(): string {
 function resolveAbsoluteForCompare(filePath: string): string {
   const isProbablyRelative =
     filePath.startsWith("drawings/") ||
-    filePath.startsWith("dxf/") ||
     filePath.startsWith("mycompany/") ||
     filePath.startsWith("_temp/");
   if (isProbablyRelative) {

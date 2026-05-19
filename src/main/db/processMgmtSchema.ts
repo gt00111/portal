@@ -86,4 +86,26 @@ export function initProcessMgmtSchema(db: Database.Database): void {
   ensureColumn(db, "tasks", "completion_undo_at", "TEXT");
   ensureColumn(db, "tasks", "completion_undo_by", "TEXT NOT NULL DEFAULT ''");
   ensureProcessMgmtMetaTable(db);
+  ensurePmTaskCompletionNotificationsTable(db);
+}
+
+/** 工程タスク完了のインナー通知（メールなし。確認まで一覧に残す） */
+function ensurePmTaskCompletionNotificationsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pm_task_completion_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recipient_username TEXT NOT NULL,
+      task_id INTEGER NOT NULL,
+      summary_json TEXT NOT NULL,
+      completed_by TEXT NOT NULL,
+      task_completed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      acknowledged_at TEXT
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pm_notify_recipient_pending
+    ON pm_task_completion_notifications (recipient_username, id)
+    WHERE acknowledged_at IS NULL;
+  `);
 }

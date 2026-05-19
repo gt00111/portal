@@ -69,15 +69,6 @@ export interface DrawingListResult {
   totalPages: number;
 }
 
-export interface LibDxfFileRow {
-  id: number;
-  drawing_id: number;
-  file_path: string;
-  file_name: string;
-  file_size: number | null;
-  created_at: string;
-}
-
 export interface LibEdrawingsFileRow {
   id: number;
   drawing_id: number;
