@@ -1,7 +1,7 @@
 import { FolderOpen, GitCompare, PenLine, User } from "lucide-react";
 import { useState } from "react";
 
-import type { AppRole } from "@shared/auth.js";
+import { canAppWrite, getAppRole, type AppRole } from "@shared/auth.js";
 import type { SessionUser } from "@shared/types.js";
 
 import { PortalAppHeaderLogo } from "@renderer/components/PortalAppHeaderLogo.js";
@@ -24,6 +24,8 @@ interface Props {
 
 export function DrawingLibraryApp({ session }: Props): JSX.Element {
   const [tab, setTab] = useState<TabId>("seisan");
+  const dlRole = getAppRole(session, "drawing-library");
+  const writable = canAppWrite(session, "drawing-library");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-base">
@@ -70,15 +72,15 @@ export function DrawingLibraryApp({ session }: Props): JSX.Element {
           <User className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden />
           <span className="max-w-[min(8rem,35vw)] truncate sm:max-w-[8rem]">{session.username}</span>
           <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-xs text-fg-subtle">
-            {ROLE_LABELS[session.role] ?? session.role}
+            {ROLE_LABELS[dlRole ?? "viewer"]}
           </span>
         </div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <div className="mx-auto max-w-6xl px-4 py-6">
-          {tab === "seisan" && <SeisanProvidedFilesTab role={session.role} />}
-          {tab === "workDb" && <DrawingDbTab role={session.role} />}
+          {tab === "seisan" && <SeisanProvidedFilesTab writable={writable} />}
+          {tab === "workDb" && <DrawingDbTab writable={writable} />}
           {tab === "pdfCompare" && <PdfCompareBonusTab />}
         </div>
       </main>

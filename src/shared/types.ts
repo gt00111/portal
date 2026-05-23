@@ -1,11 +1,22 @@
 import type { AppRole } from "./auth.js";
+import type { GrantableAppId } from "./appIds.js";
+import type { GroupRole } from "./userAccess.js";
 import type { ProcessView } from "./processView.js";
 
 export interface SessionUser {
   id: number;
   username: string;
+  /** ポータル操作者の権限（ポータル設定・マスタ編集のみに使用） */
   role: AppRole;
+  userNameId: number;
+  /** マスタユーザー名（ログイン名と同一） */
+  displayName: string;
+  /** 工程管理アプリ権限から解決（後方互換・IPC 用） */
   processView: ProcessView;
+  /** アプリ別業務権限（ログイン時に読込） */
+  appGrants: Partial<Record<GrantableAppId, AppRole>>;
+  /** 所属グループ内の役割（未所属なら null） */
+  groupRole: GroupRole | null;
   mustChangePassword: boolean;
 }
 
@@ -13,7 +24,7 @@ export interface OperatorRow {
   id: number;
   username: string;
   role: AppRole;
-  processView: ProcessView;
+  userNameId: number | null;
   isActive: boolean;
   mustChangePassword: boolean;
   createdAt: string;

@@ -1,9 +1,10 @@
 import type { IpcMain } from "electron";
 
+import { isGrantableAppId } from "@shared/appIds.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 import type { AppDescriptor } from "@shared/types.js";
 
-import { assertLoggedIn } from "@main/auth-guard.js";
+import { assertCanViewApp, assertLoggedIn } from "@main/auth-guard.js";
 
 import { openInternalAppWindow } from "./childWindow.js";
 import { findApp, listAppCatalog } from "./launcher.repo.js";
@@ -27,6 +28,15 @@ export function register(ipcMain: IpcMain): void {
       }
       if (!descriptor.ready) {
         throw new Error(`「${descriptor.displayName}」は準備中です。後続フェーズで提供します。`);
+      }
+      if (isGrantableAppId(descriptor.id)) {
+        try {
+          assertCanViewApp(descriptor.id);
+        } catch {
+          throw new Error(
+            `「${descriptor.displayName}」を利用する権限がありません。ポータル管理者に依頼してください。`
+          );
+        }
       }
       if (descriptor.kind === "internal") {
         openInternalAppWindow(descriptor);

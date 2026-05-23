@@ -1,6 +1,7 @@
 import { Database, Settings as SettingsIcon, Users, ArrowLeft, LayoutGrid } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+import { isPortalAdmin } from "@shared/auth.js";
 import type { SessionUser } from "@shared/types.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
@@ -14,12 +15,12 @@ interface Props {
 const links = [
   { to: "/admin/settings", label: "設定", icon: SettingsIcon, adminOnly: true },
   { to: "/admin/operators", label: "操作者", icon: Users, adminOnly: true },
-  { to: "/apps/master-database", label: "マスタ", icon: Database, adminOnly: false },
+  { to: "/apps/master-database", label: "マスタ", icon: Database, adminOnly: true },
 ];
 
 export function AdminLayout({ session, onLogout }: Props): JSX.Element {
   const navigate = useNavigate();
-  const visible = links.filter((l) => !l.adminOnly || session.role === "admin");
+  const visible = links.filter((l) => !l.adminOnly || isPortalAdmin(session.role));
 
   return (
     <div className="flex min-h-screen flex-col bg-bg-base md:flex-row">

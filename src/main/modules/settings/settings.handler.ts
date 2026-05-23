@@ -13,7 +13,8 @@ import {
 import { fail, ok } from "@shared/ipcResponse.js";
 import type { BootstrapStage, CompanyInfo, SettingsSnapshot } from "@shared/types.js";
 
-import { assertAdmin } from "@main/auth-guard.js";
+import { appendAuditEntry } from "@main/audit/audit.repo.js";
+import { assertPortalAdmin } from "@main/auth-guard.js";
 import { closeDatabase, getDbPath, isOpen, openDatabase } from "@main/db/connection.js";
 import { getPortalWindow } from "@main/window.js";
 
@@ -97,7 +98,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("settings:pickHomeLpImage", async () => {
     try {
-      assertAdmin();
+      assertPortalAdmin();
       const parent = BrowserWindow.getFocusedWindow() ?? getPortalWindow() ?? undefined;
       const filters = [
         { name: "画像", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] },
@@ -127,7 +128,7 @@ export function register(ipcMain: IpcMain): void {
     "settings:updateCompanyInfo",
     async (_event, data: Partial<CompanyInfo>) => {
       try {
-        assertAdmin();
+        assertPortalAdmin();
         if (typeof data?.companyName === "string") {
           putSetting(SETTINGS_KEYS.companyName, data.companyName.trim() || DEFAULT_COMPANY_NAME);
         }
@@ -144,8 +145,26 @@ export function register(ipcMain: IpcMain): void {
             data.homeHeroBackgroundPath?.trim() ? data.homeHeroBackgroundPath.trim() : ""
           );
         }
+        appendAuditEntry({
+          channel: "settings:updateCompanyInfo",
+          action: "update",
+          result: "ok",
+          targetType: "settings",
+          detail: {
+            companyName: data?.companyName ?? null,
+            mottosCount: Array.isArray(data?.mottos) ? data.mottos.length : null,
+            homeHeroBackgroundPath: data?.homeHeroBackgroundPath ?? null,
+          },
+        });
         return ok<SettingsSnapshot>(buildSnapshot(getDbPath()));
       } catch (err) {
+        appendAuditEntry({
+          channel: "settings:updateCompanyInfo",
+          action: "update",
+          result: "fail",
+          targetType: "settings",
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
         return fail(err);
       }
     }

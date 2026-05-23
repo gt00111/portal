@@ -18,6 +18,7 @@ npm run dist                           # electron-builder でパッケージ（�
 | 内容 | 場所 |
 |------|------|
 | 要件・設計索引 | [docs/index.md](docs/index.md) |
+| **ユーザー権限（運用メモ）** | [docs/user-permissions.md](docs/user-permissions.md) |
 | アーキテクチャ | [docs/architecture.md](docs/architecture.md) |
 | IPC 一覧 | [docs/ipc-channels.md](docs/ipc-channels.md) |
 | AI / エディタ向け規約 | [.cursor/rules/](.cursor/rules/)（Electron・モジュール分割・コーディング） |

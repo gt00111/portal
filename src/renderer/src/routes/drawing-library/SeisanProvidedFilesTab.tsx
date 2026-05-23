@@ -1,8 +1,6 @@
 import { Download, FileText, FolderOpen, HelpCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { AppRole } from "@shared/auth.js";
-import { canWrite } from "@shared/auth.js";
 import type { ProjectFile, ProjectFileWithProject } from "@shared/seisan/projectFile.js";
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
 
@@ -24,7 +22,7 @@ import {
 } from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
 
 interface Props {
-  role: AppRole;
+  writable: boolean;
 }
 
 const SEISAN_SORT_OPTIONS: { id: string; label: string }[] = [
@@ -183,9 +181,8 @@ function CustomerDrawingCard({
   );
 }
 
-export function SeisanProvidedFilesTab({ role }: Props): JSX.Element {
+export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
   const toast = useToast();
-  const writable = canWrite(role);
   const [rows, setRows] = useState<ProjectFileWithProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");

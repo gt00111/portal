@@ -7,7 +7,7 @@ import { buildCsvImportTemplateContent } from "@shared/seisan/csvImportFormat.js
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 
-import { assertLoggedIn } from "@main/auth-guard.js";
+import { assertCanViewApp } from "@main/auth-guard.js";
 import { getPortalWindow } from "@main/window.js";
 
 function getResourcesPath(): string {
@@ -35,7 +35,7 @@ function resolveFormatXlsxPath(): string {
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle(SEISAN_CHANNELS.import.downloadFormat, async () => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       const src = resolveFormatXlsxPath();
       const parent = dialogParent();
       const result = parent
@@ -59,7 +59,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.import.downloadCsvTemplate, async () => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       const parent = dialogParent();
       const result = parent
         ? await dialog.showSaveDialog(parent, {
@@ -82,7 +82,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.import.exportCsv, async (_event, csvContent: string) => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       const now = new Date();
       const defaultName = `案件一覧_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.csv`;
       const parent = dialogParent();
@@ -108,7 +108,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.import.selectCsv, async () => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       const parent = dialogParent();
       const result = parent
         ? await dialog.showOpenDialog(parent, {

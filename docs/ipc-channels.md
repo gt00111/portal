@@ -87,7 +87,17 @@ interface SessionUser {
 | `operator:create` | 👑 | `{ username; password; role; processView? }` | `OperatorRow` |
 | `operator:setActive` | 👑 | `{ id: number; isActive: boolean }` | `null` |
 | `operator:updateRole` | 👑 | `{ id: number; role: AppRole }` | `null` |
-| `operator:updateProcessView` | 👑 | `{ id: number; processView: ProcessView }` | `null` | Flask 原型の `process_view`。工程管理の表示切替 |
+| ~~`operator:updateProcessView`~~ | — | — | — | **廃止（4-A）**。工程表示は `user-access:saveAppGrants` で `process-management` の grant に設定 |
+
+## 4b. `user-access:*`（フェーズ 4-A）
+
+マスタユーザーのグループ所属・アプリ別権限（ポータル admin のみ）。
+
+| チャネル | 権限 | Request | Response (`data`) |
+|---------|------|---------|-------------------|
+| `user-access:list` | 👑 portal admin | `undefined` | `UserAccessDetail[]` |
+| `user-access:setGroupMembership` | 👑 | `{ userNameId, groupNameId \| null, roleInGroup }` | `null` |
+| `user-access:saveAppGrants` | 👑 | `{ userNameId, grants: UserAppGrantRow[] }` | `null` |
 
 ```ts
 type ProcessView = "solidworks" | "cadmac" | "both";
@@ -283,7 +293,10 @@ type AppId =
 | 1 | `settings:*`, `auth:*`, `operator:list/create/setActive/updateRole/resetPassword`, `launcher:openApp`（スケルトン） |
 | 2 | `master:*`, `sku:*`, `operator:*` 完全版, `launcher:*` 本実装 |
 | 3 | `seisan-*`, `drawing:*`, `drawing-edrawings:*`, `drawing-comment:*`, `drawing-library:*`, `process-mgmt:*`。サテライト / 隣接 DB |
-| 4 | `grant:*`（アプリ別権限）, `audit:*`（監査ログ） |
+| 4-A | `user-access:*`（アプリ権限・グループ管理者） |
+| 4-B | `master:*` の `m_categories` 拡張（`scope`） |
+| 4-C | `pixo-converter:progress`（push）。preload は `window.api.on('pixo-converter:progress', cb)` で許可チャネル限定購読 |
+| 4-D | `audit:list` / `audit:listChannels` / `audit:listUsernames`（👑 ポータル admin） |
 
 ---
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
+import { isPortalAdmin } from "@shared/auth.js";
 import { MASTER_TABLES } from "@shared/master.js";
 
 import { AdminLayout } from "@renderer/components/AdminLayout.js";
@@ -22,6 +23,8 @@ import { PixoConverterApp } from "@renderer/routes/PixoConverterApp.js";
 import { ProcessManagementApp } from "@renderer/routes/ProcessManagementApp.js";
 import { SeisanBoardApp } from "@renderer/routes/SeisanBoardApp.js";
 import { SkuRoute } from "@renderer/routes/SkuRoute.js";
+import { AuditLogPage } from "@renderer/routes/master/AuditLogPage.js";
+import { UserAccessPage } from "@renderer/routes/master/UserAccessPage.js";
 
 export function App(): JSX.Element {
   return (
@@ -40,7 +43,6 @@ function AppRoutes(): JSX.Element {
     login,
     logout,
     changePassword,
-    syncSession,
     refresh: refreshAuth,
   } = useAuth();
   const navigate = useNavigate();
@@ -150,7 +152,7 @@ function AppRoutes(): JSX.Element {
             <Route
               path="/admin"
               element={
-                session.role !== "admin" ? (
+                !isPortalAdmin(session.role) ? (
                   <Navigate to="/home" replace />
                 ) : (
                   <AdminLayout session={session} onLogout={handleLogout} />
@@ -164,7 +166,7 @@ function AppRoutes(): JSX.Element {
               />
               <Route
                 path="operators"
-                element={<AdminOperators session={session} onSyncSession={syncSession} />}
+                element={<AdminOperators session={session} />}
               />
             </Route>
 
@@ -195,6 +197,8 @@ function AppRoutes(): JSX.Element {
                 <Route key={t} path={t} element={<MasterTableRoute table={t} />} />
               ))}
               <Route path="m_skus" element={<SkuRoute />} />
+              <Route path="user-access" element={<UserAccessPage />} />
+              <Route path="audit-log" element={<AuditLogPage />} />
             </Route>
           </>
         )}

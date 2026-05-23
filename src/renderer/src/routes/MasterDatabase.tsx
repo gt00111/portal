@@ -1,12 +1,23 @@
 import { NavLink, Outlet, useOutletContext } from "react-router-dom";
 
-import { canWrite } from "@shared/auth.js";
-import { MASTER_TABLES, MASTER_TABLE_LABELS, type MasterTable } from "@shared/master.js";
+import { isPortalAdmin } from "@shared/auth.js";
+import {
+  CATEGORY_SCOPES,
+  CATEGORY_SCOPE_LABELS,
+  MASTER_TABLES,
+  MASTER_TABLE_LABELS,
+  type MasterTable,
+} from "@shared/master.js";
 import type { SessionUser } from "@shared/types.js";
 
 import { MasterCrud } from "@renderer/components/MasterCrud.js";
 import { PortalAppHeaderLogo } from "@renderer/components/PortalAppHeaderLogo.js";
 import { cn } from "@renderer/lib/cn.js";
+
+const CATEGORY_SCOPE_CHOICES = CATEGORY_SCOPES.map((s) => ({
+  value: s,
+  label: CATEGORY_SCOPE_LABELS[s],
+}));
 
 interface Props {
   session: SessionUser;
@@ -50,6 +61,36 @@ export function MasterDatabase({ session }: Props): JSX.Element {
               {MASTER_TABLE_LABELS[t]}
             </NavLink>
           ))}
+          {isPortalAdmin(session.role) && (
+            <NavLink
+              to="user-access"
+              className={({ isActive }) =>
+                cn(
+                  "rounded-lg px-3 py-1.5 text-sm transition-colors",
+                  isActive
+                    ? "bg-accent-primary/15 text-accent-primary"
+                    : "text-fg-muted hover:bg-bg-elevated hover:text-fg-primary"
+                )
+              }
+            >
+              ユーザー権限
+            </NavLink>
+          )}
+          {isPortalAdmin(session.role) && (
+            <NavLink
+              to="audit-log"
+              className={({ isActive }) =>
+                cn(
+                  "rounded-lg px-3 py-1.5 text-sm transition-colors",
+                  isActive
+                    ? "bg-accent-primary/15 text-accent-primary"
+                    : "text-fg-muted hover:bg-bg-elevated hover:text-fg-primary"
+                )
+              }
+            >
+              監査ログ
+            </NavLink>
+          )}
           <NavLink
             to="m_skus"
             className={({ isActive }) =>
@@ -67,7 +108,7 @@ export function MasterDatabase({ session }: Props): JSX.Element {
       </div>
 
       <div className="pt-6">
-        <Outlet context={{ session, canWrite: canWrite(session.role) }} />
+        <Outlet context={{ session, canWrite: isPortalAdmin(session.role) }} />
       </div>
     </div>
   );
@@ -84,5 +125,15 @@ export function useMasterContext(): MasterContext {
 
 export function MasterTableRoute({ table }: { table: MasterTable }): JSX.Element {
   const ctx = useMasterContext();
+  if (table === "m_categories") {
+    return (
+      <MasterCrud
+        table={table}
+        canWrite={ctx.canWrite}
+        scopes={CATEGORY_SCOPE_CHOICES}
+        defaultScope="drawing-library/work"
+      />
+    );
+  }
   return <MasterCrud table={table} canWrite={ctx.canWrite} />;
 }

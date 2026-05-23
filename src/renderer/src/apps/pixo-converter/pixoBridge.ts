@@ -1,5 +1,5 @@
 import type { IpcResponse } from "@shared/ipcResponse.js";
-import { PIXO_CHANNELS } from "@shared/pixo/channels.js";
+import { PIXO_CHANNELS, type PixoProgressEvent } from "@shared/pixo/channels.js";
 
 declare global {
   interface Window {
@@ -44,6 +44,8 @@ export type PixoElectronApi = {
     path?: string;
     error?: string;
   }>;
+  /** 重い処理の進捗イベントを購読。返却された関数で解除 */
+  onProgress: (listener: (event: PixoProgressEvent) => void) => () => void;
 };
 
 async function inv<T>(channel: string, data?: unknown): Promise<T> {
@@ -88,4 +90,18 @@ export const pixoElectronApi: PixoElectronApi = {
   manipulatePdfPage: (params) => inv(PIXO_CHANNELS.manipulatePage, params),
   savePDF: () => inv(PIXO_CHANNELS.savePdfDialog),
   saveTempFile: (params) => inv(PIXO_CHANNELS.saveTempFile, params),
+  onProgress: (listener) => {
+    const sub = window.api?.on?.bind(window.api);
+    if (typeof sub !== "function") {
+      return () => {
+        /* no-op when running outside Electron */
+      };
+    }
+    return sub(PIXO_CHANNELS.progress, (...args: unknown[]) => {
+      const event = args[0] as PixoProgressEvent | undefined;
+      if (event && typeof event === "object") {
+        listener(event);
+      }
+    });
+  },
 };

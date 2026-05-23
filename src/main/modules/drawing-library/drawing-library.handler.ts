@@ -12,7 +12,7 @@ import type {
 import { fail, ok } from "@shared/ipcResponse.js";
 import type { ProjectFileWithProject } from "@shared/seisan/projectFile.js";
 
-import { assertCanWrite, assertLoggedIn } from "@main/auth-guard.js";
+import { assertCanWriteApp, assertLoggedIn } from "@main/auth-guard.js";
 import { ensureDrawingLibrary } from "@main/drawing-library-guard.js";
 import { getDrawingLibraryDbPath } from "@main/db/drawingLibraryConnection.js";
 import { ensureSeisanSatellite } from "@main/seisan-guard.js";
@@ -94,7 +94,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("drawing:create", async (_event, data: { input?: DrawingUpsertInput }) => {
     try {
-      assertCanWrite();
+      assertCanWriteApp("drawing-library");
       ensureDrawingLibrary();
       if (!data?.input?.title) throw new Error("タイトルが必要です。");
       return ok(drawings.insertDrawing(data.input));
@@ -107,7 +107,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing:update",
     async (_event, data: { id?: number; patch?: Partial<DrawingUpsertInput> }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (data?.id == null) throw new Error("id が必要です。");
         return ok(drawings.updateDrawing(data.id, data.patch ?? {}));
@@ -119,7 +119,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("drawing:delete", async (_event, data: { id?: number }) => {
     try {
-      assertCanWrite();
+      assertCanWriteApp("drawing-library");
       ensureDrawingLibrary();
       if (data?.id == null) throw new Error("id が必要です。");
       await drawings.deleteDrawing(data.id);
@@ -133,7 +133,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing:setObsolete",
     async (_event, data: { id?: number; isObsolete?: boolean }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (data?.id == null) throw new Error("id が必要です。");
         return ok(drawings.setObsolete(data.id, data.isObsolete === true));
@@ -183,7 +183,7 @@ export function register(ipcMain: IpcMain): void {
       data: { customerName?: string; drawingType?: "customer" | "work" } | undefined
     ) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (!data?.customerName?.trim()) throw new Error("顧客名が必要です。");
         const parent = dialogParent();
@@ -263,7 +263,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing-edrawings:upload",
     async (_event, data: { drawing_id?: number; customerName?: string }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (data?.drawing_id == null) throw new Error("drawing_id が必要です。");
         if (!data?.customerName?.trim()) throw new Error("顧客名が必要です。");
@@ -309,7 +309,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("drawing-edrawings:delete", async (_event, data: { id?: number }) => {
     try {
-      assertCanWrite();
+      assertCanWriteApp("drawing-library");
       ensureDrawingLibrary();
       if (data?.id == null) throw new Error("id が必要です。");
       await attachments.deleteEdrawingsFile(data.id);
@@ -334,7 +334,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing-comment:create",
     async (_event, data: { drawing_id?: number; comment_text?: string }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (data?.drawing_id == null) throw new Error("drawing_id が必要です。");
         if (!data?.comment_text?.trim()) throw new Error("コメントが必要です。");
@@ -349,7 +349,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing-comment:update",
     async (_event, data: { id?: number; comment_text?: string }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (data?.id == null) throw new Error("id が必要です。");
         if (!data?.comment_text?.trim()) throw new Error("コメントが必要です。");
@@ -362,7 +362,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("drawing-comment:delete", async (_event, data: { id?: number }) => {
     try {
-      assertCanWrite();
+      assertCanWriteApp("drawing-library");
       ensureDrawingLibrary();
       if (data?.id == null) throw new Error("id が必要です。");
       attachments.deleteComment(data.id);
@@ -438,7 +438,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing-library:categoryAdd",
     async (_event, data: { drawingType?: "customer" | "work"; name?: string }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (!data?.name?.trim()) throw new Error("名前が必要です。");
         if (data.drawingType === "work") {
@@ -457,7 +457,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing-library:categoryDelete",
     async (_event, data: { drawingType?: "customer" | "work"; name?: string }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (!data?.name) throw new Error("名前が必要です。");
         if (data.drawingType === "work") {
@@ -492,7 +492,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing-library:masterCreate",
     async (_event, data: { table?: "customers" | "models" | "products"; name?: string }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (!data?.name?.trim()) throw new Error("名前が必要です。");
         const t = data.table ?? "customers";
@@ -509,7 +509,7 @@ export function register(ipcMain: IpcMain): void {
     "drawing-library:masterDelete",
     async (_event, data: { table?: "customers" | "models" | "products"; id?: number }) => {
       try {
-        assertCanWrite();
+        assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (data?.id == null) throw new Error("id が必要です。");
         const t = data.table ?? "customers";

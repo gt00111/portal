@@ -3,7 +3,8 @@ import type { IpcMain } from "electron";
 import { fail, ok } from "@shared/ipcResponse.js";
 import type { SkuRow, SkuUpsertInput } from "@shared/sku.js";
 
-import { assertCanWrite, assertLoggedIn } from "@main/auth-guard.js";
+import { appendAuditEntry } from "@main/audit/audit.repo.js";
+import { assertLoggedIn, assertPortalAdmin } from "@main/auth-guard.js";
 
 import { insert, listAll, remove, update } from "./sku.repo.js";
 
@@ -39,10 +40,24 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("sku:create", async (_event, data: { input: SkuUpsertInput }) => {
     try {
-      assertCanWrite();
+      assertPortalAdmin();
       const row = insert(normalize(data?.input));
+      appendAuditEntry({
+        channel: "sku:create",
+        action: "create",
+        result: "ok",
+        targetType: "sku",
+        targetId: row.id,
+      });
       return ok<SkuRow>(row);
     } catch (err) {
+      appendAuditEntry({
+        channel: "sku:create",
+        action: "create",
+        result: "fail",
+        targetType: "sku",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       return fail(err);
     }
   });
@@ -51,12 +66,27 @@ export function register(ipcMain: IpcMain): void {
     "sku:update",
     async (_event, data: { id: number; input: SkuUpsertInput }) => {
       try {
-        assertCanWrite();
+        assertPortalAdmin();
         const id = Number(data?.id);
         if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
         const row = update(id, normalize(data?.input));
+        appendAuditEntry({
+          channel: "sku:update",
+          action: "update",
+          result: "ok",
+          targetType: "sku",
+          targetId: id,
+        });
         return ok<SkuRow>(row);
       } catch (err) {
+        appendAuditEntry({
+          channel: "sku:update",
+          action: "update",
+          result: "fail",
+          targetType: "sku",
+          targetId: data?.id ?? null,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
         return fail(err);
       }
     }
@@ -64,12 +94,27 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("sku:delete", async (_event, data: { id: number }) => {
     try {
-      assertCanWrite();
+      assertPortalAdmin();
       const id = Number(data?.id);
       if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
       remove(id);
+      appendAuditEntry({
+        channel: "sku:delete",
+        action: "delete",
+        result: "ok",
+        targetType: "sku",
+        targetId: id,
+      });
       return ok<null>(null);
     } catch (err) {
+      appendAuditEntry({
+        channel: "sku:delete",
+        action: "delete",
+        result: "fail",
+        targetType: "sku",
+        targetId: data?.id ?? null,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       return fail(err);
     }
   });

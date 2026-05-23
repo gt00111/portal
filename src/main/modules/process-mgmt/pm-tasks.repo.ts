@@ -12,6 +12,7 @@ type DbTaskRow = {
   process_type: string;
   status: string;
   assignee: string;
+  assignee_user_name_id: number | null;
   progress_percent: number | null;
   progress_note: string | null;
   started_at: string | null;
@@ -36,6 +37,7 @@ export type CreatePmTaskPayload = {
   title: string;
   description?: string;
   assignee?: string;
+  assigneeUserNameId?: number | null;
   processType?: string;
 };
 
@@ -49,6 +51,7 @@ export type UpdatePmTaskPayload = {
   title: string;
   description: string;
   assignee: string;
+  assigneeUserNameId?: number | null;
   status: string;
 };
 
@@ -78,7 +81,7 @@ const TASK_PROCESS_TYPES = ["general", "solidworks", "cadmac"] as const;
 
 const TASK_SELECT = `
   t.id, t.project_id, t.seisan_project_id, t.title, t.description, t.process_type, t.status,
-  t.assignee, t.progress_percent, t.progress_note, t.started_at, t.completed_at,
+  t.assignee, t.assignee_user_name_id, t.progress_percent, t.progress_note, t.started_at, t.completed_at,
   t.completion_undo_reason, t.completion_undo_at, t.completion_undo_by, t.created_at, t.updated_at
 `;
 
@@ -156,6 +159,7 @@ function mapDbToPmTask(row: DbTaskRow): PmTask {
     processType: row.process_type,
     status: row.status,
     assignee: row.assignee,
+    assigneeUserNameId: row.assignee_user_name_id ?? null,
     progressPercent: pct,
     progressNote: row.progress_note ?? "",
     startedAt: row.started_at,
@@ -206,6 +210,7 @@ export function displayPmTask(task: PmTask): PmBoardTask {
     process_type: task.processType,
     status: task.status,
     assignee: task.assignee,
+    assignee_user_name_id: task.assigneeUserNameId,
     progress_percent: task.progressPercent,
     progress_note: task.progressNote,
     started_at: task.startedAt,
@@ -295,6 +300,7 @@ export function listTasksByProject(projectId: number, processView: ProcessView):
     .prepare(
       `
         SELECT id, project_id, seisan_project_id, title, description, process_type, status, assignee,
+               assignee_user_name_id,
                progress_percent, progress_note, started_at, completed_at,
                completion_undo_reason, completion_undo_at, completion_undo_by,
                created_at, updated_at
@@ -315,6 +321,7 @@ export function listMyTasks(username: string, processView: ProcessView): PmTask[
     .prepare(
       `
         SELECT id, project_id, seisan_project_id, title, description, process_type, status, assignee,
+               assignee_user_name_id,
                progress_percent, progress_note, started_at, completed_at,
                completion_undo_reason, completion_undo_at, completion_undo_by,
                created_at, updated_at
@@ -331,6 +338,8 @@ export function createTask(payload: CreatePmTaskPayload): PmTask {
   const title = payload.title.trim();
   const description = (payload.description || "").trim();
   const assignee = (payload.assignee || "").trim();
+  const assigneeUserNameId =
+    payload.assigneeUserNameId == null ? null : Number(payload.assigneeUserNameId);
   const processType = (payload.processType || "general").trim();
   const status = "未開始";
   validateTaskInput(title, description, assignee, status);
@@ -342,13 +351,23 @@ export function createTask(payload: CreatePmTaskPayload): PmTask {
     .prepare(
       `
         INSERT INTO tasks (
-          project_id, seisan_project_id, title, description, process_type, status, assignee, progress_note,
+          project_id, seisan_project_id, title, description, process_type, status, assignee,
+          assignee_user_name_id, progress_note,
           progress_percent, started_at, completed_at, created_at, updated_at
         )
-        VALUES (?, NULL, ?, ?, ?, '未開始', ?, '', 0, NULL, NULL, ?, ?)
+        VALUES (?, NULL, ?, ?, ?, '未開始', ?, ?, '', 0, NULL, NULL, ?, ?)
       `
     )
-    .run(payload.projectId, title, description, processType, assignee, now, now);
+    .run(
+      payload.projectId,
+      title,
+      description,
+      processType,
+      assignee,
+      assigneeUserNameId,
+      now,
+      now
+    );
 
   return getTaskDetail(Number(result.lastInsertRowid));
 }
@@ -384,6 +403,7 @@ export function getTaskDetail(id: number): PmTask {
     .prepare(
       `
         SELECT id, project_id, seisan_project_id, title, description, process_type, status, assignee,
+               assignee_user_name_id,
                progress_percent, progress_note, started_at, completed_at,
                completion_undo_reason, completion_undo_at, completion_undo_by,
                created_at, updated_at
@@ -426,6 +446,8 @@ export function updateTask(payload: UpdatePmTaskPayload): PmTask {
   const title = payload.title.trim();
   const description = payload.description.trim();
   const assignee = payload.assignee.trim();
+  const assigneeUserNameId =
+    payload.assigneeUserNameId == null ? null : Number(payload.assigneeUserNameId);
   const status = payload.status.trim();
   validateTaskInput(title, description, assignee, status);
   const db = getProcessMgmtDb();
@@ -434,7 +456,7 @@ export function updateTask(payload: UpdatePmTaskPayload): PmTask {
     db.prepare(
       `
       UPDATE tasks
-      SET title = ?, description = ?, assignee = ?, status = '完了',
+      SET title = ?, description = ?, assignee = ?, assignee_user_name_id = ?, status = '完了',
           completed_at = ?,
           progress_percent = 100,
           completion_undo_reason = '',
@@ -443,15 +465,15 @@ export function updateTask(payload: UpdatePmTaskPayload): PmTask {
           updated_at = ?
       WHERE id = ?
     `
-    ).run(title, description, assignee, now, now, payload.id);
+    ).run(title, description, assignee, assigneeUserNameId, now, now, payload.id);
   } else {
     db.prepare(
       `
       UPDATE tasks
-      SET title = ?, description = ?, assignee = ?, status = ?, updated_at = ?
+      SET title = ?, description = ?, assignee = ?, assignee_user_name_id = ?, status = ?, updated_at = ?
       WHERE id = ?
     `
-    ).run(title, description, assignee, status, now, payload.id);
+    ).run(title, description, assignee, assigneeUserNameId, status, now, payload.id);
   }
   return getTaskDetail(payload.id);
 }
@@ -471,7 +493,7 @@ export function updateProgressNote(id: number, progressNote: string, progressPer
   return getTaskDetail(id);
 }
 
-export function startTask(id: number, username: string): PmTask {
+export function startTask(id: number, username: string, userNameId: number | null): PmTask {
   if (!username.trim()) {
     throw new Error("ログイン名が無効です。");
   }
@@ -484,10 +506,10 @@ export function startTask(id: number, username: string): PmTask {
   db.prepare(
     `
       UPDATE tasks
-      SET status = '作業中', assignee = ?, started_at = ?, updated_at = ?
+      SET status = '作業中', assignee = ?, assignee_user_name_id = ?, started_at = ?, updated_at = ?
       WHERE id = ?
     `
-  ).run(username.trim(), now, now, id);
+  ).run(username.trim(), userNameId, now, now, id);
   return getTaskDetail(id);
 }
 

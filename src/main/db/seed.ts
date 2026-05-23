@@ -2,6 +2,10 @@ import type Database from "better-sqlite3";
 
 import { DEFAULT_COMPANY_NAME, DEFAULT_MOTTOS, SETTINGS_KEYS } from "@shared/constants.js";
 
+import {
+  ensureMasterUserForUsername,
+  seedDefaultGrantsForUser,
+} from "@main/db/userAccessQueries.js";
 import { hashPassword } from "../password.js";
 
 export async function seed(db: Database.Database): Promise<void> {
@@ -15,11 +19,13 @@ export async function seed(db: Database.Database): Promise<void> {
 
   if (bootstrapped === null && operatorCount === 0) {
     const passwordHash = await hashPassword("admin");
+    const userNameId = ensureMasterUserForUsername("admin");
     db.prepare(
       `INSERT INTO app_operators
-         (username, passwordHash, role, isActive, mustChangePassword)
-       VALUES (?, ?, 'admin', 1, 1)`
-    ).run("admin", passwordHash);
+         (username, passwordHash, role, processView, userNameId, isActive, mustChangePassword)
+       VALUES (?, ?, 'admin', 'both', ?, 1, 1)`
+    ).run("admin", passwordHash, userNameId);
+    seedDefaultGrantsForUser(userNameId, "admin", "both");
     db.prepare(
       `INSERT OR REPLACE INTO app_settings (key, value, updatedAt)
        VALUES (?, '1', datetime('now'))`

@@ -2,7 +2,6 @@ import { Plus, ShieldCheck, ShieldOff, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { APP_ROLES, type AppRole } from "@shared/auth.js";
-import { PROCESS_VIEWS, PROCESS_VIEW_LABELS, type ProcessView } from "@shared/processView.js";
 import type { OperatorRow, SessionUser } from "@shared/types.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
@@ -16,17 +15,11 @@ import { invoke } from "@renderer/lib/api.js";
 
 interface Props {
   session: SessionUser;
-  onSyncSession?: () => Promise<SessionUser>;
 }
 
 const roleOptions = APP_ROLES.map((r) => ({ value: r, label: r }));
 
-const processViewOptions = PROCESS_VIEWS.map((v) => ({
-  value: v,
-  label: PROCESS_VIEW_LABELS[v],
-}));
-
-export function AdminOperators({ session, onSyncSession }: Props): JSX.Element {
+export function AdminOperators({ session }: Props): JSX.Element {
   const toast = useToast();
   const [rows, setRows] = useState<OperatorRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,20 +41,6 @@ export function AdminOperators({ session, onSyncSession }: Props): JSX.Element {
     void refresh();
   }, [refresh]);
 
-  async function changeProcessView(row: OperatorRow, processView: ProcessView): Promise<void> {
-    if (processView === row.processView) return;
-    try {
-      await invoke<null>("operator:updateProcessView", { id: row.id, processView });
-      toast.push("success", `${row.username} の工程表示を更新しました。`);
-      if (row.id === session.id) {
-        await onSyncSession?.();
-      }
-      await refresh();
-    } catch (err) {
-      toast.push("error", err instanceof Error ? err.message : String(err));
-    }
-  }
-
   async function toggleActive(row: OperatorRow): Promise<void> {
     try {
       await invoke<null>("operator:setActive", {
@@ -79,7 +58,7 @@ export function AdminOperators({ session, onSyncSession }: Props): JSX.Element {
     if (role === row.role) return;
     try {
       await invoke<null>("operator:updateRole", { id: row.id, role });
-      toast.push("success", `${row.username} の権限を ${role} に変更しました。`);
+      toast.push("success", `${row.username} のポータル権限を ${role} に変更しました。`);
       await refresh();
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
@@ -90,7 +69,7 @@ export function AdminOperators({ session, onSyncSession }: Props): JSX.Element {
     { key: "id", header: "ID", width: "60px", align: "right", render: (r) => r.id },
     {
       key: "username",
-      header: "ユーザー名",
+      header: "ログイン名（マスタユーザー名と同一）",
       render: (r) => (
         <span className="font-medium">
           {r.username}
@@ -103,37 +82,18 @@ export function AdminOperators({ session, onSyncSession }: Props): JSX.Element {
       ),
     },
     {
-      key: "processView",
-      header: "工程表示",
-      width: "200px",
-      render: (r) => (
-        <select
-          value={r.processView}
-          onChange={(e) => void changeProcessView(r, e.target.value as ProcessView)}
-          className="h-8 max-w-[11rem] rounded border border-border-strong bg-bg-surface px-2 text-xs"
-        >
-          {processViewOptions.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      ),
-    },
-    {
       key: "role",
-      header: "権限",
+      header: "ポータル権限",
       width: "160px",
       render: (r) => (
         <select
           value={r.role}
-          onChange={(e) => changeRole(r, e.target.value as AppRole)}
-          disabled={r.id === session.id}
-          className="h-8 rounded border border-border-strong bg-bg-surface px-2 text-xs"
+          onChange={(e) => void changeRole(r, e.target.value as AppRole)}
+          className="h-8 max-w-[11rem] rounded border border-border-strong bg-bg-surface px-2 text-xs"
         >
-          {APP_ROLES.map((role) => (
-            <option key={role} value={role}>
-              {role}
+          {roleOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
             </option>
           ))}
         </select>
@@ -143,77 +103,54 @@ export function AdminOperators({ session, onSyncSession }: Props): JSX.Element {
       key: "isActive",
       header: "状態",
       width: "120px",
-      render: (r) =>
-        r.isActive ? (
-          <span className="rounded-full bg-state-success/15 px-2 py-0.5 text-xs text-state-success">
-            有効
-          </span>
-        ) : (
-          <span className="rounded-full bg-state-danger/15 px-2 py-0.5 text-xs text-state-danger">
-            無効
-          </span>
-        ),
+      render: (r) => (
+        <Button variant="ghost" size="sm" onClick={() => void toggleActive(r)}>
+          {r.isActive ? (
+            <>
+              <ShieldCheck size={14} className="text-emerald-600" />
+              有効
+            </>
+          ) : (
+            <>
+              <ShieldOff size={14} className="text-fg-subtle" />
+              無効
+            </>
+          )}
+        </Button>
+      ),
     },
     {
       key: "mustChangePassword",
-      header: "PW変更",
+      header: "初回PW",
       width: "100px",
-      render: (r) => (r.mustChangePassword ? "要" : "—"),
-    },
-    {
-      key: "updatedAt",
-      header: "更新",
-      width: "180px",
-      render: (r) => <span className="text-xs text-fg-muted">{r.updatedAt}</span>,
-    },
-    {
-      key: "action",
-      header: "",
-      width: "100px",
-      align: "right",
-      render: (r) => (
-        <Button
-          variant={r.isActive ? "ghost" : "secondary"}
-          size="sm"
-          onClick={() => toggleActive(r)}
-          disabled={r.id === session.id}
-        >
-          {r.isActive ? <ShieldOff size={14} /> : <ShieldCheck size={14} />}
-          {r.isActive ? "無効化" : "有効化"}
-        </Button>
-      ),
+      render: (r) => (r.mustChangePassword ? "要変更" : "—"),
     },
   ];
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">操作者</h1>
-          <p className="text-sm text-fg-muted">
-            ポータルのログインアカウントを管理します。最後の有効な管理者は無効化・降格できません。
-            <span className="mt-1 block">
-              <strong>工程表示</strong>
-              は工程管理アプリのボード・案件タスクの見え方です（Flask 原型の process_view と同様。
-              <code className="text-fg-subtle">solidworks</code> /{" "}
-              <code className="text-fg-subtle">cadmac</code> /{" "}
-              <code className="text-fg-subtle">both</code>
-              ）。自分の設定を変えた場合は一覧更新でセッションが同期されます。
-            </span>
-          </p>
-        </div>
-        <Button variant="primary" onClick={() => setCreateOpen(true)}>
-          <UserPlus size={16} />
-          追加
-        </Button>
-      </header>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-fg-primary">操作者</h1>
+        <p className="mt-1 text-sm text-fg-muted">
+          ログインアカウントの追加・無効化とポータル設定権限（admin）の管理です。
+          <strong className="text-fg-primary">業務アプリの権限・工程表示・グループ所属</strong>
+          はマスターデータの「ユーザー権限」で設定してください。
+        </p>
+      </div>
 
-      <Card className="p-0">
-        {loading ? (
-          <p className="p-6 text-center text-fg-muted">読み込み中...</p>
-        ) : (
-          <DataTable rows={rows} columns={columns} keyOf={(r) => r.id} />
-        )}
+      <Card className="p-4">
+        <div className="mb-4 flex justify-end">
+          <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
+            <UserPlus size={16} />
+            操作者を追加
+          </Button>
+        </div>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          keyOf={(r) => r.id}
+          empty={loading ? "読み込み中…" : "操作者がいません。"}
+        />
       </Card>
 
       <CreateOperatorModal
@@ -222,7 +159,7 @@ export function AdminOperators({ session, onSyncSession }: Props): JSX.Element {
         onCreated={async () => {
           setCreateOpen(false);
           await refresh();
-          toast.push("success", "操作者を追加しました。");
+          toast.push("success", "操作者を追加しました。マスタで業務権限を設定してください。");
         }}
         onError={(msg) => toast.push("error", msg)}
       />
@@ -241,7 +178,6 @@ function CreateOperatorModal({ open, onClose, onCreated, onError }: CreateProps)
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AppRole>("editor");
-  const [processView, setProcessView] = useState<ProcessView>("both");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -249,7 +185,6 @@ function CreateOperatorModal({ open, onClose, onCreated, onError }: CreateProps)
       setUsername("");
       setPassword("");
       setRole("editor");
-      setProcessView("both");
       setSubmitting(false);
     }
   }, [open]);
@@ -258,7 +193,7 @@ function CreateOperatorModal({ open, onClose, onCreated, onError }: CreateProps)
     event.preventDefault();
     setSubmitting(true);
     try {
-      await invoke<OperatorRow>("operator:create", { username, password, role, processView });
+      await invoke<OperatorRow>("operator:create", { username, password, role });
       await onCreated();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -271,7 +206,7 @@ function CreateOperatorModal({ open, onClose, onCreated, onError }: CreateProps)
     <Modal open={open} onClose={onClose} title="操作者を追加">
       <form onSubmit={submit} className="flex flex-col gap-4">
         <TextField
-          label="ユーザー名"
+          label="ログイン名（同名のマスタユーザーを自動作成）"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
@@ -285,16 +220,10 @@ function CreateOperatorModal({ open, onClose, onCreated, onError }: CreateProps)
           required
         />
         <Select
-          label="権限"
+          label="ポータル権限（DB・会社情報・マスタ編集は admin のみ）"
           value={role}
           onChange={(e) => setRole(e.target.value as AppRole)}
           options={roleOptions}
-        />
-        <Select
-          label="工程表示（工程管理アプリ）"
-          value={processView}
-          onChange={(e) => setProcessView(e.target.value as ProcessView)}
-          options={processViewOptions}
         />
         <div className="mt-2 flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>

@@ -4,7 +4,8 @@ import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
 
 import { fail, ok } from "@shared/ipcResponse.js";
 
-import { assertLoggedIn } from "@main/auth-guard.js";
+import { appendAuditEntry } from "@main/audit/audit.repo.js";
+import { assertCanViewApp, assertPortalAdmin } from "@main/auth-guard.js";
 import { getDbPath } from "@main/db/connection.js";
 import {
   getSeisanDbPath,
@@ -22,7 +23,7 @@ function dialogParent(): BrowserWindow | undefined {
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle(SEISAN_CHANNELS.db.getPath, async () => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       ensureSeisanSatellite();
       return ok<string | null>(getSeisanDbPath());
     } catch (err) {
@@ -32,7 +33,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.db.selectFile, async () => {
     try {
-      assertLoggedIn();
+      assertPortalAdmin();
       const parent = dialogParent();
       const result = parent
         ? await dialog.showOpenDialog(parent, {
@@ -54,7 +55,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.db.selectProjectFile, async () => {
     try {
-      assertLoggedIn();
+      assertPortalAdmin();
       const parent = dialogParent();
       const result = parent
         ? await dialog.showOpenDialog(parent, {
@@ -86,7 +87,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.db.createNew, async () => {
     try {
-      assertLoggedIn();
+      assertPortalAdmin();
       const parent = dialogParent();
       const result = parent
         ? await dialog.showSaveDialog(parent, {
@@ -108,7 +109,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.db.connect, async (_event, data: string | { path?: string }) => {
     try {
-      assertLoggedIn();
+      assertPortalAdmin();
       const central = getDbPath();
       if (!central) {
         throw new Error("ポータル中央データベースが開かれていません。");
@@ -119,15 +120,31 @@ export function register(ipcMain: IpcMain): void {
       }
       setSeisanBoardOverridePath(path);
       openSeisanDatabaseFile(path);
+      appendAuditEntry({
+        channel: "seisan-db:connect",
+        action: "update",
+        appId: "seisan-board",
+        result: "ok",
+        targetType: "seisan_db",
+        detail: { path },
+      });
       return ok<void>(undefined);
     } catch (err) {
+      appendAuditEntry({
+        channel: "seisan-db:connect",
+        action: "update",
+        appId: "seisan-board",
+        result: "fail",
+        targetType: "seisan_db",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       return fail(err);
     }
   });
 
   ipcMain.handle(SEISAN_CHANNELS.db.status, async () => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       ensureSeisanSatellite();
       return ok<{ connected: boolean; path: string | null }>({
         connected: isSeisanSatelliteOpen(),

@@ -1,14 +1,19 @@
 import type { AppRole } from "@shared/auth.js";
-import { assertProcessView, parseProcessView, type ProcessView } from "@shared/processView.js";
+import { assertProcessView, type ProcessView } from "@shared/processView.js";
 import type { OperatorRow } from "@shared/types.js";
 
 import { getDb } from "@main/db/connection.js";
+import {
+  ensureMasterUserForUsername,
+  seedDefaultGrantsForUser,
+} from "@main/db/userAccessQueries.js";
 
 interface Row {
   id: number;
   username: string;
   role: AppRole;
   processView: string;
+  userNameId: number | null;
   isActive: number;
   mustChangePassword: number;
   createdAt: string;
@@ -20,7 +25,7 @@ function toOperatorRow(row: Row): OperatorRow {
     id: row.id,
     username: row.username,
     role: row.role,
-    processView: parseProcessView(row.processView),
+    userNameId: row.userNameId,
     isActive: row.isActive === 1,
     mustChangePassword: row.mustChangePassword === 1,
     createdAt: row.createdAt,
@@ -28,20 +33,10 @@ function toOperatorRow(row: Row): OperatorRow {
   };
 }
 
-/** 工程タスク完了通知の宛先（アクティブな admin のユーザー名） */
-export function listActiveAdminUsernames(): string[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT username FROM app_operators WHERE role = 'admin' AND isActive = 1 ORDER BY id ASC`
-    )
-    .all() as { username: string }[];
-  return rows.map((r) => (r.username ?? "").trim()).filter((u) => u.length > 0);
-}
-
 export function listOperators(): OperatorRow[] {
   const rows = getDb()
     .prepare(
-      `SELECT id, username, role, processView, isActive, mustChangePassword, createdAt, updatedAt
+      `SELECT id, username, role, processView, userNameId, isActive, mustChangePassword, createdAt, updatedAt
          FROM app_operators
         ORDER BY id ASC`
     )
@@ -53,19 +48,24 @@ export function insertOperator(input: {
   username: string;
   passwordHash: string;
   role: AppRole;
-  processView?: ProcessView;
 }): OperatorRow {
-  const pv = input.processView ?? "both";
-  assertProcessView(pv);
+  const username = input.username.trim();
+  const userNameId = ensureMasterUserForUsername(username);
+  const processView: ProcessView = "both";
+  assertProcessView(processView);
+
   const info = getDb()
     .prepare(
-      `INSERT INTO app_operators (username, passwordHash, role, processView, isActive, mustChangePassword)
-       VALUES (?, ?, ?, ?, 1, 1)`
+      `INSERT INTO app_operators (username, passwordHash, role, processView, userNameId, isActive, mustChangePassword)
+       VALUES (?, ?, ?, ?, ?, 1, 1)`
     )
-    .run(input.username, input.passwordHash, input.role, pv);
+    .run(username, input.passwordHash, input.role, processView, userNameId);
+
+  seedDefaultGrantsForUser(userNameId, "viewer", processView);
+
   const row = getDb()
     .prepare(
-      `SELECT id, username, role, processView, isActive, mustChangePassword, createdAt, updatedAt
+      `SELECT id, username, role, processView, userNameId, isActive, mustChangePassword, createdAt, updatedAt
          FROM app_operators WHERE id = ?`
     )
     .get(info.lastInsertRowid) as Row;
@@ -86,15 +86,6 @@ export function updateRole(id: number, role: AppRole): void {
       `UPDATE app_operators SET role = ?, updatedAt = datetime('now') WHERE id = ?`
     )
     .run(role, id);
-}
-
-export function updateProcessView(id: number, processView: ProcessView): void {
-  assertProcessView(processView);
-  getDb()
-    .prepare(
-      `UPDATE app_operators SET processView = ?, updatedAt = datetime('now') WHERE id = ?`
-    )
-    .run(processView, id);
 }
 
 export function countOtherActiveAdmins(excludeId: number): number {

@@ -34,7 +34,8 @@ export interface DrawingUpsertInput {
 
 export interface DrawingListParams {
   search?: string;
-  category?: string;
+  /** カテゴリ（m_categories.code）で完全一致絞り込み */
+  category?: string | null;
   limit?: number;
   offset?: number;
   drawingType?: "customer" | "work";

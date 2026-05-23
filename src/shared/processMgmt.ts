@@ -24,6 +24,8 @@ export interface PmTask {
   processType: string;
   status: string;
   assignee: string;
+  /** 担当者の m_user_names.id（後方互換のため `assignee` も同時に保持） */
+  assigneeUserNameId: number | null;
   /** 担当者の進捗（0〜100）。range 入力と同期 */
   progressPercent: number;
   /** 担当者の進捗・状況の自己申告テキスト */

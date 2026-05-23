@@ -2,8 +2,9 @@ import type { IpcMain } from "electron";
 
 import { fail, ok } from "@shared/ipcResponse.js";
 import type { SessionUser } from "@shared/types.js";
-import { parseProcessView } from "@shared/processView.js";
 
+import { appendAuditEntry } from "@main/audit/audit.repo.js";
+import { buildSessionFromOperator } from "@main/build-session.js";
 import { assertLoggedIn } from "@main/auth-guard.js";
 import { isOpen } from "@main/db/connection.js";
 import { hashPassword, verifyPassword } from "@main/password.js";
@@ -31,13 +32,7 @@ export function register(ipcMain: IpcMain): void {
       if (!record || record.isActive !== 1) {
         throw new Error("アカウント情報を取得できませんでした。");
       }
-      const next: SessionUser = {
-        id: record.id,
-        username: record.username,
-        role: record.role,
-        processView: parseProcessView(record.processView),
-        mustChangePassword: record.mustChangePassword === 1,
-      };
+      const next = buildSessionFromOperator(record);
       setSession(next);
       return ok<SessionUser>(next);
     } catch (err) {
@@ -48,6 +43,7 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle(
     "auth:login",
     async (_event, data: { username: string; password: string }) => {
+      const inputUsername = (data?.username ?? "").toString().trim();
       try {
         if (!isOpen()) {
           throw new Error("データベースが開かれていません。Bootstrap 画面で DB を作成してください。");
@@ -64,16 +60,27 @@ export function register(ipcMain: IpcMain): void {
         if (!okPw) {
           throw new Error("ユーザー名またはパスワードが正しくありません。");
         }
-        const session: SessionUser = {
-          id: record.id,
-          username: record.username,
-          role: record.role,
-          processView: parseProcessView(record.processView),
-          mustChangePassword: record.mustChangePassword === 1,
-        };
+        const session = buildSessionFromOperator(record);
         setSession(session);
+        appendAuditEntry({
+          channel: "auth:login",
+          action: "login",
+          result: "ok",
+          targetType: "operator",
+          targetId: record.id,
+          username: session.username,
+          userNameId: session.userNameId,
+        });
         return ok<SessionUser>(session);
       } catch (err) {
+        appendAuditEntry({
+          channel: "auth:login",
+          action: "login",
+          result: "fail",
+          username: inputUsername || null,
+          userNameId: null,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
         return fail(err);
       }
     }
@@ -81,7 +88,19 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("auth:logout", async () => {
     try {
+      const before = getSession();
       clearSession();
+      if (before) {
+        appendAuditEntry({
+          channel: "auth:logout",
+          action: "logout",
+          result: "ok",
+          username: before.username,
+          userNameId: before.userNameId,
+          targetType: "operator",
+          targetId: before.id,
+        });
+      }
       return ok<null>(null);
     } catch (err) {
       return fail(err);
@@ -112,8 +131,21 @@ export function register(ipcMain: IpcMain): void {
         const hashed = await hashPassword(next);
         updatePassword(record.id, hashed);
         updateSession({ mustChangePassword: false });
+        appendAuditEntry({
+          channel: "auth:changePassword",
+          action: "update",
+          result: "ok",
+          targetType: "operator",
+          targetId: record.id,
+        });
         return ok<SessionUser>({ ...session, mustChangePassword: false });
       } catch (err) {
+        appendAuditEntry({
+          channel: "auth:changePassword",
+          action: "update",
+          result: "fail",
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
         return fail(err);
       }
     }

@@ -8,7 +8,11 @@ import {
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { AppRole } from "@shared/auth.js";
-import { canOperateProcessMgmtTasks, isAdmin } from "@shared/auth.js";
+import {
+  canOperateProcessMgmtApp,
+  getAppRole,
+  isGroupAdmin,
+} from "@shared/auth.js";
 import type { PmBoardTask } from "@shared/processMgmt.js";
 import { PROCESS_VIEW_LABELS, type ProcessView } from "@shared/processView.js";
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
@@ -489,7 +493,10 @@ interface Props {
 }
 
 function canEditTaskProgressNote(session: SessionUser, task: PmBoardTask): boolean {
-  return isAdmin(session.role) || task.assignee.trim() === session.username.trim();
+  return (
+    getAppRole(session, "process-management") === "admin" ||
+    task.assignee.trim() === session.username.trim()
+  );
 }
 
 function MyTaskCard({
@@ -650,7 +657,7 @@ function MyTaskCard({
 }
 
 export function ProcessManagementApp({ session }: Props): JSX.Element {
-  const canOperatePmTasks = canOperateProcessMgmtTasks(session.role);
+  const canOperatePmTasks = canOperateProcessMgmtApp(session);
   const [tab, setTab] = useState<TabId>("board");
   const [statusPath, setStatusPath] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -974,8 +981,9 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
     setUndoError(null);
   }
 
-  const adminUser = isAdmin(session.role);
-  const showBoardOpsCol = canOperatePmTasks || (adminUser && boardMode === "history");
+  const pmAdmin = getAppRole(session, "process-management") === "admin";
+  const showNotifyBell = isGroupAdmin(session) && canOperateProcessMgmtApp(session);
+  const showBoardOpsCol = canOperatePmTasks || (pmAdmin && boardMode === "history");
   const boardColCount = showBoardOpsCol ? 11 : 10;
 
   const boardRangeStart = boardTotal === 0 ? 0 : (boardPage - 1) * boardPageSize + 1;
@@ -1014,14 +1022,14 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
           </nav>
         </div>
         <div className="flex w-full min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 text-sm text-fg-muted sm:w-auto">
-          <ProcessMgmtNotificationBell username={session.username} enabled={adminUser} />
+          <ProcessMgmtNotificationBell username={session.username} enabled={showNotifyBell} />
           <User className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden />
           <span className="max-w-[min(8rem,35vw)] truncate sm:max-w-[8rem]">{session.username}</span>
           <span className="hidden rounded-md bg-bg-elevated px-1.5 py-0.5 text-xs text-fg-subtle sm:inline">
             {PROCESS_VIEW_LABELS[session.processView]}
           </span>
           <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-xs text-fg-subtle">
-            {ROLE_LABELS[session.role] ?? session.role}
+            {ROLE_LABELS[getAppRole(session, "process-management") ?? "viewer"]}
           </span>
         </div>
       </header>
@@ -1354,7 +1362,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                                   完了
                                 </Button>
                               )}
-                              {adminUser && boardMode === "history" && (
+                              {pmAdmin && boardMode === "history" && (
                                 <Button
                                   type="button"
                                   variant="danger"
@@ -1499,14 +1507,14 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
               <p>{BOARD_HELP_VIEW_ACTIVE_TEMPLATE(PROCESS_VIEW_LABELS[session.processView])}</p>
               <p>{BOARD_HELP_HISTORY}</p>
               <p className="text-xs text-fg-muted">{BOARD_HELP_ACTIVE_HISTORY_HINT}</p>
-              <p className="text-xs text-fg-muted">{adminUser ? BOARD_HELP_UNDO_ADMIN : BOARD_HELP_UNDO_VIEWER}</p>
+              <p className="text-xs text-fg-muted">{pmAdmin ? BOARD_HELP_UNDO_ADMIN : BOARD_HELP_UNDO_VIEWER}</p>
             </>
           ) : (
             <>
               <p>{MY_TASKS_HELP_SCOPE_TEMPLATE(session.username)}</p>
               <p>{MY_TASKS_HELP_INPUT}</p>
               <p>{MY_TASKS_HELP_CASE_VIEW}</p>
-              {!adminUser && <p className="text-xs text-fg-muted">{MY_TASKS_HELP_COMPLETE_MISTAKE_VIEWER}</p>}
+              {!pmAdmin && <p className="text-xs text-fg-muted">{MY_TASKS_HELP_COMPLETE_MISTAKE_VIEWER}</p>}
             </>
           )}
         </div>

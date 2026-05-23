@@ -24,6 +24,7 @@
 | [ipc-channels.md](./ipc-channels.md) | IPC チャネル一覧（`module:action`）とリクエスト/レスポンスの型 |
 | [launcher-design.md](./launcher-design.md) | 内蔵アプリ別ウィンドウ起動・外部 exe 起動・二重起動防止・セッション共有 |
 | [bootstrap-and-auth.md](./bootstrap-and-auth.md) | 起動ステートマシン、admin 自動 seed、強制パスワード変更 |
+| [user-permissions.md](./user-permissions.md) | **ユーザー権限メモ**（ポータル / アプリ / グループ別のできる・できない） |
 | [app-router-best-practices.md](./app-router-best-practices.md) | React Router（HashRouter）の使い方、認証ガード、アンカー遷移、マルチウィンドウとの整合 |
 | [ui-design.md](./ui-design.md) | カラー・タイポ・Hero カルーセル仕様・共通 UI コンポーネント・アニメーション |
 

@@ -264,7 +264,7 @@
 
 ---
 
-## フェーズ 4-A: マスタ起点のユーザー権限・アプリ別権限（計画のみ・**未実装**）
+## フェーズ 4-A: マスタ起点のユーザー権限・アプリ別権限（**実装済み 2026-05-19**・一部ドキュメント未追随）
 
 **目的**: ポータル「操作者」はログインとポータル内設定だけ。業務ユーザー・グループ・工程表示・各アプリの権限は **マスターデータ（中央 DB）** で定義する。工程完了通知は **ポータル全体 admin** ではなく **グループ単位の管理者**（マスタ定義）へ。
 
@@ -326,42 +326,32 @@ flowchart TB
 
 ### データモデル案（スキーマ追加・移行は別タスク）
 
-- [ ] **`app_operators` から業務属性を外す（移行後）**
-  - [ ] `processView` 列は **廃止**（既存値は migrate で `m_user_app_grants` へコピー）
-  - [ ] `role` は **ポータル用のみ**: 現行 `admin`＝ポータル設定可、`editor`/`viewer` はポータル内の補助ロールとして残すか整理（業務アプリの editor/viewer は **マスタ側のみ**）
-- [ ] **`app_operators.userNameId`**（移行後は **必須**）: ログインと `m_user_names.id` の **1:1**。`username` と `m_user_names.name` は **同一文字列を維持**（作成・改名時に両方更新）
-- [ ] **`m_user_group_memberships`**（新規）例:
+- [x] **`app_operators.userNameId`** + migrate v3（既存 operator → マスタユーザー + `m_user_app_grants` へ role/processView コピー）
+- [ ] **`app_operators.processView` 列の DDL 廃止**（ランタイムは grants 参照。列は後方互換のため残置）
+- [x] **`role` はポータル用**（業務権限は `m_user_app_grants`）
+- [x] **`m_user_group_memberships`**（新規）例:
   - `userNameId` → `m_user_names`（**1 ユーザーは 0 または 1 グループのみ** — `UNIQUE(userNameId)` で担保）
   - `groupNameId` → `m_group_names`
   - `roleInGroup`: `member` | `group_admin`（表示名: 一般 / グループ管理者）
-- [ ] **`m_user_app_grants`**（新規、または既存 `app_operator_app_grants` を **userNameId 基準**に作り直し）例:
+- [x] **`m_user_app_grants`**（新規）例:
   - `userNameId`, `appId`（`process-management` / `seisan-board` / `drawing-library` / `pixo-converter` 等）
   - `appRole`: `admin` | `editor` | `viewer`
   - `processView`: **工程管理のみ** `solidworks` | `cadmac` | `both`（他アプリは NULL）
   - PRIMARY KEY (userNameId, appId)
-- [ ] **用語統一**: `MASTER_TABLE_LABELS`・生産ボード（CSV ヘッダー／案件フォーム／一覧）・工程管理（ボード「担当」列・マイタスク・通知文）の **「担当者」「入力者」→「ユーザー」**（合意どおり横断）
+- [x] **用語（マスタ）**: `m_user_names` ラベル →「ユーザー」
+- [ ] **用語統一（横断）**: 生産ボード CSV・工程管理 UI の「担当」「入力者」表記の残り
 
 ### UI / IPC の修正イメージ
 
-- [ ] **マスターデータ画面**（内蔵 master-database）— **ポータル admin のみ表示・編集可**
-  - [ ] ユーザー一覧に **ログイン紐づけ**・**所属グループ（0〜1）**・**アプリ別権限**のサマリ列（または詳細モーダル）
-  - [ ] **グループ × ユーザー** 編集 UI（ユーザーは **1 グループのみ** 所属・**グループ管理者** フラグ）
-  - [ ] **アプリ別権限** 編集 UI（アプリ選択 × role × 工程管理時のみ工程表示）
-- [ ] **ポータル管理 › 操作者**（`AdminOperators.tsx`）
-  - [ ] **工程表示**列・`operator:updateProcessView` 呼び出しを **削除**
+- [x] **マスターデータ** — ポータル admin のみ CRUD（`assertPortalAdmin`）
+  - [x] **ユーザー権限** タブ（`user-access:*`）— グループ所属・アプリ別権限
+- [x] **ポータル管理 › 操作者** — 工程表示列削除、`operator:updateProcessView` 廃止
   - [ ] 新規操作者作成時は **マスタユーザーを選択**（または作成後にマスタで紐づけ）— パスワードと有効/無効のみ
   - [ ] 説明文: 「業務権限はマスターデータで設定」
-- [ ] **認証・セッション**（`auth` / `SessionUser`）
-  - [ ] `SessionUser` を拡張または置換: `userNameId`, `displayName`, **アプリ別権限のキャッシュ**（または都度 DB 参照）
-  - [ ] `auth:syncSession` でマスタ側の変更（工程表示・app grants）を反映
-- [ ] **権限ガード**（`auth-guard.ts` 等）
-  - [ ] `assertCanWrite` / `assertAdmin` を **アプリ文脈付き**に（例: `assertAppRole('process-management', 'editor')`）
-  - [ ] 工程管理の `canOperateProcessMgmtTasks` は **process-management の app grant** から判定
-- [ ] **工程管理**
-  - [ ] `tasks.assignee` → **`userNameId` 参照**（またはマスタ `name` の正規化キー）。開始時はログインユーザーのマスタ ID をセット
-  - [ ] マイタスク・ボード担当フィルタをマスタユーザー基準に
-  - [ ] **完了通知**: 完了タスクの `seisan_project_id` → 生産案件の **group** → そのグループの **`group_admin`**（マスタ）へ通知行を作成（完了者は除外）。**portal admin 全員には送らない**。グループ未解決時は **通知なし**
-  - [ ] 通知ベル表示: ログインユーザーが **当該グループの group_admin** のときのみ（＋必要なら工程管理アプリの利用権限あり）
+- [x] **認証・セッション** — `SessionUser` 拡張、`buildSessionFromOperator`、`auth:syncSession` で grants 反映
+- [x] **権限ガード** — `assertPortalAdmin` / `assertCanWriteApp` / `assertAppRoleAtLeast` 等
+- [x] **工程管理・完了通知** — 案件グループの `group_admin` へ通知。ベルは `group_admin` + 工程管理利用権
+- [ ] **工程タスク `assignee` の userNameId 化**（現状はログイン名文字列のまま）
 - [ ] **既存 `app_operator_app_grants`**
   - [ ] `operatorId` ベースの DDL は **非推奨化**し、`m_user_app_grants` に移行するか、テーブル定義を差し替え（マイグレーション方針を `db-schema.md` に記載）
 
@@ -387,6 +377,154 @@ flowchart TB
 - [ ] 更新通知（バージョンチェック）
 - [ ] インストーラ作成（`electron-builder`、NSIS）
 - [ ] 配布・運用ドキュメント
+
+---
+
+## フェーズ 4-B: 共通カテゴリマスタ（**計画のみ・未実装**）
+
+**目的**: 図面ライブラリの「自社発行」を発端に、**他アプリでも使える共通の分類軸（カテゴリ）** をマスターデータとして提供する。
+
+### 合意済み方針
+
+| # | 論点 | 決定 |
+|---|------|------|
+| 1 | 置き場所 | **中央 DB** に `m_categories`（横展開のため drawing-library.db には置かない） |
+| 2 | アプリ間共有 | 1 テーブル + **`scope` 列**（`common` / `drawing-library` / `process-management` 等）で管理。`master:list` に `scope` 引数を追加して絞り込む |
+| 3 | アプリ DB との結合 | **文字列で保存**（drawing-library.db の既存 `category` 列を活用）。クロス DB FK は張らない（`group_name` と同じパターン） |
+| 4 | 編集権限 | **ポータル admin のみ**（既存マスタと同じ） |
+| 5 | 既存データ | drawing-library.db の `category` 既存値はそのまま保持。マスタ未登録の値は表示・検索可。新規登録時はマスタからの選択を推奨 |
+| 6 | 階層 / 多重所属 | **フラット**（深い階層は当面持たない）。1 図面 = 1 カテゴリ。複数分類が必要になったら既存 `tags` 列で運用 |
+
+### データモデル案
+
+- [ ] **`m_categories`**（中央 DB / 新規）
+  - `id INTEGER PK AUTOINCREMENT`
+  - `code TEXT NOT NULL`（scope 内ユニーク・大小文字無視）
+  - `name TEXT NOT NULL`
+  - `scope TEXT NOT NULL`（`'common'` / `'drawing-library'` / 将来追加）
+  - `note TEXT`
+  - `isActive INTEGER NOT NULL DEFAULT 1`
+  - `createdAt` / `updatedAt`
+  - `UNIQUE (scope, code COLLATE NOCASE)`
+- [ ] `SCHEMA_VERSION` を **4** に
+- [ ] `MASTER_TABLES` / `MASTER_TABLE_LABELS` に追加（マスタ画面に自動でタブ追加）
+
+### IPC
+
+- [ ] `master:list` の payload を `{ table, scope?: string }` に拡張（後方互換: scope 省略時は全件）
+- [ ] 既存マスタは `scope` 列なしのため、`master.handler` で `m_categories` のみ scope フィルタを適用
+
+### UI
+
+- [ ] **マスターデータ › カテゴリ** タブ — 既存 `MasterCrud` で対応可能。scope 切替セレクタを追加
+- [ ] **図面ライブラリ › 自社発行 › 新規登録 / 編集** — カテゴリの **Select**（`m_categories` の `drawing-library` + `common` を統合表示）。**自由入力フォールバック**（マスタ未登録名でも保存可）
+- [ ] **図面ライブラリ › 自社発行 一覧** — カテゴリ列とフィルタ（`DrawingListParams.category` は既存）
+- [ ] 既存 `category` 列が空の場合の取扱: フィルタで「未分類」選択肢
+
+### 残検討
+
+- [ ] 旧データの正規化（マスタにない値を自動登録するかどうか）
+- [ ] 工程管理タスクへの導入時期（先送り可）
+
+---
+
+## フェーズ 4-C: PixoConverter 高負荷耐性（**計画のみ・未実装**）
+
+**目的**: カメラ写真の **大量（〜200 枚以上）の画像→PDF 変換 + 連結** でアプリが落ちないようにする。現状は main プロセスで全件直列・PNG 化・全 PDF を同時にメモリ展開しており、200 枚規模で OOM クラッシュする実例あり。
+
+### 既知の問題（コード読みからの推定）
+
+| # | 箇所 | 問題 |
+|---|------|------|
+| 1 | `convertImageToPdf` | `sharp(...).png().toBuffer()` で **PNG（無圧縮級）化** → カメラ写真 4000×3000 で 1 枚 50MB+ |
+| 2 | `mergePdfs` | 全 PDF を `PDFDocument.load` → **同時にメモリ展開** |
+| 3 | 実行プロセス | すべて **main プロセス** → クラッシュでアプリ全体が落ちる |
+| 4 | 進捗・キャンセル | なし → Windows が「応答なし」と判定し強制終了する場合あり |
+| 5 | renderer 側 | File オブジェクトを 200 件保持 → renderer も肥大化 |
+
+### 合意済み方針（提案）
+
+| # | 論点 | 決定（提案） |
+|---|------|--------------|
+| 1 | 入力画像の扱い | **JPEG のまま `embedJpg`**（PNG 化を廃止）。カメラ写真は長辺を上限値（例 2000px）にリサイズ可能とする |
+| 2 | 連結戦略 | **チャンク連結**（例 50 枚ごとに中間 PDF）→ 最後にまとめる |
+| 3 | 実行プロセス | Electron の **`utilityProcess.fork`** で別プロセス。main は IPC で進捗のみ受ける |
+| 4 | UX | **進捗イベント**（処理済 / 全体）と **キャンセル**を提供。renderer は path 文字列のみ保持 |
+| 5 | 上限ガード | 入力枚数・合計サイズで事前見積もりし、しきい値超過時は警告（ブロックはしない） |
+| 6 | 既存 UI | 現行 Acrobat 風 UI を維持しつつ、進捗バー＋キャンセルを追加 |
+
+### データモデル / IPC
+
+- [ ] 新 IPC: `pixo-converter:imagesToPdf:start`（複数 path を一括投入）
+- [ ] 新 IPC: `pixo-converter:imagesToPdf:cancel`
+- [ ] イベント: `pixo-converter:progress`（`{ jobId, processed, total, phase }`）を `webContents.send` で通知
+- [ ] 既存 `mergePdfs` / `convertImageToPdf` は当面維持（小規模ユースで使用）。新 API へ徐々に移行
+
+### サービス層
+
+- [ ] `pixo-worker.ts`（`utilityProcess` 用エントリ）
+  - sharp の **JPEG リサイズ + EXIF 自動回転**
+  - `pdf-lib` で 1 枚 PDF → 中間 PDF へチャンク連結
+  - 進捗 IPC を main へ post
+- [ ] main 側 `pixo-converter.handler` で **ジョブ管理**（`Map<jobId, AbortController>`）
+
+### 短期に効く小修正（worker 化前でも実施可）
+
+- [ ] `convertImageToPdf` を **JPEG 化** に切替
+- [ ] `mergePdfs` を **N 件ごとのチャンク化**（暫定）
+- [ ] `BrowserWindow` 起動時に `--max-old-space-size=4096` 等のフラグ検討
+- [ ] エラー時に **失敗ファイルだけ除外して続行**（部分成功）
+
+### 残検討
+
+- [ ] リサイズ既定値（長辺 px）と JPEG 品質のデフォルト
+- [ ] 設定画面に Pixo 既定値（リサイズ・品質・チャンクサイズ）を出すか（当面ハードコード可）
+- [ ] EXIF 回転の取扱（カメラ依存。`sharp().rotate()` で自動補正）
+
+---
+
+## フェーズ 4-D: 権限ガード強化と運用機能（**計画のみ・未実装**）
+
+**目的**: 4-A で導入した権限モデルを **全 IPC・UI に行き渡らせ**、運用に必要な可視化（ログ・状態表示）を整える。
+
+### 合意済み方針（提案）
+
+| # | 論点 | 決定（提案） |
+|---|------|--------------|
+| 1 | grant 未付与ユーザー | ホームで **権限なしバッジ表示**。`launcher:openApp` で **`assertCanViewApp` を実施** し、権限なしは拒否 |
+| 2 | 生産ボード IPC | 主要な create/update/delete に **`assertCanWriteApp("seisan-board")`** を付与。viewer は閲覧 + 既定の自分操作のみ |
+| 3 | 図面ライブラリ | 既に grant 化済み。**editor / admin の差分は当面なし**で運用 |
+| 4 | PixoConverter | grant の有無を **`assertCanViewApp("pixo-converter")`** で評価（現状は `assertLoggedIn` のみ） |
+| 5 | マスタ grant | `master-database` grant は **当面意味を持たない**ことを明記（マスタ編集は portal admin 固定）。将来不要なら廃止 |
+| 6 | 監査ログ | `app_audit_log`（who / when / channel / payload 概要 / result）を追加。重要操作のみ記録（マスタ更新・操作者更新・完了取消・grant 変更） |
+
+### IPC ガード強化
+
+- [ ] **launcher** — `launcher:openApp` で `assertCanViewApp` 実施。レンダラーは `appGrants` を見て一覧バッジ表示
+- [ ] **生産ボード** — `seisan-project:create/update`, `seisan-task:*`, `seisan-import:*`, `seisan-master:*` の write 系に `assertCanWriteApp("seisan-board")`
+- [ ] **PixoConverter** — `pixo-converter:*` を `assertCanViewApp("pixo-converter")` に
+- [ ] **マスタ** — 現状の portal admin チェックを維持
+
+### 監査ログ
+
+- [ ] **`app_audit_log`**（中央 DB / 新規）
+  - `id`, `actorOperatorId`, `actorUsername`, `channel`, `summary`, `result`, `createdAt`
+- [ ] 共通ヘルパ `recordAudit(channel, summary, result)` を `auth-guard` 周辺に追加し、各 handler の重要分岐で呼ぶ
+- [ ] 管理メニューに **監査ログ閲覧画面**（ポータル admin のみ）
+
+### 工程タスク `assignee` の userNameId 化（4-A 残）
+
+- [ ] スキーマ: `tasks.assignee_user_name_id INTEGER REFERENCES m_user_names(id)` を追加（既存 `assignee` 文字列は当面残す）
+- [ ] migrate: 文字列 `assignee` をマスタ名で名寄せして ID へコピー
+- [ ] handler / 一覧: ID 優先で参照、未解決時は文字列フォールバック
+- [ ] UI: 担当選択をマスタユーザーのプルダウンへ
+- [ ] 用語残: 生産ボード CSV / 工程管理 UI の「担当」「入力者」表記を **「ユーザー」** に統一
+
+### 残検討
+
+- [ ] 監査ログのローテーション / 保管期限
+- [ ] grant 未付与時にホームでアプリを **完全非表示にするか・無効化表示にするか**
+- [ ] PixoConverter の grant 廃止案（全ログインユーザー利用可とする運用も可）
 
 ---
 
@@ -473,3 +611,7 @@ flowchart TB
 | 2026-05-17 | **図面ライブラリ**: **DXF 取り扱いを廃止**。`drawing-dxf:*` IPC、`drawingAttachments.repo` の DXF 関数、`ensureDxfInCustomerFolder`、`LibDxfFileRow`、`drawing_dxf_files` テーブル DDL、`drawingFilesRead.repo` の `.dxf` MIME 分岐、`drawingCompare` の `dxf/` プレフィックス分岐、`drawingLibraryConnection` のコメント、`docs/ipc-channels.md`・`README.md`・本書の DXF 記述を削除／更新（既存 DB の `drawing_dxf_files` テーブル・`dxf/` フォルダは互換のため残置）。 |
 | 2026-05-17 | **権限・通知の再設計（計画のみ）**: フェーズ **4-A** を追記。マスタのユーザー／グループ所属（グループ管理者）／アプリ別権限＋工程表示をマスタで管理。ポータル操作者はポータル設定のみ。工程完了通知はグループ管理者へ（現状の portal admin 全員から変更予定）。**実装は未着手**。 |
 | 2026-05-17 | **フェーズ 4-A 合意**: 1 ログイン=1 ユーザー・ログイン名=マスタ名同一／ポータル admin=ポータル設定のみ・業務権限はマスタ／通知=グループ管理者のみ・複数グループ所属なし／グループは生産で必須・用語は「ユーザー」に統一／マスタ編集はポータル admin のみ。本書 4-A「合意済み方針」表に反映。 |
+| 2026-05-23 | **フェーズ 4-B / 4-C / 4-D 計画追加**: 共通カテゴリマスタ（`m_categories` + `scope`、図面ライブラリ自社発行で先行採用）／PixoConverter 高負荷耐性（JPEG 化・チャンク連結・`utilityProcess` 化・進捗・キャンセル）／権限ガード強化と監査ログ・assignee の userNameId 化。本書フェーズ 4-B / 4-C / 4-D に方針を記載。**実装は未着手**。 |
+| 2026-05-23 | **フェーズ 4-B 完了**: `m_categories` テーブル＋`scope`（schema v4 / migrate v4）、`MasterCrud` で scope 切替、マスタタブ「カテゴリ」追加、図面ライブラリ自社発行に **カテゴリ選択／フィルタ／カードバッジ**を実装。 |
+| 2026-05-23 | **フェーズ 4-D 完了**: ① 全アプリ IPC を `assertCanViewApp` / `assertCanWriteApp` / `assertAppRoleAtLeast` で再ガード（PixoConverter・生産ボード全モジュール、ランチャー）。② `app_audit_log` テーブル＋ `appendAuditEntry`、認証/オペレーター/SKU/設定の主要書き込みを記録、マスタ「監査ログ」タブ（フィルタ＋詳細ドロワー）。③ `tasks.assignee_user_name_id` 列を追加し、タスク開始時に session.userNameId を併記する後方互換マイグレーション。 |
+| 2026-05-23 | **フェーズ 4-C 完了**: PixoConverter 高負荷耐性。画像→PDF を `sharp` で長辺 2000px に縮小＋JPEG q=85 に統一、PDF 結合は **チャンク（50 本単位）→中間 PDF→最終結合** で OOM 回避。`pixo-converter:progress` push イベントを追加し、preload は許可チャネル限定 `on()` を公開、結合・画像変換ページに進捗バー表示。 |

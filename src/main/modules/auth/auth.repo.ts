@@ -8,6 +8,7 @@ export interface OperatorRecord {
   passwordHash: string;
   role: AppRole;
   processView: string;
+  userNameId: number | null;
   isActive: number;
   mustChangePassword: number;
 }
@@ -15,7 +16,7 @@ export interface OperatorRecord {
 export function findActiveOperatorByUsername(username: string): OperatorRecord | null {
   const row = getDb()
     .prepare(
-      `SELECT id, username, passwordHash, role, processView, isActive, mustChangePassword
+      `SELECT id, username, passwordHash, role, processView, userNameId, isActive, mustChangePassword
          FROM app_operators
         WHERE username = ? AND isActive = 1`
     )
@@ -26,7 +27,7 @@ export function findActiveOperatorByUsername(username: string): OperatorRecord |
 export function findOperatorById(id: number): OperatorRecord | null {
   const row = getDb()
     .prepare(
-      `SELECT id, username, passwordHash, role, processView, isActive, mustChangePassword
+      `SELECT id, username, passwordHash, role, processView, userNameId, isActive, mustChangePassword
          FROM app_operators
         WHERE id = ?`
     )

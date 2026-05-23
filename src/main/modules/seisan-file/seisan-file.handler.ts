@@ -6,7 +6,7 @@ import { BrowserWindow, dialog, shell, type IpcMain } from "electron";
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 
-import { assertCanWrite, assertLoggedIn } from "@main/auth-guard.js";
+import { assertCanViewApp, assertCanWriteApp } from "@main/auth-guard.js";
 import * as projectFilesRepo from "@main/seisan/repos/projectFiles.repo.js";
 import { getPortalWindow } from "@main/window.js";
 import { ensureSeisanSatellite } from "@main/seisan-guard.js";
@@ -60,7 +60,7 @@ function mimeFromSeisanFileExt(ext: string): string {
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle(SEISAN_CHANNELS.file.listByProject, async (_event, input: { project_id?: string }) => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       ensureSeisanSatellite();
       if (!input?.project_id) {
         throw new Error("project_idが必要です。");
@@ -76,7 +76,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.file.add,
     async (_event, input: { project_id?: string; file_path?: string }) => {
       try {
-        assertLoggedIn();
+        assertCanWriteApp("seisan-board");
         ensureSeisanSatellite();
         if (!input?.project_id || !input?.file_path) {
           throw new Error("project_id と file_path が必要です。");
@@ -91,7 +91,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.file.open, async (_event, input: { id?: string }) => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       ensureSeisanSatellite();
       if (!input?.id) {
         throw new Error("IDが必要です。");
@@ -112,7 +112,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.file.saveCopy, async (_event, input: { id?: string }) => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       ensureSeisanSatellite();
       if (!input?.id) {
         throw new Error("IDが必要です。");
@@ -139,8 +139,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.file.setObsolete,
     async (_event, input: { id?: string; isObsolete?: boolean }) => {
       try {
-        assertLoggedIn();
-        assertCanWrite();
+        assertCanWriteApp("seisan-board");
         ensureSeisanSatellite();
         if (!input?.id) {
           throw new Error("IDが必要です。");
@@ -155,7 +154,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.file.readAsDataUrl, async (_event, input: { id?: string }) => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       ensureSeisanSatellite();
       if (!input?.id) {
         throw new Error("IDが必要です。");
@@ -178,7 +177,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.file.remove, async (_event, input: { id?: string }) => {
     try {
-      assertLoggedIn();
+      assertCanWriteApp("seisan-board");
       ensureSeisanSatellite();
       if (!input?.id) {
         throw new Error("IDが必要です。");
@@ -194,7 +193,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.file.downloadAll,
     async (_event, input: { project_id?: string }) => {
       try {
-        assertLoggedIn();
+        assertCanViewApp("seisan-board");
         ensureSeisanSatellite();
         if (!input?.project_id) {
           throw new Error("project_idが必要です。");

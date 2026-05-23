@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
 
-import type { AppRole } from "@shared/auth.js";
+import { getAppRole, type AppRole } from "@shared/auth.js";
 import type { SessionUser } from "@shared/types.js";
 
 type UserRole = "viewer" | "editor" | "approver";
@@ -35,9 +35,10 @@ function mapPortalRole(role: AppRole): UserRole {
 }
 
 function portalAuthState(session: SessionUser): AuthState {
+  const appRole = getAppRole(session, "seisan-board") ?? "viewer";
   return {
     userName: session.username,
-    role: mapPortalRole(session.role),
+    role: mapPortalRole(appRole),
     isLoggedIn: true,
   };
 }

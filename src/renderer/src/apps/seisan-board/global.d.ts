@@ -26,6 +26,7 @@ declare global {
   interface Window {
     api?: {
       invoke: <T = unknown>(channel: string, data?: unknown) => Promise<IpcResponse<T>>
+      on?: (channel: string, listener: (...args: unknown[]) => void) => () => void
       db: {
         getPath: () => Promise<string | null>
         selectFile: () => Promise<string | null>

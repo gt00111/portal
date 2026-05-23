@@ -85,6 +85,7 @@ export function initProcessMgmtSchema(db: Database.Database): void {
   ensureColumn(db, "tasks", "completion_undo_reason", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "tasks", "completion_undo_at", "TEXT");
   ensureColumn(db, "tasks", "completion_undo_by", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "tasks", "assignee_user_name_id", "INTEGER");
   ensureProcessMgmtMetaTable(db);
   ensurePmTaskCompletionNotificationsTable(db);
 }

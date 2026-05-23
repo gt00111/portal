@@ -12,6 +12,7 @@ export default function ImageConvertPage() {
   const [convertedImages, setConvertedImages] = useState([]);
   const [isConverted, setIsConverted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [progress, setProgress] = useState({ ratio: 0, message: "変換中…" });
   const { addToast } = useToastContext();
 
   const handleConvert = async () => {
@@ -20,11 +21,17 @@ export default function ImageConvertPage() {
       return;
     }
 
-    setIsLoading(true); // 🔵 ローディング表示開始
+    setIsLoading(true);
 
     const allPDFs = [];
+    const total = imageFiles.length;
 
-    for (const file of imageFiles) {
+    for (let i = 0; i < imageFiles.length; i += 1) {
+      const file = imageFiles[i];
+      setProgress({
+        ratio: i / total,
+        message: `${i + 1} / ${total} 件目を変換中… (${file.name})`,
+      });
       const result = await window.electronAPI.convertImageToPDF(file.path);
 
       if (result?.success && result.path) {
@@ -34,7 +41,8 @@ export default function ImageConvertPage() {
       }
     }
 
-    setIsLoading(false); // 🔴 ローディング非表示
+    setProgress({ ratio: 1, message: "完了" });
+    setIsLoading(false);
 
     if (allPDFs.length > 0) {
       setConvertedImages(allPDFs);
@@ -91,7 +99,12 @@ export default function ImageConvertPage() {
 
       <PdfPreview pdfFiles={convertedImages} />
 
-      {isLoading && <LoadingModal />}
+      {isLoading && (
+        <LoadingModal
+          message={progress.message}
+          progress={Math.round(progress.ratio * 100)}
+        />
+      )}
     </div>
   );
 }

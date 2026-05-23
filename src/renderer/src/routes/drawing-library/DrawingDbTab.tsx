@@ -1,8 +1,6 @@
 import { Download, FileText, HelpCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { AppRole } from "@shared/auth.js";
-import { canWrite } from "@shared/auth.js";
 import type {
   DrawingListParams,
   DrawingListResult,
@@ -13,7 +11,10 @@ import type {
   LibDrawingRow,
   LibEdrawingsFileRow,
 } from "@shared/drawingLibrary.js";
+import type { MasterRow } from "@shared/master.js";
 import type { SkuRow } from "@shared/sku.js";
+
+const WORK_CATEGORY_SCOPE = "drawing-library/work" as const;
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { Modal } from "@renderer/components/ui/Modal.js";
@@ -35,7 +36,7 @@ import {
 import { PdfCardThumbnail, PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
 
 interface Props {
-  role: AppRole;
+  writable: boolean;
 }
 
 const DRAWING_TYPE = "work" as const;
@@ -120,12 +121,14 @@ function useWorkPdfThumbDataUrl(filePath: string | null | undefined): string | n
 function WorkDrawingCard({
   row,
   writable,
+  categoryLabel,
   onOpen,
   onDelete,
   onToggleObsolete,
 }: {
   row: LibDrawingRow;
   writable: boolean;
+  categoryLabel: string | null;
   onOpen: (r: LibDrawingRow) => void;
   onDelete: (r: LibDrawingRow) => void;
   onToggleObsolete: (r: LibDrawingRow, next: boolean) => void;
@@ -160,6 +163,11 @@ function WorkDrawingCard({
           <p className="line-clamp-2 font-mono text-[11px] text-fg-primary">
             {fileBasenameFromPath(row.file_path) || "—"}
           </p>
+          {categoryLabel && (
+            <span className="inline-flex w-fit items-center rounded-full bg-accent-secondary/15 px-2 py-0.5 text-[10px] text-accent-secondary">
+              {categoryLabel}
+            </span>
+          )}
           <p className="text-[11px] text-fg-muted">更新 {row.updated_at}</p>
         </div>
         <div className="mt-auto flex w-full min-w-0 items-center justify-between gap-2 border-t border-border-subtle/60 px-3 pb-3 pt-2">
@@ -200,9 +208,8 @@ function WorkDrawingCard({
   );
 }
 
-export function DrawingDbTab({ role }: Props): JSX.Element {
+export function DrawingDbTab({ writable }: Props): JSX.Element {
   const toast = useToast();
-  const writable = canWrite(role);
   const [result, setResult] = useState<DrawingListResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -211,7 +218,9 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
   const [fcCustomer, setFcCustomer] = useState("");
   const [fcModel, setFcModel] = useState("");
   const [fcProduct, setFcProduct] = useState("");
+  const [fcCategory, setFcCategory] = useState("");
   const [sortId, setSortId] = useState("updated_at|desc");
+  const [categories, setCategories] = useState<MasterRow[]>([]);
   const [cascade, setCascade] = useState<DrawingWorkCascadeResult>({
     customers: [],
     models: [],
@@ -235,6 +244,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
   const [newProductName, setNewProductName] = useState("");
   const [newDrawingNumber, setNewDrawingNumber] = useState("");
   const [newRevision, setNewRevision] = useState("");
+  const [newCategory, setNewCategory] = useState("");
   const [newFilePath, setNewFilePath] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -250,6 +260,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
         customerName: fcCustomer.trim() || undefined,
         model: fcModel.trim() || undefined,
         productName: fcProduct.trim() || undefined,
+        category: fcCategory.trim() || undefined,
         sortBy,
         sortOrder,
       };
@@ -261,11 +272,26 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [search, page, toast, pageSize, fcCustomer, fcModel, fcProduct, sortId]);
+  }, [search, page, toast, pageSize, fcCustomer, fcModel, fcProduct, fcCategory, sortId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const list = await invoke<MasterRow[]>("master:list", {
+          table: "m_categories",
+          scope: WORK_CATEGORY_SCOPE,
+        });
+        setCategories(list.filter((c) => c.isActive));
+      } catch (err) {
+        toast.push("error", err instanceof Error ? err.message : String(err));
+        setCategories([]);
+      }
+    })();
+  }, [toast]);
 
   useEffect(() => {
     void (async () => {
@@ -313,6 +339,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
     setNewProductName("");
     setNewDrawingNumber("");
     setNewRevision("");
+    setNewCategory("");
     setNewFilePath(null);
     void (async () => {
       try {
@@ -471,6 +498,7 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
       product_name: newProductName.trim() || null,
       drawing_number: newDrawingNumber.trim() || null,
       revision: newRevision.trim() || null,
+      category: newCategory.trim() || null,
       file_path: newFilePath,
       drawingType: DRAWING_TYPE,
     };
@@ -643,6 +671,24 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
             ))}
           </select>
         </label>
+        <label className="flex min-w-[160px] flex-col gap-1 text-xs text-fg-muted">
+          カテゴリで絞る
+          <select
+            value={fcCategory}
+            onChange={(e) => {
+              setFcCategory(e.target.value);
+              setPage(1);
+            }}
+            className="h-10 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg"
+          >
+            <option value="">（すべて）</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.code}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-xs text-fg-muted">
           並び順
           <select
@@ -676,6 +722,9 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
                 key={r.id}
                 row={r}
                 writable={writable}
+                categoryLabel={
+                  r.category ? categories.find((c) => c.code === r.category)?.name ?? r.category : null
+                }
                 onOpen={(row) => void openDetail(row)}
                 onDelete={(row) => void handleDelete(row)}
                 onToggleObsolete={(row, next) => void toggleWorkObsolete(row, next)}
@@ -764,6 +813,15 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
           />
           <TextField label="リビジョン" value={newRevision} onChange={(e) => setNewRevision(e.target.value)} />
           <TextField label="名称" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+          <Select
+            label="カテゴリ（任意・マスタ「カテゴリ」/ 自社発行）"
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            options={[
+              { value: "", label: "— 選択しない —" },
+              ...categories.map((c) => ({ value: c.code, label: c.name })),
+            ]}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="secondary" size="sm" onClick={() => void handlePickPdf()}>
               PDF を選択して取り込み
@@ -802,6 +860,14 @@ export function DrawingDbTab({ role }: Props): JSX.Element {
                 <div>
                   <dt className="text-xs text-fg-muted">リビジョン</dt>
                   <dd className="text-fg-primary">{detail.revision ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-fg-muted">カテゴリ</dt>
+                  <dd className="text-fg-primary">
+                    {detail.category
+                      ? categories.find((c) => c.code === detail.category)?.name ?? detail.category
+                      : "—"}
+                  </dd>
                 </div>
                 <div className="col-span-2 sm:col-span-3 lg:col-span-4">
                   <dt className="text-xs text-fg-muted">名称</dt>

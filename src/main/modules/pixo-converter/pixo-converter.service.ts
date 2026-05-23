@@ -16,10 +16,33 @@ import { BrowserWindow, app, dialog } from "electron";
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
 
+import { PIXO_CHANNELS, type PixoProgressEvent } from "@shared/pixo/channels.js";
 import { getPortalWindow } from "@main/window.js";
 
 function dialogParent(): BrowserWindow | undefined {
   return BrowserWindow.getFocusedWindow() ?? getPortalWindow() ?? undefined;
+}
+
+/** 高負荷時のメモリ膨張を抑えるためのハードコード設定 */
+const PIXO_LIMITS = {
+  /** JPEG 化するときの長辺最大ピクセル */
+  imageMaxLongEdge: 2000,
+  /** JPEG 圧縮品質 */
+  imageJpegQuality: 85,
+  /** PDF 結合時の中間ドキュメント単位（PDF 本数） */
+  mergeChunkSize: 50,
+} as const;
+
+/** 進捗を全 BrowserWindow に通知（PixoConverter ウィンドウは別 window） */
+function emitProgress(event: PixoProgressEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      if (win.isDestroyed()) continue;
+      win.webContents.send(PIXO_CHANNELS.progress, event);
+    } catch {
+      /* 送信失敗は無視 */
+    }
+  }
 }
 
 function getAppTempRoot(): string {
@@ -267,25 +290,43 @@ export async function convertTiffToPdf(filePath: string): Promise<
 > {
   try {
     ensureTempDirs();
-    const image = sharp(filePath, { pages: -1 });
+    const jobId = `tiff-${Date.now()}`;
+    const image = sharp(filePath, { pages: -1, failOn: "none" });
     const metadata = await image.metadata();
     const pageCount = metadata.pages ?? 1;
     const pdfDoc = await PDFDocument.create();
     const assumedDPI = 300;
     for (let i = 0; i < pageCount; i++) {
-      const pageBuffer = await sharp(filePath, { page: i }).png().toBuffer();
-      const pngImage = await pdfDoc.embedPng(pageBuffer);
-      const widthInch = pngImage.width / assumedDPI;
-      const heightInch = pngImage.height / assumedDPI;
+      emitProgress({
+        jobId,
+        stage: "image:embed",
+        ratio: i / Math.max(pageCount, 1),
+        current: i + 1,
+        total: pageCount,
+        message: `${i + 1}/${pageCount} ページを変換中…`,
+      });
+      const pageBuffer = await sharp(filePath, { page: i, failOn: "none" })
+        .resize({
+          width: PIXO_LIMITS.imageMaxLongEdge,
+          height: PIXO_LIMITS.imageMaxLongEdge,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .jpeg({ quality: PIXO_LIMITS.imageJpegQuality, mozjpeg: true })
+        .toBuffer();
+      const jpgImage = await pdfDoc.embedJpg(pageBuffer);
+      const widthInch = jpgImage.width / assumedDPI;
+      const heightInch = jpgImage.height / assumedDPI;
       const pageWidth = widthInch * 72;
       const pageHeight = heightInch * 72;
       const page = pdfDoc.addPage([pageWidth, pageHeight]);
-      page.drawImage(pngImage, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+      page.drawImage(jpgImage, { x: 0, y: 0, width: pageWidth, height: pageHeight });
     }
-    const pdfBytes = await pdfDoc.save();
+    const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
     const base = (filePath.split(/[/\\]/).pop() ?? "out").replace(/\.[^.]+$/i, "");
     const outputPath = join(getOutputDir(), `${base}.pdf`);
     await writeFile(outputPath, pdfBytes);
+    emitProgress({ jobId, stage: "image:embed", ratio: 1, current: pageCount, total: pageCount });
     return { success: true, path: outputPath };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e ?? "不明なエラー");
@@ -314,25 +355,160 @@ export async function convertImageToPdf(filePath: string): Promise<
 > {
   try {
     ensureTempDirs();
-    const metadata = await sharp(filePath).metadata();
-    const imageBuffer = await sharp(filePath).png().toBuffer();
+    const jobId = `image-${Date.now()}`;
+    emitProgress({ jobId, stage: "image:resize", ratio: 0, message: "画像を最適化中…" });
+    const pipeline = sharp(filePath, { failOn: "none" })
+      .rotate()
+      .resize({
+        width: PIXO_LIMITS.imageMaxLongEdge,
+        height: PIXO_LIMITS.imageMaxLongEdge,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: PIXO_LIMITS.imageJpegQuality, mozjpeg: true });
+    const imageBuffer = await pipeline.toBuffer({ resolveWithObject: false });
+    const metadata = await sharp(imageBuffer).metadata();
+    emitProgress({ jobId, stage: "image:embed", ratio: 0.6, message: "PDF に埋め込み中…" });
     const pdfDoc = await PDFDocument.create();
-    const embeddedImage = await pdfDoc.embedPng(imageBuffer);
-    const dpi = metadata.density ?? 300;
+    const embeddedImage = await pdfDoc.embedJpg(imageBuffer);
+    const dpi = metadata.density && metadata.density > 0 ? metadata.density : 300;
     const widthInch = embeddedImage.width / dpi;
     const heightInch = embeddedImage.height / dpi;
     const widthPt = widthInch * 72;
     const heightPt = heightInch * 72;
     const page = pdfDoc.addPage([widthPt, heightPt]);
     page.drawImage(embeddedImage, { x: 0, y: 0, width: widthPt, height: heightPt });
-    const pdfBytes = await pdfDoc.save();
+    const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
     const base = (filePath.split(/[/\\]/).pop() ?? "out").replace(/\.[^.]+$/i, "");
     const outputPath = join(getOutputDir(), `${base}.pdf`);
     await writeFile(outputPath, pdfBytes);
+    emitProgress({ jobId, stage: "image:embed", ratio: 1, message: "完了" });
     return { success: true, path: outputPath };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return { error: message };
+  }
+}
+
+/**
+ * 大量 PDF の結合用：中間 PDF を経由してチャンク結合（1 PDF あたり最大 mergeChunkSize 本）。
+ * pdf-lib は結合中の PDF を全てメモリに保持するため、200 本のような件数では OOM の恐れがある。
+ * 中間 PDF として一旦ディスクに書き出すことで、入力 PDF オブジェクトを GC させながら進行する。
+ */
+async function mergeChunkedToPath(
+  inputPaths: string[],
+  outputPath: string,
+  jobId: string
+): Promise<void> {
+  ensureTempDirs();
+  const total = inputPaths.length;
+  emitProgress({
+    jobId,
+    stage: "merge:prepare",
+    ratio: 0,
+    current: 0,
+    total,
+    message: `${total} ファイルの結合を開始します`,
+  });
+
+  if (total === 0) {
+    throw new Error("結合する PDF が指定されていません");
+  }
+
+  // 件数が少ないときは中間ファイル無しで一発結合
+  if (total <= PIXO_LIMITS.mergeChunkSize) {
+    const mergedPdf = await PDFDocument.create();
+    let processed = 0;
+    for (const filePath of inputPaths) {
+      const pdfBytes = await readFile(filePath);
+      const pdf = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      for (const p of copiedPages) mergedPdf.addPage(p);
+      processed++;
+      emitProgress({
+        jobId,
+        stage: "merge:chunk",
+        ratio: processed / total,
+        current: processed,
+        total,
+      });
+    }
+    const mergedBytes = await mergedPdf.save({ useObjectStreams: true });
+    await writeFile(outputPath, mergedBytes);
+    emitProgress({ jobId, stage: "merge:final", ratio: 1, current: total, total });
+    return;
+  }
+
+  // 中間 PDF を作りながら進める
+  const intermediates: string[] = [];
+  const tempRoot = join(getAppTempRoot(), "merge-intermediate");
+  if (!existsSync(tempRoot)) mkdirSync(tempRoot, { recursive: true });
+
+  let processed = 0;
+  try {
+    for (let chunkStart = 0; chunkStart < total; chunkStart += PIXO_LIMITS.mergeChunkSize) {
+      const chunk = inputPaths.slice(chunkStart, chunkStart + PIXO_LIMITS.mergeChunkSize);
+      const chunkPdf = await PDFDocument.create();
+      for (const filePath of chunk) {
+        const pdfBytes = await readFile(filePath);
+        const pdf = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+        const copiedPages = await chunkPdf.copyPages(pdf, pdf.getPageIndices());
+        for (const p of copiedPages) chunkPdf.addPage(p);
+        processed++;
+        emitProgress({
+          jobId,
+          stage: "merge:chunk",
+          ratio: Math.min(processed / total, 0.85),
+          current: processed,
+          total,
+        });
+      }
+      const chunkBytes = await chunkPdf.save({ useObjectStreams: true });
+      const chunkPath = join(tempRoot, `chunk_${Date.now()}_${intermediates.length}.pdf`);
+      await writeFile(chunkPath, chunkBytes);
+      intermediates.push(chunkPath);
+    }
+
+    emitProgress({
+      jobId,
+      stage: "merge:final",
+      ratio: 0.9,
+      current: processed,
+      total,
+      message: "中間ファイルを最終結合中…",
+    });
+
+    // 中間 PDF が 1 本だけなら、それをそのまま出力
+    if (intermediates.length === 1) {
+      await copyFile(intermediates[0], outputPath);
+    } else {
+      const finalPdf = await PDFDocument.create();
+      for (const intermediatePath of intermediates) {
+        const intermediateBytes = await readFile(intermediatePath);
+        const intermediate = await PDFDocument.load(intermediateBytes, { ignoreEncryption: true });
+        const pages = await finalPdf.copyPages(intermediate, intermediate.getPageIndices());
+        for (const p of pages) finalPdf.addPage(p);
+      }
+      const finalBytes = await finalPdf.save({ useObjectStreams: true });
+      await writeFile(outputPath, finalBytes);
+    }
+
+    emitProgress({
+      jobId,
+      stage: "merge:final",
+      ratio: 1,
+      current: total,
+      total,
+      message: "完了",
+    });
+  } finally {
+    for (const p of intermediates) {
+      try {
+        unlinkSync(p);
+      } catch {
+        /* ignore cleanup errors */
+      }
+    }
   }
 }
 
@@ -341,16 +517,8 @@ export async function mergePdfs(filePaths: string[]): Promise<
 > {
   try {
     ensureTempDirs();
-    const mergedPdf = await PDFDocument.create();
-    for (const filePath of filePaths) {
-      const pdfBytes = await readFile(filePath);
-      const pdf = await PDFDocument.load(pdfBytes);
-      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-      for (const p of copiedPages) mergedPdf.addPage(p);
-    }
-    const mergedBytes = await mergedPdf.save();
     const outputPath = join(getOutputDir(), `merged_${Date.now()}.pdf`);
-    await writeFile(outputPath, mergedBytes);
+    await mergeChunkedToPath(filePaths, outputPath, `merge-${Date.now()}`);
     return { success: true, path: outputPath };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -364,15 +532,7 @@ export async function mergeAndSaveToPath(
 ): Promise<{ success: true } | { success: false; error: string }> {
   try {
     ensureTempDirs();
-    const mergedPdf = await PDFDocument.create();
-    for (const filePath of filePaths) {
-      const pdfBytes = await readFile(filePath);
-      const pdf = await PDFDocument.load(pdfBytes);
-      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-      for (const p of copiedPages) mergedPdf.addPage(p);
-    }
-    const mergedBytes = await mergedPdf.save();
-    await writeFile(savePath, mergedBytes);
+    await mergeChunkedToPath(filePaths, savePath, `merge-${Date.now()}`);
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

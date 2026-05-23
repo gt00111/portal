@@ -21,7 +21,7 @@ interface Props {
   enabled: boolean;
 }
 
-/** 工程タスク完了のインナー通知（管理者のみ。確認するまで一覧に残る） */
+/** 工程タスク完了のインナー通知（グループ管理者のみ。確認するまで一覧に残る） */
 export function ProcessMgmtNotificationBell({ username, enabled }: Props): JSX.Element | null {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<PmTaskCompletionNotification[]>([]);
@@ -156,7 +156,7 @@ export function ProcessMgmtNotificationBell({ username, enabled }: Props): JSX.E
                     <p>
                       {n.summary.client} / {n.summary.drawingNumber} Rev {n.summary.revision}
                     </p>
-                    <p>担当: {n.summary.assignee || "—"}</p>
+                    <p>ユーザー: {n.summary.assignee || "—"}</p>
                     <p>
                       完了: {n.completedBy} · {formatCompletedAt(n.taskCompletedAt)}
                     </p>

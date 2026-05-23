@@ -1,6 +1,6 @@
 # ポータルアプリ 要件定義書
 
-最終更新: 2026-05-05
+最終更新: 2026-05-23
 
 ---
 
@@ -456,8 +456,43 @@ app_operators 件数チェック
 - seisan-board / Process management desktop の段階吸収
 - **drawing-libraly の再設計取り込み**（Express 撤去 → IPC 化、図面比較 exe の child_process 呼び出し、PDF/eDrawings の IPC 経由配信。**DXF は 2026-05-17 に取り扱いを廃止**）
 - **PixoConverter** の起動ボタン連携と、起動後のステータス監視
-- アプリ別利用権限（`app_operator_app_grants`）の実装
-- ログ・監査機能
+- アプリ別利用権限（`app_operator_app_grants`）の実装 → **フェーズ 4-A** で `m_user_app_grants`（user 基準）として実装済み
+- ログ・監査機能 → **フェーズ 4-D** で計画化（`app_audit_log`）
+
+### 8.4 フェーズ 4 系（権限・カテゴリ・Pixo・運用強化）【計画のみ】
+
+詳細・チェックリストは `task-progress.md` を参照。本書ではスコープと位置づけのみ記録する。
+
+#### 8.4.1 フェーズ 4-A: マスタ起点のユーザー権限・アプリ別権限【実装済み】
+
+- ログインアカウント（`app_operators`）と業務ユーザー（`m_user_names`）を **1:1**（ログイン名 = マスタ名）。
+- **ポータル `admin`**: ポータル設定・操作者管理・**マスタ編集**のみ。業務アプリの権限は持たない。
+- **アプリ別権限**: `m_user_app_grants`（中央 DB）で各内蔵アプリに admin / editor / viewer。工程管理のみ `processView`（SolidWorks / CADMAC / 両方）を併設。
+- **グループ役割**: `m_user_group_memberships` で 1 ユーザー = 最大 1 グループ。`member` / `group_admin`。
+- **完了通知**: 工程タスク完了時、当該案件のグループの `group_admin` のみへ通知（portal admin 全員には送らない）。
+- 関連ドキュメント: [user-permissions.md](./user-permissions.md)。
+
+#### 8.4.2 フェーズ 4-B: 共通カテゴリマスタ【計画】
+
+- 中央 DB に **`m_categories`** を新設（`scope` 列でアプリ別に分離。`'common'` / `'drawing-library'` / 将来）。
+- 図面ライブラリの **自社発行** タブで先行採用（既存 `LibDrawingRow.category` 文字列列を活用、クロス DB FK は張らない）。
+- **マスタ編集はポータル admin のみ**。新規登録時はマスタからの選択を推奨し、自由入力フォールバックを許容。
+- 工程管理・生産ボードへの導入は将来検討（先送り可）。
+
+#### 8.4.3 フェーズ 4-C: PixoConverter 高負荷耐性【計画】
+
+- 200 枚規模のカメラ写真 → PDF 変換 + 連結でクラッシュする現状を解消する。
+- 方針: **画像は JPEG のまま `embedJpg`**、長辺リサイズ可、**チャンク連結**、**`utilityProcess.fork`** で別プロセス化、**進捗イベント + キャンセル**、renderer は path 文字列のみ保持。
+- 既存 IPC (`pixo-converter:mergePdfs` 等) は当面維持し、**新 API**（`pixo-converter:imagesToPdf:start` / `:cancel` + `progress` event）を追加。
+
+#### 8.4.4 フェーズ 4-D: 権限ガード強化と運用機能【計画】
+
+- 4-A の権限モデルを **全 IPC・UI** に行き渡らせる。
+  - `launcher:openApp` で `assertCanViewApp` を実施。grant 未付与ユーザーはホームで権限なし表示。
+  - 生産ボードの主要 write IPC に `assertCanWriteApp("seisan-board")` を付与（現状は `assertLoggedIn` のみ）。
+  - PixoConverter は `assertCanViewApp("pixo-converter")` に切替（grant 廃止して全ログインユーザー利用可とする運用も検討余地）。
+- **監査ログ** `app_audit_log` を追加し、重要操作（マスタ更新・操作者更新・完了取消・grant 変更）を記録。管理メニューに閲覧画面（ポータル admin のみ）。
+- 工程タスク `tasks.assignee` の **userNameId 化**（4-A 残課題）を完了させ、用語「担当 / 入力者」→「ユーザー」横断統一。
 
 ---
 

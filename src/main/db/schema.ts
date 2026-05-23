@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -10,18 +10,6 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
-  updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS app_operators (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  passwordHash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
-  processView TEXT NOT NULL DEFAULT 'both' CHECK (processView IN ('solidworks', 'cadmac', 'both')),
-  isActive INTEGER NOT NULL DEFAULT 1,
-  mustChangePassword INTEGER NOT NULL DEFAULT 0,
-  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
   updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -85,6 +73,19 @@ CREATE TABLE IF NOT EXISTS m_user_names (
   updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS app_operators (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  passwordHash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+  processView TEXT NOT NULL DEFAULT 'both' CHECK (processView IN ('solidworks', 'cadmac', 'both')),
+  userNameId INTEGER REFERENCES m_user_names(id) ON DELETE RESTRICT,
+  isActive INTEGER NOT NULL DEFAULT 1,
+  mustChangePassword INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS m_skus (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   customerId INTEGER REFERENCES m_customers(id) ON DELETE RESTRICT,
@@ -102,10 +103,57 @@ CREATE TABLE IF NOT EXISTS m_skus (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_m_skus_identity
   ON m_skus (customerId, modelId, partNumberId, componentNameId, drawingNumber, revision);
 
-CREATE TABLE IF NOT EXISTS app_operator_app_grants (
-  operatorId INTEGER NOT NULL REFERENCES app_operators(id) ON DELETE CASCADE,
-  appId TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
-  PRIMARY KEY (operatorId, appId)
+CREATE TABLE IF NOT EXISTS m_user_group_memberships (
+  userNameId INTEGER NOT NULL UNIQUE REFERENCES m_user_names(id) ON DELETE CASCADE,
+  groupNameId INTEGER NOT NULL REFERENCES m_group_names(id) ON DELETE RESTRICT,
+  roleInGroup TEXT NOT NULL CHECK (roleInGroup IN ('member', 'group_admin')),
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS m_user_app_grants (
+  userNameId INTEGER NOT NULL REFERENCES m_user_names(id) ON DELETE CASCADE,
+  appId TEXT NOT NULL,
+  appRole TEXT NOT NULL CHECK (appRole IN ('admin', 'editor', 'viewer')),
+  processView TEXT CHECK (processView IS NULL OR processView IN ('solidworks', 'cadmac', 'both')),
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (userNameId, appId)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_group_memberships_group ON m_user_group_memberships(groupNameId);
+
+CREATE TABLE IF NOT EXISTS m_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope TEXT NOT NULL,
+  code TEXT NOT NULL COLLATE NOCASE,
+  name TEXT NOT NULL,
+  note TEXT,
+  isActive INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (scope, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_m_categories_scope ON m_categories(scope);
+
+CREATE TABLE IF NOT EXISTS app_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  occurredAt TEXT NOT NULL DEFAULT (datetime('now')),
+  username TEXT,
+  userNameId INTEGER,
+  appId TEXT,
+  channel TEXT NOT NULL,
+  action TEXT NOT NULL,
+  targetType TEXT,
+  targetId TEXT,
+  result TEXT NOT NULL CHECK (result IN ('ok', 'fail')),
+  errorMessage TEXT,
+  detailJson TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_audit_log_occurred ON app_audit_log(occurredAt);
+CREATE INDEX IF NOT EXISTS idx_app_audit_log_username ON app_audit_log(username);
+CREATE INDEX IF NOT EXISTS idx_app_audit_log_channel ON app_audit_log(channel);
+CREATE INDEX IF NOT EXISTS idx_app_audit_log_result ON app_audit_log(result);
 `;

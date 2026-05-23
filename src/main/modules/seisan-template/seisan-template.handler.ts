@@ -3,14 +3,14 @@ import type { IpcMain } from "electron";
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 
-import { assertLoggedIn } from "@main/auth-guard.js";
+import { assertCanViewApp, assertCanWriteApp } from "@main/auth-guard.js";
 import * as processTemplatesRepo from "@main/seisan/repos/processTemplates.repo.js";
 import { ensureSeisanSatellite } from "@main/seisan-guard.js";
 
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle(SEISAN_CHANNELS.template.list, async (_event, activeOnly?: boolean) => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       ensureSeisanSatellite();
       const rows = processTemplatesRepo.list(activeOnly);
       return ok(rows);
@@ -23,7 +23,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.template.create,
     async (_event, input: processTemplatesRepo.CreateProcessTemplateInput) => {
       try {
-        assertLoggedIn();
+        assertCanWriteApp("seisan-board");
         ensureSeisanSatellite();
         const row = processTemplatesRepo.create(input);
         return ok(row);
@@ -37,7 +37,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.template.update,
     async (_event, input: processTemplatesRepo.UpdateProcessTemplateInput) => {
       try {
-        assertLoggedIn();
+        assertCanWriteApp("seisan-board");
         ensureSeisanSatellite();
         const row = processTemplatesRepo.update(input);
         return ok(row);
@@ -49,7 +49,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.template.delete, async (_event, data: { id?: string }) => {
     try {
-      assertLoggedIn();
+      assertCanWriteApp("seisan-board");
       ensureSeisanSatellite();
       if (!data?.id) {
         throw new Error("IDが必要です。");

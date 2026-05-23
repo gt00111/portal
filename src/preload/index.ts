@@ -10,8 +10,27 @@ async function invokeSeisan<T>(channel: string, data?: unknown): Promise<IpcResp
   return (await ipcRenderer.invoke(channel, data)) as IpcResponse<T>;
 }
 
+/** 主プロセスからの push イベント購読を許可するチャネル一覧（最小限） */
+const ALLOWED_SUBSCRIBE_CHANNELS = new Set<string>([
+  "pixo-converter:progress",
+]);
+
 const api = {
   invoke: (channel: string, data?: unknown) => ipcRenderer.invoke(channel, data),
+
+  /** 主プロセスからの push イベントを購読する（限定チャネルのみ）。返却された関数で解除 */
+  on: (channel: string, listener: (...args: unknown[]) => void): (() => void) => {
+    if (!ALLOWED_SUBSCRIBE_CHANNELS.has(channel)) {
+      // eslint-disable-next-line no-console
+      console.warn(`[preload] subscribe to non-allowed channel ignored: ${channel}`);
+      return () => {
+        /* no-op */
+      };
+    }
+    const wrapped = (_event: unknown, ...args: unknown[]) => listener(...args);
+    ipcRenderer.on(channel, wrapped);
+    return () => ipcRenderer.removeListener(channel, wrapped);
+  },
 
   db: {
     getPath: async (): Promise<string | null> => {

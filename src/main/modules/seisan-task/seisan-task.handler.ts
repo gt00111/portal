@@ -3,7 +3,7 @@ import type { IpcMain } from "electron";
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 
-import { assertLoggedIn } from "@main/auth-guard.js";
+import { assertCanViewApp, assertCanWriteApp } from "@main/auth-guard.js";
 import * as tasksRepo from "@main/seisan/repos/tasks.repo.js";
 import { ensureSeisanSatellite } from "@main/seisan-guard.js";
 
@@ -12,7 +12,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.task.listByProject,
     async (_event, input: { project_id?: string; include_done?: boolean }) => {
       try {
-        assertLoggedIn();
+        assertCanViewApp("seisan-board");
         ensureSeisanSatellite();
         if (!input?.project_id) {
           throw new Error("project_idが必要です。");
@@ -27,7 +27,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.task.listAll, async (_event, filter?: tasksRepo.TaskListFilter) => {
     try {
-      assertLoggedIn();
+      assertCanViewApp("seisan-board");
       ensureSeisanSatellite();
       const rows = tasksRepo.listAll(filter);
       return ok(rows);
@@ -38,7 +38,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.task.create, async (_event, input: tasksRepo.CreateTaskInput) => {
     try {
-      assertLoggedIn();
+      assertCanWriteApp("seisan-board");
       ensureSeisanSatellite();
       const row = tasksRepo.create(input);
       return ok(row);
@@ -49,7 +49,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.task.update, async (_event, input: tasksRepo.UpdateTaskInput) => {
     try {
-      assertLoggedIn();
+      assertCanWriteApp("seisan-board");
       ensureSeisanSatellite();
       const row = tasksRepo.update(input);
       return ok(row);
@@ -62,7 +62,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.task.updateDates,
     async (_event, input: { id?: string; start_date?: string; end_date?: string }) => {
       try {
-        assertLoggedIn();
+        assertCanWriteApp("seisan-board");
         ensureSeisanSatellite();
         if (!input?.id || !input.start_date || !input.end_date) {
           throw new Error("IDと開始日・終了日が必要です。");
@@ -79,7 +79,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.task.updateSort,
     async (_event, input: { tasks?: { id: string; sort_order: number }[] }) => {
       try {
-        assertLoggedIn();
+        assertCanWriteApp("seisan-board");
         ensureSeisanSatellite();
         if (!input?.tasks?.length) {
           throw new Error("tasks が必要です。");
@@ -96,7 +96,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.task.updateStatus,
     async (_event, input: { id?: string; status?: string }) => {
       try {
-        assertLoggedIn();
+        assertCanWriteApp("seisan-board");
         ensureSeisanSatellite();
         if (!input?.id || !input?.status) {
           throw new Error("IDとステータスが必要です。");
@@ -111,7 +111,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.task.delete, async (_event, input: { id?: string }) => {
     try {
-      assertLoggedIn();
+      assertCanWriteApp("seisan-board");
       ensureSeisanSatellite();
       if (!input?.id) {
         throw new Error("IDが必要です。");
@@ -125,7 +125,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(SEISAN_CHANNELS.task.initProjectTask, async (_event, input: { project_id?: string }) => {
     try {
-      assertLoggedIn();
+      assertCanWriteApp("seisan-board");
       ensureSeisanSatellite();
       if (!input?.project_id) {
         throw new Error("project_idが必要です。");
@@ -141,7 +141,7 @@ export function register(ipcMain: IpcMain): void {
     SEISAN_CHANNELS.task.createFromDeadline,
     async (_event, input: { project_id?: string; meeting_date?: string }) => {
       try {
-        assertLoggedIn();
+        assertCanWriteApp("seisan-board");
         ensureSeisanSatellite();
         if (!input?.project_id) {
           throw new Error("project_idが必要です。");

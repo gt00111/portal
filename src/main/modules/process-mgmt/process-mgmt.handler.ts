@@ -1,13 +1,20 @@
 import type { IpcMain } from "electron";
 
-import { isAdmin } from "@shared/auth.js";
+import { getAppRole } from "@shared/auth.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 import type { PmBoardTask, PmProject, PmTask, PmTaskCompletionNotification } from "@shared/processMgmt.js";
 import type { SessionUser } from "@shared/types.js";
 
-import { assertCanOperateProcessMgmtTasks, assertCanWrite, assertLoggedIn } from "@main/auth-guard.js";
+import {
+  assertAppRoleAtLeast,
+  assertCanOperateProcessMgmtTasks,
+  assertCanWriteApp,
+  assertCanViewApp,
+  assertLoggedIn,
+} from "@main/auth-guard.js";
 import { getProcessMgmtDbPath } from "@main/db/processMgmtConnection.js";
-import { listActiveAdminUsernames } from "@main/modules/operator/operator.repo.js";
+import { listGroupAdminUsernamesForGroupName } from "@main/db/userAccessQueries.js";
+import * as seisanProjects from "@main/seisan/repos/projects.repo.js";
 import { ensureProcessMgmt } from "@main/process-mgmt-guard.js";
 import { ensureSeisanSatellite } from "@main/seisan-guard.js";
 
@@ -24,10 +31,21 @@ import type {
 import * as tasks from "./pm-tasks.repo.js";
 
 function assertCanEditProgressNote(task: PmTask, session: SessionUser): void {
-  if (isAdmin(session.role)) return;
+  if (getAppRole(session, "process-management") === "admin") return;
   if (task.assignee.trim() !== session.username.trim()) {
-    throw new Error("担当者または管理者のみ進捗（％とメモ）を更新できます。");
+    throw new Error("ユーザーまたは工程管理の管理者のみ進捗（％とメモ）を更新できます。");
   }
+}
+
+function listCompletionNotifyRecipients(
+  seisanProjectId: string | null,
+  completer: string
+): string[] {
+  if (!seisanProjectId?.trim()) return [];
+  const project = seisanProjects.get(seisanProjectId);
+  const groupName = (project?.group_name ?? project?.group_id ?? "").trim();
+  if (!groupName) return [];
+  return listGroupAdminUsernamesForGroupName(groupName).filter((u) => u !== completer);
 }
 
 function filterBoardTasks(list: PmBoardTask[], query: string, client: string): PmBoardTask[] {
@@ -69,7 +87,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:project:create", async (_event, payload: CreatePmProjectPayload) => {
     try {
-      assertCanWrite();
+      assertCanWriteApp("process-management");
       ensureProcessMgmt();
       return ok<PmProject>(projects.createProject(payload ?? { name: "" }));
     } catch (err) {
@@ -89,7 +107,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:project:update", async (_event, payload: UpdatePmProjectPayload) => {
     try {
-      assertCanWrite();
+      assertCanWriteApp("process-management");
       ensureProcessMgmt();
       return ok<PmProject>(projects.updateProject(payload));
     } catch (err) {
@@ -99,7 +117,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:project:delete", async (_event, payload: { id: number }) => {
     try {
-      assertCanWrite();
+      assertCanWriteApp("process-management");
       ensureProcessMgmt();
       return ok(projects.deleteProject(payload?.id ?? 0));
     } catch (err) {
@@ -109,7 +127,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:task:listByProject", async (_event, payload: { projectId: number }) => {
     try {
-      const session = assertLoggedIn();
+      const session = assertCanViewApp("process-management");
       ensureProcessMgmt();
       return ok<PmTask[]>(tasks.listTasksByProject(payload?.projectId ?? 0, session.processView));
     } catch (err) {
@@ -119,7 +137,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:task:listMy", async () => {
     try {
-      const session = assertLoggedIn();
+      const session = assertCanOperateProcessMgmtTasks();
       ensureSeisanSatellite();
       ensureProcessMgmt();
       sync.syncDefaultProcessTasksFromSeisan();
@@ -151,7 +169,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:task:create", async (_event, payload: CreatePmTaskPayload) => {
     try {
-      const session = assertCanWrite();
+      const session = assertCanWriteApp("process-management");
       ensureProcessMgmt();
       tasks.assertProcessTypeAllowedForView(payload?.processType ?? "general", session.processView);
       return ok<PmTask>(tasks.createTask(payload));
@@ -162,7 +180,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:task:updateStatus", async (_event, payload: UpdatePmTaskStatusPayload) => {
     try {
-      const session = assertCanWrite();
+      const session = assertCanWriteApp("process-management");
       ensureProcessMgmt();
       const existing = tasks.getTaskDetail(payload.id);
       tasks.assertTaskMatchesProcessView(existing, session.processView);
@@ -186,7 +204,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:task:update", async (_event, payload: UpdatePmTaskPayload) => {
     try {
-      const session = assertCanWrite();
+      const session = assertCanWriteApp("process-management");
       ensureProcessMgmt();
       const existing = tasks.getTaskDetail(payload.id);
       tasks.assertTaskMatchesProcessView(existing, session.processView);
@@ -198,7 +216,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:task:delete", async (_event, payload: { id: number }) => {
     try {
-      const session = assertCanWrite();
+      const session = assertCanWriteApp("process-management");
       ensureProcessMgmt();
       const existing = tasks.getTaskDetail(payload?.id ?? 0);
       tasks.assertTaskMatchesProcessView(existing, session.processView);
@@ -210,7 +228,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("process-mgmt:task:listBoard", async (_event, payload: ListPmBoardPayload) => {
     try {
-      const session = assertLoggedIn();
+      const session = assertCanViewApp("process-management");
       ensureSeisanSatellite();
       ensureProcessMgmt();
       sync.syncDefaultProcessTasksFromSeisan();
@@ -229,7 +247,8 @@ export function register(ipcMain: IpcMain): void {
       const existing = tasks.getTaskDetail(payload?.id ?? 0);
       tasks.assertTaskMatchesProcessView(existing, session.processView);
       const username = session.username ?? "";
-      return ok<PmTask>(tasks.startTask(payload?.id ?? 0, username));
+      const userNameId = session.userNameId ?? null;
+      return ok<PmTask>(tasks.startTask(payload?.id ?? 0, username, userNameId));
     } catch (err) {
       return fail(err);
     }
@@ -244,7 +263,7 @@ export function register(ipcMain: IpcMain): void {
       const completed = tasks.completeTask(payload?.id ?? 0);
       const boardTask = tasks.getBoardTaskById(completed.id);
       const completer = (session.username ?? "").trim();
-      const recipients = listActiveAdminUsernames().filter((u) => u !== completer);
+      const recipients = listCompletionNotifyRecipients(completed.seisanProjectId, completer);
       if (recipients.length > 0 && completed.completedAt) {
         notifications.insertCompletionNotifications(
           recipients,
@@ -263,10 +282,7 @@ export function register(ipcMain: IpcMain): void {
     "process-mgmt:task:undoComplete",
     async (_event, payload: { id: number; reason: string }) => {
       try {
-        const session = assertLoggedIn();
-        if (!isAdmin(session.role)) {
-          throw new Error("完了の取り消しは管理者のみ実行できます。担当者からの報告を受けたうえで管理者が操作してください。");
-        }
+        const session = assertAppRoleAtLeast("process-management", "admin");
         ensureProcessMgmt();
         const id = Number(payload?.id);
         if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
