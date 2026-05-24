@@ -18,6 +18,7 @@ import { useToast } from "@renderer/components/ui/Toast.js";
 const APP_LABELS: Record<(typeof GRANTABLE_APP_IDS)[number], string> = {
   "master-database": "マスターデータ",
   "seisan-board": "生産ボード",
+  "parts-tracker": "部材管理",
   "drawing-library": "図面ライブラリ",
   "process-management": "工程管理",
   "pixo-converter": "PixoConverter",

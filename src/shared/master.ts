@@ -5,6 +5,7 @@ export const MASTER_TABLES = [
   "m_component_names",
   "m_group_names",
   "m_user_names",
+  "m_suppliers",
   "m_categories",
 ] as const;
 
@@ -17,6 +18,7 @@ export const MASTER_TABLE_LABELS: Record<MasterTable, string> = {
   m_component_names: "部品名称",
   m_group_names: "グループ名",
   m_user_names: "ユーザー",
+  m_suppliers: "商社",
   m_categories: "カテゴリ",
 };
 

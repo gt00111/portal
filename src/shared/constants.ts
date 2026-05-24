@@ -72,6 +72,15 @@ export const APP_CATALOG = [
     ready: true,
   },
   {
+    id: "parts-tracker",
+    displayName: "部材管理",
+    section: "office-support" as const,
+    description:
+      "生産案件ごとに部品表を管理し、調達区分・商社・標準リードタイムから発注期限を自動算出します。必要着日に対して遅延や要発注のリスクを色分けで把握でき、事務・調達担当が案件単位で部材の手配状況を追跡できます。商社マスタと標準 LT は中央マスタで一元管理し、生産ボードの案件 ID と連携します。",
+    kind: "internal" as const,
+    ready: true,
+  },
+  {
     id: "drawing-library",
     displayName: "図面ライブラリ",
     section: "office-support" as const,

@@ -81,6 +81,59 @@ function migrateOperatorsToMasterUsers(db: Database.Database): void {
   }
 }
 
+function migrateToV5(db: Database.Database): void {
+  if (!tableExists(db, "m_suppliers")) {
+    db.exec(`
+      CREATE TABLE m_suppliers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        name TEXT NOT NULL,
+        note TEXT,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  }
+  if (!tableExists(db, "m_procurement_lead_times")) {
+    db.exec(`
+      CREATE TABLE m_procurement_lead_times (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_type TEXT NOT NULL CHECK (source_type IN ('inhouse', 'purchase', 'supplied')),
+        supplier_id INTEGER REFERENCES m_suppliers(id) ON DELETE SET NULL,
+        sku_id INTEGER REFERENCES m_skus(id) ON DELETE SET NULL,
+        part_number TEXT,
+        lead_time_days INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_procurement_lt_source ON m_procurement_lead_times(source_type);
+      CREATE INDEX idx_procurement_lt_supplier ON m_procurement_lead_times(supplier_id);
+    `);
+  }
+
+  const grantUsers = db
+    .prepare(`SELECT DISTINCT userNameId FROM m_user_app_grants`)
+    .all() as { userNameId: number }[];
+  const hasGrant = db.prepare(
+    `SELECT 1 FROM m_user_app_grants WHERE userNameId = ? AND appId = 'parts-tracker' LIMIT 1`
+  );
+  const seisanGrant = db.prepare(
+    `SELECT appRole FROM m_user_app_grants WHERE userNameId = ? AND appId = 'seisan-board' LIMIT 1`
+  );
+  const insertGrant = db.prepare(
+    `INSERT INTO m_user_app_grants (userNameId, appId, appRole, processView, updatedAt)
+     VALUES (?, 'parts-tracker', ?, NULL, datetime('now'))`
+  );
+  for (const { userNameId } of grantUsers) {
+    if (hasGrant.get(userNameId)) continue;
+    const sg = seisanGrant.get(userNameId) as { appRole: AppRole } | undefined;
+    insertGrant.run(userNameId, sg?.appRole ?? "viewer");
+  }
+}
+
 function migrateToV4(db: Database.Database): void {
   if (!tableExists(db, "m_categories")) {
     db.exec(`
@@ -145,6 +198,9 @@ export function migrate(db: Database.Database): void {
   }
   if (currentVersion < 4) {
     migrateToV4(db);
+  }
+  if (currentVersion < 5) {
+    migrateToV5(db);
   }
 
   if (!row) {

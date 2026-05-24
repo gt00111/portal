@@ -92,6 +92,19 @@ export function MasterDatabase({ session }: Props): JSX.Element {
             </NavLink>
           )}
           <NavLink
+            to="procurement-lead-times"
+            className={({ isActive }) =>
+              cn(
+                "rounded-lg px-3 py-1.5 text-sm transition-colors",
+                isActive
+                  ? "bg-accent-secondary/15 text-accent-secondary"
+                  : "text-fg-muted hover:bg-bg-elevated hover:text-fg-primary"
+              )
+            }
+          >
+            標準 LT
+          </NavLink>
+          <NavLink
             to="m_skus"
             className={({ isActive }) =>
               cn(

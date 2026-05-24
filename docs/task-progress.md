@@ -193,6 +193,97 @@
 - CSV 列に **リビジョン**（号機の次・納期の前）を追加。**ヘッダー省略またはセル空欄は可**（旧 9 列 CSV 互換）。`projects.create` に `revision` を渡す。案件一覧 **CSV エクスポート**にもリビジョン列。
 - **設定 → DB 設定（一般）**: 案件 CSV 用 Excel テンプレを `downloadFormat` で保存可能。**`resources/format.xlsx`** をリポジトリに同梱。既定ファイル名 `案件CSVインポート形式.xlsx`。記入上の注意はリビジョン・マスタ完全一致（客先・機種・図面番号・名称・グループ・入力者）に追随。
 
+#### 3-A-2. 部材管理（parts-tracker）
+
+**位置づけ**: 生産ボード（マクロ）の **直下**。1 案件で使う **全部品** の調達区分・リードタイム・必要着日を管理し、案件納期に間に合うかを可視化する **ミクロ** 管理。詳細は [requirements.md §8.5](./requirements.md#85-フェーズ-5-部材管理parts-tracker) を参照。
+
+**到達状況**: **5-A-0（マスタ）・5-A MVP（部材管理アプリ）は実装済み**（2026-05-23）。**5-A-1**（BOM テンプレート・手配済）は要件定義のみ。
+
+**目的（要約）**
+
+- 社内製作 / 商社購入 / 支給品 など **調達区分** ごとに部品行を管理
+- **リードタイム（日）** と **必要着日**・**発注期限** から、遅延・要発注を一覧表示
+- **商社名**は中央マスタ **`m_suppliers`** で登録し、部品行から選択
+- **標準リードタイム**は中央マスタ **`m_procurement_lead_times`** で管理（何日前までに発注／着手すべきか）
+- 生産案件は **`seisan_project_id`** で紐付け（`parts-tracker.db` は中央 DB 隣接）
+- **【5-A-1 計画】** **親番 BOM テンプレート** から案件へ **一括展開**（リピート品対策）。**サブ組立を再帰展開** し **末端部品まで** 載せる
+- **【5-B 計画・最優先入力】** **SolidWorks BOM CSV 取込**（Rev 対応）、**非表示部品**（商社 3D 等の手配対象外サブ構成）
+- **【5-A-1 計画】** **手配済チェック** + **`arranged_at` / 操作者** の一覧表示
+
+**マスタ（5-A-0・中央 DB）**
+
+| テーブル | 用途 | UI |
+|----------|------|-----|
+| `m_suppliers` | 商社名（購入・外注先） | マスタ DB「商社」タブ |
+| `m_procurement_lead_times` | 区分×商社×品番/SKU ごとの **標準 LT（日）** | マスタ DB「標準リードタイム」タブ |
+| `m_bom_templates` / `m_bom_template_lines` | **親番ごとの標準 BOM**（**`sub_assembly` 多階層**）【5-A-1 計画】 | マスタ DB「BOM テンプレート」タブ |
+
+**実装チェックリスト（5-A-0 マスタ）**
+
+- [x] 要件定義（商社・標準 LT）— **2026-05-23 追記済み**
+- [x] 中央 DB スキーマ + migrate: `m_suppliers` / `m_procurement_lead_times`（schema v5）
+- [x] `shared/master.ts` / `master.repo` 拡張（商社は flat マスタ、標準 LT は `procurement-lead-time.repo` + `master:procurementLeadTime:*`）
+- [x] マスターデータベース UI: 「商社」「標準リードタイム」タブ
+- [x] `docs/db-schema.md` §10 追随
+- [ ] `docs/ipc-channels.md` 追随
+
+**実装チェックリスト（5-A MVP・部材管理アプリ）**
+
+- [x] 要件定義（`requirements.md` §8.5）— **2026-05-23 追記済み**
+- [x] `parts-tracker.db` スキーマ + connection（中央 DB 隣接）
+- [x] `src/main/modules/parts-tracker/`（handler + repo）
+- [x] `shared/partsTracker.ts` 型定義
+- [x] IPC 実装: `parts-tracker:*` / `master:procurementLeadTime:*`
+- [ ] `docs/ipc-channels.md` 追記
+- [x] `APP_CATALOG` + `GRANTABLE_APP_IDS` + ユーザー権限 UI
+- [x] `App.tsx` ルート + `PartsTrackerApp.tsx`（案件選択・部品表・CRUD・リスク表示・商社選択・LT 自動提案・検索/フィルタ・ページネーション・**ヘルプ**）
+- [x] 権限: `assertCanViewApp` / `assertCanWriteApp("parts-tracker")`
+- [x] `npm run typecheck` 通過
+
+**実装チェックリスト（5-A-1・親番テンプレート + 手配済）【要件のみ・未実装】**
+
+- [x] 要件定義 — **2026-05-23 追記**（`requirements.md` §8.5.6.3〜8.5.6.4、§8.5.11 5-A-1）
+- [x] **多階層 BOM（サブ組立再帰展開）** 要件 — **2026-05-23 追記**（§8.5.6.4）
+- [ ] 中央 DB: `m_bom_templates` / `m_bom_template_lines`（`line_kind`, `ref_template_id` 等）+ migrate
+- [ ] サテライト DB: `project_part_lines` に `is_arranged` / `arranged_by_*` / **`bom_level` / `assembly_path` 等** 列追加
+- [ ] 任意: `project_part_line_arrangement_log`（手配 ON/OFF 履歴）
+- [ ] `master:bomTemplate:*` IPC + マスタ UI「BOM テンプレート」タブ（**サブ組立参照・子 BOM リンク**）
+- [ ] `parts-tracker:template:match` / `parts-tracker:template:previewExpand` / `parts-tracker:template:expand` IPC（**再帰展開・循環検出**）
+- [ ] `parts-tracker:line:setArranged` IPC（セッションから操作者記録）
+- [ ] `PartsTrackerApp`: 全階層展開ボタン・プレビュー（末端行数・サブ警告）、一覧の手配済チェック + **`assembly_path` 列**
+- [ ] `shared/partsTracker.ts` 型拡張、`docs/db-schema.md` / `ipc-channels.md` 追随
+
+**アプリ概要**
+
+| 項目 | 内容 |
+|------|------|
+| 表示名 | 部材管理 |
+| アプリ ID | `parts-tracker` |
+| LP 配置 | `office-support` セクション、**`seisan-board` の直後** |
+| 実装 | 内蔵・別ウィンドウ `#/apps/parts-tracker` |
+
+**将来（5-B 以降・未確定）**
+
+- [ ] **SolidWorks BOM CSV 一括取込**（**部品表立ち上げの最優先入力**・Rev 列対応）— 要件 §8.5.13
+- [ ] 部品行 **`revision`**（リビジョン）の保持・一覧表示
+- [ ] **非表示部品**（商社提供 3D 等で手配対象外のサブ構成を一覧から除外、`is_hidden`）
+- [ ] 生産ボード案件詳細から「部材管理を開く」導線
+- [ ] 全案件横断ダッシュボード
+- [ ] 工程管理・通知との連携
+- [ ] 案件部品表から BOM テンプレートを **逆生成**（5-A-1 未確定事項）
+
+**実装チェックリスト（5-B・BOM CSV / Rev / 非表示）【要件のみ・未実装】**
+
+- [x] 要件定義 — **2026-05-23 追記**（`requirements.md` §8.5.13）
+- [ ] `project_part_lines` に `revision` / `is_hidden` / `hidden_*` / `import_batch_id` 列追加
+- [ ] `project_part_import_batches` テーブル + migrate
+- [ ] `shared/partsTracker.ts` / `shared/partsTrackerCsvFormat.ts`（列定義・テンプレ生成）
+- [ ] IPC: `parts-tracker:import:preview` / `commit` / `downloadTemplate` / `line:setHidden`
+- [ ] `PartsTrackerApp`: BOM CSV 取込ダイアログ（プレビュー・生産ボード `CsvImportDialog` 相当）
+- [ ] 一覧: Rev 列、非表示操作、「非表示を含む」トグル、サマリから非表示行除外
+- [ ] SolidWorks **実機エクスポート** で CSV 列定義を確定 → テンプレ・マッピング更新
+- [ ] `docs/ipc-channels.md` / `docs/db-schema.md` 追随
+
 ### 3-B. drawing-libraly（内蔵・再設計）**（一旦完成: 2026-05-06）**
 - 以降の改善は別途。現状の到達点を「内蔵・再設計フェーズ完了」とみなす。
 - [x] **顧客図面**: 生産ボードの「提供ファイル」と**同一扱い**。`drawing-library:listSeisanCustomerDrawings` のみを UI で表示（別タブ「顧客図面（DB）」は廃止）。開く＝`seisan-file:open`。
@@ -615,3 +706,9 @@ flowchart TB
 | 2026-05-23 | **フェーズ 4-B 完了**: `m_categories` テーブル＋`scope`（schema v4 / migrate v4）、`MasterCrud` で scope 切替、マスタタブ「カテゴリ」追加、図面ライブラリ自社発行に **カテゴリ選択／フィルタ／カードバッジ**を実装。 |
 | 2026-05-23 | **フェーズ 4-D 完了**: ① 全アプリ IPC を `assertCanViewApp` / `assertCanWriteApp` / `assertAppRoleAtLeast` で再ガード（PixoConverter・生産ボード全モジュール、ランチャー）。② `app_audit_log` テーブル＋ `appendAuditEntry`、認証/オペレーター/SKU/設定の主要書き込みを記録、マスタ「監査ログ」タブ（フィルタ＋詳細ドロワー）。③ `tasks.assignee_user_name_id` 列を追加し、タスク開始時に session.userNameId を併記する後方互換マイグレーション。 |
 | 2026-05-23 | **フェーズ 4-C 完了**: PixoConverter 高負荷耐性。画像→PDF を `sharp` で長辺 2000px に縮小＋JPEG q=85 に統一、PDF 結合は **チャンク（50 本単位）→中間 PDF→最終結合** で OOM 回避。`pixo-converter:progress` push イベントを追加し、preload は許可チャネル限定 `on()` を公開、結合・画像変換ページに進捗バー表示。 |
+| 2026-05-23 | **部材管理（parts-tracker）要件定義**: 生産ボード直下の新規内蔵アプリとして §8.5 / 本書 3-A-2 に追記。BOM・調達区分・リードタイム・必要着日の管理。**実装は未着手**。 |
+| 2026-05-23 | **部材管理マスタ要件追加**: 中央 DB に **商社**（`m_suppliers`）と **標準リードタイム**（`m_procurement_lead_times`）。マスタ UI タブ・部品行の `supplier_id`・発注期限日・LT 自動提案。フェーズ **5-A-0** を task-progress に追加。**実装は未着手**。 |
+| 2026-05-23 | **部材管理 5-A-1 要件追加**: **親番 BOM テンプレート**（`m_bom_templates` / `m_bom_template_lines`）→ 案件 **一括展開**、**手配済チェック** + `arranged_at` / `arranged_by_*` 表示。`requirements.md` §8.5.6.3〜8.5.6.4、`db-schema.md` §10、`task-progress.md` 3-A-2 に追記。**実装は未着手**。 |
+| 2026-05-23 | **部材管理 多階層 BOM 要件追加**: **`sub_assembly` 行** による **サブ組立の再帰展開**（末端部品まで）、`assembly_path` / `bom_level` 等の案件行メタ、循環参照検出・展開プレビュー IPC 案。§8.5.6.4 / §8.5.11 / `db-schema.md` §10.1 / `task-progress.md` 3-A-2 に追記。**実装は未着手**。 |
+| 2026-05-23 | **部材管理 5-A-0 / 5-A MVP 完了**: 商社・標準 LT マスタ、`parts-tracker.db`、部材管理 UI（CRUD・リスク・LT 自動提案）、grant・LP 配線。UI 作り込み（検索/フィルタ・ページネーション・ヘルプ・事務向けシェル）。`task-progress.md` 3-A-2 チェックリスト更新。**残**: `ipc-channels.md` 追記、5-A-1。 |
+| 2026-05-23 | **部材管理 5-B 要件追加**: **SolidWorks BOM CSV 取込**（部品表投入の最優先経路）、部品行 **`revision`**、商社 3D 由来の **非表示部品**（`is_hidden`）。§8.5.13 / `task-progress.md` 3-A-2。**実装は未着手**。 |

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -156,4 +156,30 @@ CREATE INDEX IF NOT EXISTS idx_app_audit_log_occurred ON app_audit_log(occurredA
 CREATE INDEX IF NOT EXISTS idx_app_audit_log_username ON app_audit_log(username);
 CREATE INDEX IF NOT EXISTS idx_app_audit_log_channel ON app_audit_log(channel);
 CREATE INDEX IF NOT EXISTS idx_app_audit_log_result ON app_audit_log(result);
+
+CREATE TABLE IF NOT EXISTS m_suppliers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  note TEXT,
+  isActive INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS m_procurement_lead_times (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_type TEXT NOT NULL CHECK (source_type IN ('inhouse', 'purchase', 'supplied')),
+  supplier_id INTEGER REFERENCES m_suppliers(id) ON DELETE SET NULL,
+  sku_id INTEGER REFERENCES m_skus(id) ON DELETE SET NULL,
+  part_number TEXT,
+  lead_time_days INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  isActive INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_procurement_lt_source ON m_procurement_lead_times(source_type);
+CREATE INDEX IF NOT EXISTS idx_procurement_lt_supplier ON m_procurement_lead_times(supplier_id);
 `;

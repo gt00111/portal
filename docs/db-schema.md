@@ -342,3 +342,49 @@ ORDER BY p.name COLLATE NOCASE;
 2. **列リネーム・削除** は「仮名で追加 → 書き写し → 旧削除」の 3 ステップで行う（破壊的変更は最小限）
 3. **新マスタ追加** は同じ共通列セットで `m_<name>` を作る → `TABLE_NAMES` 定数に追加 → 必要なら `m_skus` に FK 列追加
 4. **type/key/value 式の汎用テーブル禁止**（型・整合性が崩れる）
+
+---
+
+## 10. 部材管理マスタ（5-A-0 実装済み / 5-A-1 計画）
+
+部材管理（`parts-tracker`）向けに中央 DB へ追加予定。詳細は [requirements.md §8.5.6](./requirements.md#856-データモデル案) を参照。
+
+| テーブル | 役割 |
+|----------|------|
+| `m_suppliers` | **商社**（購入・外注先）。既存 flat マスタと同形（`code` / `name` / `note` / `isActive`） |
+| `m_procurement_lead_times` | **標準リードタイム（日）**。`source_type` + 任意 `supplier_id` + 任意 `sku_id` / `part_number` で「何日前までに発注・着手すべきか」を保持 |
+| `m_bom_templates` | **親番 BOM テンプレート（ヘッダ）**【5-A-1 計画】。`parent_part_number` / 任意 `parent_sku_id` |
+| `m_bom_template_lines` | テンプレート **構成行**【5-A-1 計画】。`line_kind`（`part` / `sub_assembly`）、`ref_template_id` で **多階層参照** |
+
+部品行（サテライト `parts-tracker.db` の `project_part_lines`）は `supplier_id` で商社を参照し、作成時に標準 LT マスタから `lead_time_days` を自動提案する。
+
+### 10.1 計画: 案件部品行の追加列（5-A-1）
+
+`project_part_lines` への追加（マイグレーション未実施）:
+
+| 列 | 役割 |
+|----|------|
+| `is_arranged` | 手配済チェック（0/1） |
+| `arranged_at` | 手配済にした日時 |
+| `arranged_by_user_name_id` | 操作者（`m_user_names.id`） |
+| `arranged_by_username` | 表示用ユーザー名スナップショット |
+| `bom_level` | ルート BOM からの深さ（サブ展開由来） |
+| `assembly_path` | 組立経路（例: `TOP/SUB-01/PART-A`） |
+| `parent_assembly_part_number` | 直上サブ組立品番 |
+| `root_template_id` | 展開元ルートテンプレート ID |
+| `source_template_line_id` | 展開元マスタ行 ID |
+
+任意: `project_part_line_arrangement_log`（手配 ON/OFF の履歴、`line_id` / `action` / `user` / `at`）。
+
+### 10.2 計画: 案件部品行の追加列（5-B）
+
+`project_part_lines` への追加（マイグレーション未実施）:
+
+| 列 | 役割 |
+|----|------|
+| `revision` | 部品リビジョン（SolidWorks BOM CSV 等） |
+| `is_hidden` | 一覧非表示（商社 3D 等で手配対象外のサブ構成） |
+| `hidden_at` / `hidden_by_username` / `hidden_reason` | 非表示操作の監査 |
+| `import_batch_id` | CSV 取込バッチ参照 |
+
+サテライト: `project_part_import_batches`（取込履歴。`source` = `solidworks_bom_csv` 等）。

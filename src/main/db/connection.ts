@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 
 import { closeDrawingLibrary, openDrawingLibraryAdjacentToCentral } from "./drawingLibraryConnection.js";
+import { closePartsTracker, openPartsTrackerAdjacentToCentral } from "./partsTrackerConnection.js";
 import { closeProcessMgmt, openProcessMgmtAdjacentToCentral } from "./processMgmtConnection.js";
 import { closeSeisanSatellite, openSeisanForCurrentCentral } from "./seisanConnection.js";
 import { migrate } from "./migrate.js";
@@ -50,11 +51,13 @@ export async function openDatabase(filePath: string, options: { createIfMissing:
   openSeisanForCurrentCentral(filePath);
   openDrawingLibraryAdjacentToCentral(filePath);
   openProcessMgmtAdjacentToCentral(filePath);
+  openPartsTrackerAdjacentToCentral(filePath);
 }
 
 export function closeDatabase(): void {
   closeDrawingLibrary();
   closeProcessMgmt();
+  closePartsTracker();
   closeSeisanSatellite();
   if (db) {
     db.close();

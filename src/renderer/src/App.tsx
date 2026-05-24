@@ -20,10 +20,12 @@ import { Login } from "@renderer/routes/Login.js";
 import { MasterTableRoute } from "@renderer/routes/MasterDatabase.js";
 import { NotFound } from "@renderer/routes/NotFound.js";
 import { PixoConverterApp } from "@renderer/routes/PixoConverterApp.js";
+import { PartsTrackerApp } from "@renderer/routes/PartsTrackerApp.js";
 import { ProcessManagementApp } from "@renderer/routes/ProcessManagementApp.js";
 import { SeisanBoardApp } from "@renderer/routes/SeisanBoardApp.js";
 import { SkuRoute } from "@renderer/routes/SkuRoute.js";
 import { AuditLogPage } from "@renderer/routes/master/AuditLogPage.js";
+import { ProcurementLeadTimePage } from "@renderer/routes/master/ProcurementLeadTimePage.js";
 import { UserAccessPage } from "@renderer/routes/master/UserAccessPage.js";
 
 export function App(): JSX.Element {
@@ -183,6 +185,14 @@ function AppRoutes(): JSX.Element {
               }
             />
             <Route
+              path="/apps/parts-tracker"
+              element={
+                <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base">
+                  <PartsTrackerApp session={session} />
+                </div>
+              }
+            />
+            <Route
               path="/apps/process-management"
               element={
                 <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base">
@@ -197,6 +207,7 @@ function AppRoutes(): JSX.Element {
                 <Route key={t} path={t} element={<MasterTableRoute table={t} />} />
               ))}
               <Route path="m_skus" element={<SkuRoute />} />
+              <Route path="procurement-lead-times" element={<ProcurementLeadTimePage />} />
               <Route path="user-access" element={<UserAccessPage />} />
               <Route path="audit-log" element={<AuditLogPage />} />
             </Route>
