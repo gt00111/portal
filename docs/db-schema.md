@@ -345,20 +345,23 @@ ORDER BY p.name COLLATE NOCASE;
 
 ---
 
-## 10. 部材管理マスタ（5-A-0 実装済み / 5-A-1 計画）
+## 10. 部材管理マスタ（5-A-0 実装済み / 5-A-1 / 5-E / 5-B / 5-F 計画）
 
 部材管理（`parts-tracker`）向けに中央 DB へ追加予定。詳細は [requirements.md §8.5.6](./requirements.md#856-データモデル案) を参照。
 
 | テーブル | 役割 |
 |----------|------|
-| `m_suppliers` | **商社**（購入・外注先）。既存 flat マスタと同形（`code` / `name` / `note` / `isActive`） |
-| `m_procurement_lead_times` | **標準リードタイム（日）**。`source_type` + 任意 `supplier_id` + 任意 `sku_id` / `part_number` で「何日前までに発注・着手すべきか」を保持 |
-| `m_bom_templates` | **親番 BOM テンプレート（ヘッダ）**【5-A-1 計画】。`parent_part_number` / 任意 `parent_sku_id` |
-| `m_bom_template_lines` | テンプレート **構成行**【5-A-1 計画】。`line_kind`（`part` / `sub_assembly`）、`ref_template_id` で **多階層参照** |
+| `m_suppliers` | **商社**（購入・外注先）。既存 flat マスタと同形（`code` / `name` / `note` / `isActive`）。**実装済み** |
+| `m_procurement_lead_times` | **標準リードタイム（日）**。`source_type` + 任意 `supplier_id` + 任意 `sku_id` / `part_number` で「何日前までに発注・着手すべきか」を保持。**実装済み** |
+| `m_products` | **製品マスタ（親番）**【schema v6・実装済み】。`part_number`（UNIQUE） / `name` / 任意 `sku_id` / 任意 `default_supplier_id` |
+| `m_product_boms` | **製品 BOM ヘッダ（Rev 単位）**【schema v6・実装済み】。`product_id` + `revision`（UNIQUE）、`status`（`draft` / `released` / `obsolete`） |
+| `m_product_bom_lines` | **製品 BOM 構成行**【schema v6・実装済み】。`line_kind`（`part` / `sub_assembly`）、`ref_product_bom_id` で **多階層参照** |
+
+> **2026-05-25 確定**: 5-A-1 で計画していた `m_bom_templates` / `m_bom_template_lines` は **実装しない**。`m_product_boms` / `m_product_bom_lines` を「親番 BOM テンプレート」と兼用する。
 
 部品行（サテライト `parts-tracker.db` の `project_part_lines`）は `supplier_id` で商社を参照し、作成時に標準 LT マスタから `lead_time_days` を自動提案する。
 
-### 10.1 計画: 案件部品行の追加列（5-A-1）
+### 10.1 計画: 案件部品行の追加列（5-A-1 / 5-E）
 
 `project_part_lines` への追加（マイグレーション未実施）:
 
@@ -371,8 +374,10 @@ ORDER BY p.name COLLATE NOCASE;
 | `bom_level` | ルート BOM からの深さ（サブ展開由来） |
 | `assembly_path` | 組立経路（例: `TOP/SUB-01/PART-A`） |
 | `parent_assembly_part_number` | 直上サブ組立品番 |
-| `root_template_id` | 展開元ルートテンプレート ID |
-| `source_template_line_id` | 展開元マスタ行 ID |
+| `root_product_bom_id` | 展開元ルート `m_product_boms.id`（= 案件 `projects.product_bom_id` と一致） |
+| `source_product_bom_line_id` | 展開元 `m_product_bom_lines.id` |
+
+> 旧案 `root_template_id` / `source_template_line_id` は **採用しない**（テーブル統合のため）。
 
 任意: `project_part_line_arrangement_log`（手配 ON/OFF の履歴、`line_id` / `action` / `user` / `at`）。
 
@@ -388,3 +393,40 @@ ORDER BY p.name COLLATE NOCASE;
 | `import_batch_id` | CSV 取込バッチ参照 |
 
 サテライト: `project_part_import_batches`（取込履歴。`source` = `solidworks_bom_csv` 等）。
+
+### 10.3 計画: 製品中心 BOM（5-E）— 5-A-1 統合
+
+**位置づけ**: 案件は無限に増えるが、**製品（親番）は有限**。製品 Rev ごとに BOM を持ち、案件はその **スナップショット** を使う。**5-A-1 の親番 BOM テンプレートは本テーブルに統合**（兼用）。詳細は [requirements.md §8.5.14](./requirements.md#8514-製品中心の-bom-管理計画5-e未実装) を参照。
+
+**中央 DB へ追加（マイグレーション未実施）**
+
+| テーブル | 主要列 |
+|----------|--------|
+| `m_products` | `id` / `part_number`（UNIQUE） / `name` / `sku_id` / `default_supplier_id` / `note` / `isActive` / `createdAt` / `updatedAt` |
+| `m_product_boms` | `id` / `product_id` / `revision` / `status`（`draft` / `released` / `obsolete`） / `released_at` / `released_by_username` / `note` / `createdAt` / `updatedAt`。UNIQUE `(product_id, revision)` |
+| `m_product_bom_lines` | `id` / `product_bom_id` / `line_kind`（`part` / `sub_assembly`） / `part_number` / `part_name` / `quantity` / `source_type` / `supplier_id` / `sku_id` / `ref_product_bom_id` / `ref_part_number` / `sort_order` / `note` |
+
+> **2026-05-25 確定**: 5-A-1 の `m_bom_templates` は **実装しない**。製品 Rev = 親番テンプレートとして本テーブル群を兼用する。
+
+**案件側の追加列（配置先確定: `seisan-board.db / projects`）**
+
+**2026-05-25 確定**: `seisan-board.db` の `projects` テーブルに追加（生産ボード側に持たせる方が「案件＝製品の発注」として自然なため）。
+
+| 追加列 | 役割 |
+|--------|------|
+| `product_id` | 中央 `m_products.id`（任意・既存案件は NULL 可） |
+| `product_bom_id` | 起票時にスナップショットした `m_product_boms.id` |
+| `quantity_units` | 製造台数（製品 1 台 × `quantity_units` で部品行の数量を算出） |
+
+> 中央 DB の `m_products` / `m_product_boms` は同一 SQLite ファイル内で JOIN 可能（central DB 統合済み）。`parts-tracker.db` 側にも `root_product_bom_id`（§10.1）を冗長保持し、案件詳細を引かずに行レベルで参照できるようにする【推奨】。
+
+**更新時の追従ポリシー（決定）**:
+
+- 既存案件には **自動追従しない**（`projects.product_bom_id` は起票時点で固定）。
+- 新 Rev に当て直す場合は **手動操作 + 5-F 差分プレビュー** を介す。詳細は [requirements.md §8.5.14.4.1](./requirements.md#851441-製品-bom-更新時の追従ポリシー決定2026-05-25) を参照。
+
+### 10.4 計画: BOM Rev 差分（5-F）
+
+新規テーブルは追加しない。`m_product_bom_lines`（Rev A / Rev B）または `project_part_lines`（案件 A / 案件 B）を **読み取り** で比較し、IPC レベルで差分を返す。
+
+詳細は [requirements.md §8.5.15](./requirements.md#8515-bom-rev-差分表示設計変更の見える化計画5-f未実装) を参照。

@@ -263,6 +263,72 @@ DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削�
 
 ---
 
+## 6e. `master:procurementLeadTime:*`（中央 DB / 標準 LT マスタ）
+
+| チャネル | 権限 | Request | Response (`data`) |
+|---------|------|---------|---------------------|
+| `master:procurementLeadTime:list` | 🔒 | `undefined` | `ProcurementLeadTimeRow[]` |
+| `master:procurementLeadTime:create` | 👑 | `ProcurementLeadTimeUpsertInput` | `ProcurementLeadTimeRow` |
+| `master:procurementLeadTime:update` | 👑 | `{ id; input }` | `ProcurementLeadTimeRow` |
+| `master:procurementLeadTime:delete` | 👑 | `{ id }` | `null` |
+| `master:procurementLeadTime:resolve` | 🔒 | `{ sourceType; supplierId?; skuId?; partNumber? }` | `{ leadTimeDays; procurementLeadTimeId }` |
+
+型は `shared/procurementLeadTime.ts` を参照。`sourceType` ＝ `inhouse` / `purchase` / `supplied`。`resolve` は part_number → SKU → 商社 + sourceType → sourceType だけ の優先で最具体の LT を返す。
+
+## 6f. `master:productBom:*`（中央 DB / 製品マスタ・製品 BOM = 親番テンプレート兼用）
+
+5-A-1（親番テンプレート）と 5-E（製品中心 BOM）を統合した中央マスタ。`m_products` / `m_product_boms`（Rev ヘッダ）/ `m_product_bom_lines`（構成行）。サブ組立行は他の `m_product_boms` を参照することで再帰展開できる。
+
+| チャネル | 権限 | Request | Response (`data`) |
+|---------|------|---------|---------------------|
+| `master:productBom:listProducts` | 🔒 | `undefined` | `ProductRow[]` |
+| `master:productBom:createProduct` | 👑 | `ProductUpsertInput` | `ProductRow` |
+| `master:productBom:updateProduct` | 👑 | `{ id; input }` | `ProductRow` |
+| `master:productBom:deleteProduct` | 👑 | `{ id }` | `null` |
+| `master:productBom:listBomsByProduct` | 🔒 | `{ productId }` | `ProductBomRow[]` |
+| `master:productBom:createBom` | 👑 | `ProductBomUpsertInput` | `ProductBomRow` |
+| `master:productBom:updateBom` | 👑 | `{ id; input }` | `ProductBomRow` |
+| `master:productBom:releaseBom` | 👑 | `{ id }` | `ProductBomRow`（`status=released`・`released_at`・`released_by_username` 自動設定） |
+| `master:productBom:cloneBom` | 👑 | `{ sourceId; newRevision }` | `ProductBomRow`（行も複製、新 Rev は `draft`） |
+| `master:productBom:deleteBom` | 👑 | `{ id }` | `null` |
+| `master:productBom:listLines` | 🔒 | `{ productBomId }` | `ProductBomLineRow[]` |
+| `master:productBom:createLine` | 👑 | `ProductBomLineUpsertInput` | `ProductBomLineRow` |
+| `master:productBom:updateLine` | 👑 | `{ id; input }` | `ProductBomLineRow` |
+| `master:productBom:deleteLine` | 👑 | `{ id }` | `null` |
+
+型は `shared/productBom.ts` を参照。`lineKind` ＝ `part`（末端部品）/ `sub_assembly`（サブ組立、`ref_product_bom_id` または `ref_part_number` で別 BOM を参照）。
+
+## 6g. `parts-tracker:*`（部材管理サテライト DB）
+
+中央マスタ DB と**同じディレクトリ**の `parts-tracker.db`。`project_part_lines` を案件ごとに管理。`seisan-board.db / projects` を参照（製番）。`parts-tracker:productBom:*` と `parts-tracker:bomDiff:*` は中央 DB の製品 BOM を読みに行く。
+
+| チャネル | 権限 | Request | Response (`data`) |
+|---------|------|---------|---------------------|
+| `parts-tracker:status` | 🔒 | `undefined` | `{ connected; path }` |
+| `parts-tracker:projectList` | 🔒 | `undefined` | `PartsTrackerProjectOption[]`（`partNumber` を含む。親番 → 製品 BOM マッチに使用） |
+| `parts-tracker:line:list` | 🔒 | `{ seisanProjectId; includeHidden? }` | `ProjectPartLine[]` |
+| `parts-tracker:line:create` | ✏️ | `ProjectPartLineUpsertInput` | `ProjectPartLine` |
+| `parts-tracker:line:update` | ✏️ | `{ id; input }` | `ProjectPartLine` |
+| `parts-tracker:line:delete` | ✏️ | `{ id }` | `null` |
+| `parts-tracker:line:setArranged` | ✏️ | `{ id; arranged }` | `ProjectPartLine`（手配済チェック・誰がいつを記録、`project_part_line_arrangement_log` にも追記） |
+| `parts-tracker:line:setHidden` | ✏️ | `{ id; hidden; reason? }` | `ProjectPartLine`（非表示・理由 + ユーザー名を記録） |
+| `parts-tracker:summary` | 🔒 | `{ seisanProjectId }` | `ProjectPartSummary`（`visibleLines` / `hiddenLines` / `arrangedCount` を含む） |
+| `parts-tracker:suggestLeadTime` | 🔒 | `{ sourceType; supplierId?; skuId?; partNumber? }` | `ResolvedLeadTime` |
+| `parts-tracker:productBom:match` | 🔒 | `{ partNumber }` | 親番一致の `m_products` × `m_product_boms` の一覧（リリース優先、更新順） |
+| `parts-tracker:productBom:previewExpand` | 🔒 | `{ productBomId; multiplier? }` | `ProductBomExpandPreview`（多階層を再帰展開、循環検出・未登録サブ組立検出） |
+| `parts-tracker:productBom:expand` | ✏️ | `ProductBomExpandInput` | `ProductBomExpandResult`（`skip` / `addQuantity` / `overwrite` ポリシー） |
+| `parts-tracker:import:preview` | 🔒 | `{ csvText }` | `BomCsvPreviewResult`（列ヘッダ自動認識、商社マスタ照合、エラー・警告検出） |
+| `parts-tracker:import:commit` | ✏️ | `BomCsvImportCommitInput` | `BomCsvImportCommitResult`（重複ポリシー: `appendOnly` / `updateOnRevision` / `replaceAll`。`project_part_import_batches` に履歴を残す） |
+| `parts-tracker:import:downloadTemplate` | 🔒 | `undefined` | `{ csv; fileName }`（UTF-8 BOM 付きテンプレ CSV） |
+| `parts-tracker:import:batches` | 🔒 | `{ seisanProjectId }` | `BomCsvImportBatchRow[]` |
+| `parts-tracker:bomDiff:productRev` | 🔒 | `{ productBomIdA; productBomIdB; matchByAssemblyPath? }` | `BomDiffResult`（製品 Rev 同士の差分） |
+| `parts-tracker:bomDiff:project` | 🔒 | `{ seisanProjectIdA; seisanProjectIdB; matchByAssemblyPath? }` | `BomDiffResult`（案件同士の差分） |
+| `parts-tracker:bomDiff:currentVsLatest` | 🔒 | `{ seisanProjectId }` | `BomDiffResult \| null`（案件にスナップショット済みの Rev と、製品マスタの最新 Rev を比較） |
+
+型は `shared/partsTracker.ts` / `shared/productBom.ts` / `shared/partsTrackerCsvFormat.ts` / `shared/bomDiff.ts` を参照。`ProjectPartLine` には `isArranged` / `arrangedByUsername` / `arrangedAt` / `isHidden` / `hiddenReason` / `revision` / `bomLevel` / `assemblyPath` / `parentAssemblyPartNumber` / `rootProductBomId` / `sourceProductBomLineId` / `importBatchId` が含まれる（5-A-1 / 5-B / 5-E 用）。
+
+---
+
 ## 7. `launcher:*`
 
 アプリ起動。**内蔵アプリは新規 BrowserWindow**（`pixo-converter` を含む）。
@@ -279,6 +345,7 @@ type AppId =
   | "seisan-board"
   | "process-management"
   | "drawing-library"
+  | "parts-tracker"
   | "pixo-converter";
 ```
 

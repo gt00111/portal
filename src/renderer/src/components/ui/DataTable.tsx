@@ -16,6 +16,7 @@ interface Props<T> {
   keyOf: (row: T) => string | number;
   empty?: string;
   onRowClick?: (row: T) => void;
+  rowClassName?: (row: T) => string | undefined;
 }
 
 export function DataTable<T>({
@@ -24,6 +25,7 @@ export function DataTable<T>({
   keyOf,
   empty = "データがありません。",
   onRowClick,
+  rowClassName,
 }: Props<T>): JSX.Element {
   return (
     <div className="overflow-x-auto rounded-xl border border-border-subtle">
@@ -59,7 +61,8 @@ export function DataTable<T>({
               onClick={onRowClick ? () => onRowClick(row) : undefined}
               className={cn(
                 "border-t border-border-subtle transition-colors",
-                onRowClick && "cursor-pointer hover:bg-bg-elevated/40"
+                onRowClick && "cursor-pointer hover:bg-bg-elevated/40",
+                rowClassName?.(row)
               )}
             >
               {columns.map((c) => (

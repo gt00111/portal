@@ -141,6 +141,10 @@ export function initSeisanSchema(db: Database.Database): void {
     "ALTER TABLE projects ADD COLUMN unit_number TEXT",
     "ALTER TABLE projects ADD COLUMN revision TEXT",
     "ALTER TABLE tasks ADD COLUMN process_template_id TEXT",
+    // 5-E（製品中心 BOM）対応: 案件 ＝ 製品 Rev の発注インスタンス
+    "ALTER TABLE projects ADD COLUMN product_id INTEGER",
+    "ALTER TABLE projects ADD COLUMN product_bom_id INTEGER",
+    "ALTER TABLE projects ADD COLUMN quantity_units REAL DEFAULT 1",
   ]) {
     try {
       db.prepare(sql).run();

@@ -81,6 +81,64 @@ function migrateOperatorsToMasterUsers(db: Database.Database): void {
   }
 }
 
+function migrateToV6(db: Database.Database): void {
+  if (!tableExists(db, "m_products")) {
+    db.exec(`
+      CREATE TABLE m_products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        part_number TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        name TEXT NOT NULL,
+        sku_id INTEGER REFERENCES m_skus(id) ON DELETE SET NULL,
+        default_supplier_id INTEGER REFERENCES m_suppliers(id) ON DELETE SET NULL,
+        note TEXT,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  }
+  if (!tableExists(db, "m_product_boms")) {
+    db.exec(`
+      CREATE TABLE m_product_boms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL REFERENCES m_products(id) ON DELETE CASCADE,
+        revision TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'released', 'obsolete')),
+        released_at TEXT,
+        released_by_username TEXT,
+        note TEXT,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (product_id, revision)
+      );
+      CREATE INDEX idx_m_product_boms_product ON m_product_boms(product_id);
+    `);
+  }
+  if (!tableExists(db, "m_product_bom_lines")) {
+    db.exec(`
+      CREATE TABLE m_product_bom_lines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_bom_id INTEGER NOT NULL REFERENCES m_product_boms(id) ON DELETE CASCADE,
+        line_kind TEXT NOT NULL CHECK (line_kind IN ('part', 'sub_assembly')),
+        part_number TEXT NOT NULL,
+        part_name TEXT NOT NULL,
+        quantity REAL NOT NULL DEFAULT 1,
+        source_type TEXT NOT NULL CHECK (source_type IN ('inhouse', 'purchase', 'supplied')),
+        supplier_id INTEGER REFERENCES m_suppliers(id) ON DELETE SET NULL,
+        sku_id INTEGER REFERENCES m_skus(id) ON DELETE SET NULL,
+        ref_product_bom_id INTEGER REFERENCES m_product_boms(id) ON DELETE SET NULL,
+        ref_part_number TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_m_product_bom_lines_bom ON m_product_bom_lines(product_bom_id);
+      CREATE INDEX idx_m_product_bom_lines_kind ON m_product_bom_lines(line_kind);
+    `);
+  }
+}
+
 function migrateToV5(db: Database.Database): void {
   if (!tableExists(db, "m_suppliers")) {
     db.exec(`
@@ -201,6 +259,9 @@ export function migrate(db: Database.Database): void {
   }
   if (currentVersion < 5) {
     migrateToV5(db);
+  }
+  if (currentVersion < 6) {
+    migrateToV6(db);
   }
 
   if (!row) {

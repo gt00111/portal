@@ -197,7 +197,7 @@
 
 **位置づけ**: 生産ボード（マクロ）の **直下**。1 案件で使う **全部品** の調達区分・リードタイム・必要着日を管理し、案件納期に間に合うかを可視化する **ミクロ** 管理。詳細は [requirements.md §8.5](./requirements.md#85-フェーズ-5-部材管理parts-tracker) を参照。
 
-**到達状況**: **5-A-0（マスタ）・5-A MVP（部材管理アプリ）は実装済み**（2026-05-23）。**5-A-1**（BOM テンプレート・手配済）は要件定義のみ。
+**到達状況**: **5-A-0 / 5-A MVP / 5-A-1 / 5-B / 5-E / 5-F を一括実装完了**（2026-05-25）。schema v6 + 中央 DB 製品 BOM マスタ + `seisan-board.db / projects` の `product_id` / `product_bom_id` / `quantity_units` 列 + `parts-tracker.db` 拡張（手配済・Rev・非表示・取込バッチ・階層メタ）+ 製品 BOM 再帰展開 + CSV 取込（プレビュー・コミット）+ Rev 差分（製品 Rev 同士 / 案件同士 / 案件 vs 最新 Rev）まで実装。**BOM 自動追従は採用しない**ポリシーで実装。
 
 **目的（要約）**
 
@@ -209,6 +209,8 @@
 - **【5-A-1 計画】** **親番 BOM テンプレート** から案件へ **一括展開**（リピート品対策）。**サブ組立を再帰展開** し **末端部品まで** 載せる
 - **【5-B 計画・最優先入力】** **SolidWorks BOM CSV 取込**（Rev 対応）、**非表示部品**（商社 3D 等の手配対象外サブ構成）
 - **【5-A-1 計画】** **手配済チェック** + **`arranged_at` / 操作者** の一覧表示
+- **【5-E 計画】** **製品（親番）を主役** にした BOM 管理。案件は **製品 Rev のインスタンス** として作成（無限に増える案件と、有限の製品 BOM を分離）
+- **【5-F 計画】** **製品 Rev A → Rev B の差分表示**（追加・削除・数量変更・部品 Rev 上がり）と要約テキスト。案件同士の比較や「前 Rev からの変更バッジ」も対象
 
 **マスタ（5-A-0・中央 DB）**
 
@@ -216,7 +218,7 @@
 |----------|------|-----|
 | `m_suppliers` | 商社名（購入・外注先） | マスタ DB「商社」タブ |
 | `m_procurement_lead_times` | 区分×商社×品番/SKU ごとの **標準 LT（日）** | マスタ DB「標準リードタイム」タブ |
-| `m_bom_templates` / `m_bom_template_lines` | **親番ごとの標準 BOM**（**`sub_assembly` 多階層**）【5-A-1 計画】 | マスタ DB「BOM テンプレート」タブ |
+| `m_products` / `m_product_boms` / `m_product_bom_lines` | **親番ごとの標準 BOM**（**`sub_assembly` 多階層**・**Rev 単位**）【5-A-1 / 5-E 統合・計画】。**5-A-1 で予定していた `m_bom_templates` は実装しない**（兼用確定） | マスタ DB「製品 BOM」タブ |
 
 **実装チェックリスト（5-A-0 マスタ）**
 
@@ -225,7 +227,7 @@
 - [x] `shared/master.ts` / `master.repo` 拡張（商社は flat マスタ、標準 LT は `procurement-lead-time.repo` + `master:procurementLeadTime:*`）
 - [x] マスターデータベース UI: 「商社」「標準リードタイム」タブ
 - [x] `docs/db-schema.md` §10 追随
-- [ ] `docs/ipc-channels.md` 追随
+- [x] `docs/ipc-channels.md` §6e 追随 — **2026-05-25**
 
 **実装チェックリスト（5-A MVP・部材管理アプリ）**
 
@@ -234,24 +236,27 @@
 - [x] `src/main/modules/parts-tracker/`（handler + repo）
 - [x] `shared/partsTracker.ts` 型定義
 - [x] IPC 実装: `parts-tracker:*` / `master:procurementLeadTime:*`
-- [ ] `docs/ipc-channels.md` 追記
+- [x] `docs/ipc-channels.md` 追記 — **2026-05-25**（§6e / §6g）
 - [x] `APP_CATALOG` + `GRANTABLE_APP_IDS` + ユーザー権限 UI
 - [x] `App.tsx` ルート + `PartsTrackerApp.tsx`（案件選択・部品表・CRUD・リスク表示・商社選択・LT 自動提案・検索/フィルタ・ページネーション・**ヘルプ**）
 - [x] 権限: `assertCanViewApp` / `assertCanWriteApp("parts-tracker")`
 - [x] `npm run typecheck` 通過
 
-**実装チェックリスト（5-A-1・親番テンプレート + 手配済）【要件のみ・未実装】**
+**実装チェックリスト（5-A-1・手配済チェック）【実装完了 2026-05-25】**
+
+> **2026-05-25 確定**: 親番 BOM テンプレートのテーブル別立て（`m_bom_templates`）は **廃止し、5-E の `m_product_boms` に統合**。本チェックリストは **手配済関連** に絞り、テンプレ・多階層展開系は 5-E チェックリストに集約。
 
 - [x] 要件定義 — **2026-05-23 追記**（`requirements.md` §8.5.6.3〜8.5.6.4、§8.5.11 5-A-1）
-- [x] **多階層 BOM（サブ組立再帰展開）** 要件 — **2026-05-23 追記**（§8.5.6.4）
-- [ ] 中央 DB: `m_bom_templates` / `m_bom_template_lines`（`line_kind`, `ref_template_id` 等）+ migrate
-- [ ] サテライト DB: `project_part_lines` に `is_arranged` / `arranged_by_*` / **`bom_level` / `assembly_path` 等** 列追加
-- [ ] 任意: `project_part_line_arrangement_log`（手配 ON/OFF 履歴）
-- [ ] `master:bomTemplate:*` IPC + マスタ UI「BOM テンプレート」タブ（**サブ組立参照・子 BOM リンク**）
-- [ ] `parts-tracker:template:match` / `parts-tracker:template:previewExpand` / `parts-tracker:template:expand` IPC（**再帰展開・循環検出**）
-- [ ] `parts-tracker:line:setArranged` IPC（セッションから操作者記録）
-- [ ] `PartsTrackerApp`: 全階層展開ボタン・プレビュー（末端行数・サブ警告）、一覧の手配済チェック + **`assembly_path` 列**
-- [ ] `shared/partsTracker.ts` 型拡張、`docs/db-schema.md` / `ipc-channels.md` 追随
+- [x] **多階層 BOM（サブ組立再帰展開）** 要件 — **2026-05-23 追記**（§8.5.6.4、2026-05-25 改訂で `m_product_boms` ベース）
+- [x] **5-E への統合方針確定** — **2026-05-25 追記**（§8.5.6.4 / §8.5.14）
+- [x] サテライト DB: `project_part_lines` に **`is_arranged`** / `arranged_at` / `arranged_by_user_name_id` / `arranged_by_username` 列追加（+ migrate）
+- [x] サテライト DB: `project_part_lines` に **階層メタ** `bom_level` / `assembly_path` / `parent_assembly_part_number` / `root_product_bom_id` / `source_product_bom_line_id` 列追加（5-E と同時に実施）
+- [x] `project_part_line_arrangement_log`（手配 ON/OFF 履歴）
+- [x] `parts-tracker:line:setArranged` IPC（セッションから操作者記録）
+- [x] `PartsTrackerApp`: 一覧の手配済チェック・操作者/日時表示、サマリの「手配済」件数
+- [x] `shared/partsTracker.ts` 型拡張、`docs/db-schema.md` / `ipc-channels.md` 追随
+
+> テンプレ・多階層展開系（`master:productBom:*` IPC、`parts-tracker:productBom:*` IPC、全階層展開ボタン、`assembly_path` 列表示）は **5-E チェックリスト** に集約。
 
 **アプリ概要**
 
@@ -272,17 +277,45 @@
 - [ ] 工程管理・通知との連携
 - [ ] 案件部品表から BOM テンプレートを **逆生成**（5-A-1 未確定事項）
 
-**実装チェックリスト（5-B・BOM CSV / Rev / 非表示）【要件のみ・未実装】**
+**実装チェックリスト（5-B・BOM CSV / Rev / 非表示）【実装完了 2026-05-25】**
 
 - [x] 要件定義 — **2026-05-23 追記**（`requirements.md` §8.5.13）
-- [ ] `project_part_lines` に `revision` / `is_hidden` / `hidden_*` / `import_batch_id` 列追加
-- [ ] `project_part_import_batches` テーブル + migrate
-- [ ] `shared/partsTracker.ts` / `shared/partsTrackerCsvFormat.ts`（列定義・テンプレ生成）
-- [ ] IPC: `parts-tracker:import:preview` / `commit` / `downloadTemplate` / `line:setHidden`
-- [ ] `PartsTrackerApp`: BOM CSV 取込ダイアログ（プレビュー・生産ボード `CsvImportDialog` 相当）
-- [ ] 一覧: Rev 列、非表示操作、「非表示を含む」トグル、サマリから非表示行除外
-- [ ] SolidWorks **実機エクスポート** で CSV 列定義を確定 → テンプレ・マッピング更新
-- [ ] `docs/ipc-channels.md` / `docs/db-schema.md` 追随
+- [x] `project_part_lines` に `revision` / `is_hidden` / `hidden_at` / `hidden_by_username` / `hidden_reason` / `import_batch_id` 列追加
+- [x] `project_part_import_batches` テーブル + migrate
+- [x] `shared/partsTracker.ts` / `shared/partsTrackerCsvFormat.ts`（列定義・テンプレ生成・CSV パーサ・プレビュー）
+- [x] IPC: `parts-tracker:import:preview` / `import:commit` / `import:downloadTemplate` / `import:batches` / `line:setHidden`
+- [x] `PartsTrackerApp`: BOM CSV 取込ダイアログ（列ヘッダ自動認識・エラー / 警告表示・商社マッチ・重複ポリシー）
+- [x] 一覧: Rev 列、非表示操作（理由入力）、「非表示行も表示」トグル、サマリから非表示行除外（`visibleLines` / `hiddenLines`）
+- [ ] SolidWorks **実機エクスポート** で CSV 列定義の最終確認（運用開始後にマッピング微調整）
+- [x] `docs/ipc-channels.md` / `docs/db-schema.md` 追随
+
+**実装チェックリスト（5-E・製品中心 BOM 管理）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — **2026-05-25 追記**（`requirements.md` §8.5.14）
+- [x] **配置先・統合・追従方針の確定** — **2026-05-25**（§8.5.14.3 / §8.5.14.4.1）
+- [x] 中央 DB: `m_products` / `m_product_boms` / `m_product_bom_lines` + migrate（schema v6）。**5-A-1 の `m_bom_templates` は実装しない**（統合確定）
+- [x] **`seisan-board.db / projects`** に `product_id` / `product_bom_id` / `quantity_units` 列追加 + migrate（`seisanSchema.ts`）
+- [x] `parts-tracker.db / project_part_lines` に `root_product_bom_id` / `source_product_bom_line_id` / 階層メタ（`bom_level` / `assembly_path` / `parent_assembly_part_number`）を追加（5-A-1 と同時実施）
+- [x] マスタ UI: 「製品 BOM」タブ（CRUD・Released 化・Rev コピー・サブ組立参照・子 BOM リンク・Rev 差分）
+- [x] IPC: `master:productBom:*`（旧 `master:bomTemplate:*` 案を本 IPC に集約）
+- [x] IPC: `parts-tracker:productBom:match` / `previewExpand` / `expand`（再帰展開・循環検出・未登録サブ組立検出）
+- [~] 部材管理 UI: 案件起点に **「製品 BOM テンプレート」カード**で Rev 一覧と展開ボタンを表示。製品起点トップは「マスタ DB > 製品 BOM」タブで実装（完全な「製品起点専用トップ」は将来 UX 改善）
+- [~] 案件起票フロー（生産ボード側 UI に製品 / Rev / 数量を組込）：**DB 列は揃った**が、生産ボード起票画面の UI 改修は別タスク。当面は `parts-tracker` 側の「製品 BOM を展開」ボタンで同等の結果が得られる
+- [x] 製品 BOM 編集画面と CSV 取込（5-B）／サブ展開ロジック（`product-bom-expand.repo.ts`）を共用
+- [x] **追従ポリシー**: 既存案件には自動追従しない（既定）。新 Rev は手動展開＋ 5-F 差分プレビュー
+- [~] 案件部品一覧に「より新しい Rev に更新されています」バッジ：差分ボタン（「最新 Rev と比較」）で代替。自動バッジ表示は将来 UX 改善
+- [x] `shared/partsTracker.ts` / `shared/productBom.ts` 型拡張、`docs/db-schema.md` / `ipc-channels.md` 追随
+
+**実装チェックリスト（5-F・BOM Rev 差分表示）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — **2026-05-25 追記**（`requirements.md` §8.5.15）
+- [x] IPC: `parts-tracker:bomDiff:productRev` / `bomDiff:project` / `bomDiff:currentVsLatest`
+- [x] 共通ロジック: `part_number`（+任意 `assembly_path`）をキーに **追加・削除・数量変更・部品 Rev 上がり** を判定（`shared/bomDiff.ts` の `computeBomDiff`）
+- [x] 差分ビュー UI: 色分け（追加=緑 / 削除=赤 / 数量変更=黄 / Rev 上がり=青）。部材管理アプリ + マスタ DB の両方に搭載
+- [x] 差分要約テキスト（「追加 N / 削除 N / 数量変更 N / 部品 Rev 上がり N」）の生成
+- [~] 案件部品一覧の **「前 Rev からの変更」バッジ**：差分ボタン経由で確認可能（自動バッジ表示は将来 UX 改善）
+- [ ] 差分の CSV エクスポート（発注リスト雛形）の要否確定（§8.5.12 未確定 25）
+- [x] `docs/ipc-channels.md` 追随
 
 ### 3-B. drawing-libraly（内蔵・再設計）**（一旦完成: 2026-05-06）**
 - 以降の改善は別途。現状の到達点を「内蔵・再設計フェーズ完了」とみなす。
@@ -712,3 +745,7 @@ flowchart TB
 | 2026-05-23 | **部材管理 多階層 BOM 要件追加**: **`sub_assembly` 行** による **サブ組立の再帰展開**（末端部品まで）、`assembly_path` / `bom_level` 等の案件行メタ、循環参照検出・展開プレビュー IPC 案。§8.5.6.4 / §8.5.11 / `db-schema.md` §10.1 / `task-progress.md` 3-A-2 に追記。**実装は未着手**。 |
 | 2026-05-23 | **部材管理 5-A-0 / 5-A MVP 完了**: 商社・標準 LT マスタ、`parts-tracker.db`、部材管理 UI（CRUD・リスク・LT 自動提案）、grant・LP 配線。UI 作り込み（検索/フィルタ・ページネーション・ヘルプ・事務向けシェル）。`task-progress.md` 3-A-2 チェックリスト更新。**残**: `ipc-channels.md` 追記、5-A-1。 |
 | 2026-05-23 | **部材管理 5-B 要件追加**: **SolidWorks BOM CSV 取込**（部品表投入の最優先経路）、部品行 **`revision`**、商社 3D 由来の **非表示部品**（`is_hidden`）。§8.5.13 / `task-progress.md` 3-A-2。**実装は未着手**。 |
+| 2026-05-25 | **部材管理 5-E 要件追加（製品中心 BOM 管理）**: 入口を **案件 → 製品（親番）** に切替。`m_products` / `m_product_boms` / `m_product_bom_lines` を中央 DB に追加し、案件は **製品 Rev のスナップショット**（`product_bom_id` + 数量）として起票する設計を §8.5.14 にまとめ。5-A-1 の `m_bom_templates` は 5-E に統合する想定。**実装は未着手**。 |
+| 2026-05-25 | **部材管理 5-F 要件追加（BOM Rev 差分表示）**: 製品 Rev A → Rev B、案件 vs 案件、案件内 "前 Rev からの変更バッジ" を **追加 / 削除 / 数量変更 / 部品 Rev 上がり** で色分け表示。要約テキスト・差分専用 IPC 案を §8.5.15 にまとめ。**実装は未着手**。 |
+| 2026-05-25 | **部材管理 5-E 設計確定（3 決定）**: ①案件側列（`product_id` / `product_bom_id` / `quantity_units`）は **`seisan-board.db / projects`** に持たせる（生産ボード側に持たせる方が "案件＝製品の発注" として自然）。② **5-A-1 の `m_bom_templates` / `m_bom_template_lines` は実装しない**。`m_product_boms` / `m_product_bom_lines` を「親番テンプレート」と兼用（§8.5.6.4 / §8.5.14.3 改訂）。③ **製品 BOM 更新時の既存案件への自動追従はしない**。新 Rev への当て直しは手動 + 5-F 差分プレビュー（§8.5.14.4.1 新設）。これに伴い未確定事項 20/21/23 をクローズ、`project_part_lines` の階層メタ列を `root_template_id` → **`root_product_bom_id`** 等にリネーム。`requirements.md` / `db-schema.md` / `task-progress.md` 整合反映。**実装は未着手**。 |
+| 2026-05-25 | **部材管理 5-A-1 / 5-B / 5-E / 5-F 一括実装完了**: ① 中央 DB schema **v6**: `m_products` / `m_product_boms` / `m_product_bom_lines` 追加 + migrate。② `seisan-board.db / projects` に `product_id` / `product_bom_id` / `quantity_units` 列を追加。③ `parts-tracker.db / project_part_lines` に `is_arranged` / `arranged_at` / `arranged_by_user_name_id` / `arranged_by_username` / `revision` / `is_hidden` / `hidden_at` / `hidden_by_username` / `hidden_reason` / `import_batch_id` / `bom_level` / `assembly_path` / `parent_assembly_part_number` / `root_product_bom_id` / `source_product_bom_line_id` 列を一気に追加。`project_part_import_batches` / `project_part_line_arrangement_log` も新設。④ 共有型: `shared/partsTracker.ts` 拡張、`shared/productBom.ts` / `shared/partsTrackerCsvFormat.ts` / `shared/bomDiff.ts` を新規追加（CSV パーサ・列ヘッダ自動認識・テンプレ生成・BOM 差分の純粋関数を含む）。⑤ IPC: `master:productBom:*`（14 系統）、`parts-tracker:line:setArranged` / `setHidden`、`parts-tracker:productBom:match` / `previewExpand` / `expand`、`parts-tracker:import:preview` / `commit` / `downloadTemplate` / `batches`、`parts-tracker:bomDiff:productRev` / `project` / `currentVsLatest`。⑥ UI: 部材管理アプリに「手配済」列（誰がいつチェックしたか表示）・Rev 列・非表示トグル・「非表示行も表示」フィルタ・「手配済 / 未手配 / 全て」フィルタ・BOM CSV 取込モーダル（プレビュー＋テンプレ DL）・製品 BOM テンプレートカード（親番一致 Rev 一覧 + 展開ボタン）・展開モーダル（多階層プレビュー＋ 3 重複ポリシー）・「最新 Rev と比較」差分モーダル・非表示理由ダイアログ。マスタ DB に「製品 BOM」タブ（製品 CRUD + Rev CRUD + リリース + コピー + BOM 行 CRUD + Rev 差分ダイアログ）を追加。⑦ ヘルプ文言・`ipc-channels.md` §6e / §6f / §6g を追記。`npm run typecheck` 通過。 |

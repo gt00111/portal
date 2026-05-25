@@ -527,6 +527,8 @@ app_operators 件数チェック
 | **部品リビジョン** | 部品行ごとに **Rev** を保持・表示し、図面・3D モデルとの版整合を取れる |
 | **非表示（除外）部品** | 商社提供 3D 等で **サブ組立に含まれるが手配対象外** の部品を一覧から **非表示** にできる |
 | **手配済の可視化** | 案件ごとの部品行で **手配済チェック** を付け、**いつ・誰が** 手配したかを一覧表示する |
+| **製品中心の BOM 管理（5-E）** | 「製品（親番）」を主役にして、**案件は製品 Rev の発注インスタンス** として扱う。案件は無限に増えても、製品 BOM は **有限の単位** で長期管理できる |
+| **設計変更の見える化（5-F）** | 同じ親番の **Rev A → Rev B の差分**（追加・削除・数量変更・Rev 上がり）を一覧／視覚表示し、調達担当が「何が変わったか」をすぐ把握できる |
 
 #### 8.5.3 非ゴール（やらないこと・初期スコープ外）
 
@@ -726,18 +728,22 @@ flowchart TB
 
 > 既存列 `ordered_at` は **実際の発注日**（任意入力）として維持。`arranged_at` は **現場が「手配済」チェックを付けた日時** とし、意味を分離する。
 
-##### 8.5.6.4 中央 DB: 親番 BOM テンプレート【計画・未実装】
+##### 8.5.6.4 中央 DB: 製品 BOM（親番テンプレートを兼ねる）【計画・5-A-1 / 5-E 統合・未実装】
 
-**リピート品対策**。同じ **親番（製品・組立品の品番）** で繰り返し発生する案件について、構成部品リストを **マスタとして保持** し、案件選択後に **一括展開** する。
+**方針確定（2026-05-25）**:
+**5-A-1 で別立て予定だった `m_bom_templates` / `m_bom_template_lines` は実装しない**。代わりに **5-E の `m_products` / `m_product_boms` / `m_product_bom_lines`** をそのまま **「親番 BOM テンプレート」と兼用** する。**製品 Rev = テンプレート Rev** と見なし、テーブル重複を避ける。
+（テーブル DDL の詳細は §8.5.14.3 を参照。本節は **多階層展開ロジック** と **案件部品行への階層メタ** を扱う）
 
-**多階層（サブ組立）【決定案・5-A-1 に含む】**
+**位置づけ**: 同じ **親番（製品・組立品の品番）** で繰り返し発生する案件について、構成部品リストを **製品マスタ（`m_products` + `m_product_boms`）** に保持し、案件起票（5-E）または既存案件への一括展開で **末端部品まで再帰展開** する。
+
+**多階層（サブ組立）【決定案】**
 
 製造 BOM は **1 段のフラットリストだけでは不足** する。親番の直下に **サブ組立品番（子の親番）** があり、その配下にさらに部品がぶら下がる構成を扱う。
 
 | 用語 | 意味 |
 |------|------|
-| **親番（ルート）** | 生産案件の製品品番に相当するテンプレートヘッダ（`m_bom_templates`） |
-| **サブ組立** | 親番の構成行のうち、**さらに独自の BOM テンプレートを持つ** 中間品番 |
+| **親番（ルート）** | 生産案件の製品品番に相当する **製品 Rev**（`m_product_boms` の特定 Rev） |
+| **サブ組立** | 親番の構成行のうち、**別の `m_product_boms` を参照する** 中間品番 |
 | **末端部品（リーフ）** | 調達・手配の対象となる **これ以上展開しない** 品番行 |
 | **展開** | ルートから再帰的にサブ組立を辿り、**すべての末端部品** を `project_part_lines` に生成すること |
 
@@ -746,62 +752,39 @@ flowchart TB
 - 案件への展開結果は **調達・手配単位のフラットな行リスト** とする（現場がチェックを付ける単位）。
 - ただし **どのサブ組立経由か** は失わないよう、案件部品行に **階層メタデータ**（後述）を保持する。
 - 数量は **親数量 × 子数量 × …** を各階層で乗算し、末端行の `quantity` に反映する【推奨】。
-- サブ組立テンプレートが **未定義** の行は、展開プレビューで **警告** し、当該行はスキップまたは **サブ組立品番1行のみ** 追加するかをユーザー選択【未確定】。
+- サブ組立 BOM が **未定義** の行は、展開プレビューで **警告** し、当該行はスキップまたは **サブ組立品番1行のみ** 追加するかをユーザー選択【未確定】。
 - **循環参照**（A→B→A）は展開前に検出し、エラーとする。
 
 **親番キーの決め方【決定案】**
 
-| 優先 | キー | 説明 |
-|------|------|------|
-| 1 | `parent_sku_id` | 中央 `m_skus.id`（推奨・マスタ整合） |
-| 2 | `parent_part_number` | 図面番号(品番) 文字列（SKU 未整備時の代替） |
+製品マスタ `m_products` で **親番 = `part_number`**（UNIQUE）を一意に持つため、テンプレート側で `parent_sku_id` / `parent_part_number` を別に持つ必要は **なし**。任意で `m_products.sku_id` に SKU を紐付ける。
 
-案件への展開時は、生産案件の **`part_number`（図面番号）** または紐づく SKU とテンプレートを **照合** する。一致テンプレートが複数ある場合は **最新更新** または **名称でユーザー選択**【未確定】。
+案件への展開時は、生産案件 `projects.product_id` から **製品 Rev**（`projects.product_bom_id`）を直接参照する。案件起票時に Rev をスナップショットしているため、テンプレート照合は不要（5-E 後の運用）。**既存 5-A MVP 案件への後付け展開** をしたい場合のみ、`part_number` から `m_products` を検索する補助 UI を提供【推奨・5-A-1 互換】。
 
-**テーブル: `m_bom_templates`（ヘッダ）**
+**構成行の構造（`m_product_bom_lines`・§8.5.14.3 と同一）**
 
-| 列 | 型 | 説明 |
-|----|-----|------|
-| `id` | INTEGER PK | |
-| `parent_sku_id` | INTEGER | 親 SKU（任意） |
-| `parent_part_number` | TEXT NOT NULL | **親番**（表示・検索の主キー） |
-| `name` | TEXT NOT NULL | テンプレート名称（例: 「〇〇標準構成 Rev A」） |
-| `note` | TEXT | 備考 |
-| `isActive` | INTEGER DEFAULT 1 | |
-| `createdAt` / `updatedAt` | TEXT | |
-
-**テーブル: `m_bom_template_lines`（構成行）**
-
-| 列 | 型 | 説明 |
-|----|-----|------|
-| `id` | INTEGER PK | |
-| `template_id` | INTEGER NOT NULL | `m_bom_templates.id`（この行が属する親番テンプレート） |
-| `line_kind` | TEXT NOT NULL | **`part`**（末端部品）または **`sub_assembly`**（サブ組立参照） |
-| `part_number` | TEXT NOT NULL | 品番（`part` 時は末端品番、`sub_assembly` 時は **サブ組立品番**） |
-| `part_name` | TEXT NOT NULL | 名称 |
-| `quantity` | REAL NOT NULL DEFAULT 1 | 親1個あたりの員数 |
-| `source_type` | TEXT NOT NULL | 調達区分（`part` 行のみ必須。`sub_assembly` は展開後の子に適用） |
-| `supplier_id` | INTEGER | `m_suppliers.id`（`part`・購入時） |
-| `sku_id` | INTEGER | 任意 |
-| `ref_template_id` | INTEGER | **`sub_assembly` 時**: 展開先 `m_bom_templates.id`（推奨） |
-| `ref_part_number` | TEXT | **`sub_assembly` 時**: `ref_template_id` 未設定なら **親番=`part_number`** のテンプレートを検索 |
-| `sort_order` | INTEGER DEFAULT 0 | 同一テンプレート内の表示順 |
-| `note` | TEXT | 行備考 |
+| 主要列 | 説明 |
+|--------|------|
+| `product_bom_id` | この行が属する **製品 Rev**（`m_product_boms.id`） |
+| `line_kind` | **`part`**（末端部品）または **`sub_assembly`**（サブ組立参照） |
+| `part_number` / `part_name` / `quantity` / `source_type` / `supplier_id` / `sku_id` / `sort_order` / `note` | 部品メタ（5-A-1 案と同等） |
+| `ref_product_bom_id` | **`sub_assembly` 時**: 参照先 `m_product_boms.id`（推奨） |
+| `ref_part_number` | **`sub_assembly` 時**: `ref_product_bom_id` 未設定なら **親番=`part_number`** の最新 `released` Rev を検索 |
 
 - **`line_kind = part`**: 展開時に **そのまま1行**（末端）として案件に追加。
-- **`line_kind = sub_assembly`**: 展開時に **`ref_template_id` または `ref_part_number` で子テンプレートを解決** し、**再帰的に** 子の構成行を展開。サブ組立品番自体は案件行に **載せない**（末端のみ載せる）【決定案】。サブ組立単位でも手配したい場合は **5-A-2 以降** で `sub_assembly` 行も案件に残すモードを検討【未確定】。
+- **`line_kind = sub_assembly`**: 展開時に **`ref_product_bom_id` または `ref_part_number` で子製品 Rev を解決** し、**再帰的に** 子の構成行を展開。サブ組立品番自体は案件行に **載せない**（末端のみ載せる）【決定案】。サブ組立単位でも手配したい場合は **5-A-2 以降** で `sub_assembly` 行も案件に残すモードを検討【未確定】。
 
-**テンプレート行には必要着日を持たない**（案件納期・部品ごとに展開後に設定）。
+**製品 BOM 行には必要着日を持たない**（案件納期・部品ごとに展開後に設定）。
 
 **展開アルゴリズム（案）**
 
-1. ルート `template_id` の行を `sort_order` 順に走査。
+1. ルート `product_bom_id` の行を `sort_order` 順に走査。
 2. `part` → 数量係数 `qtyMul` を掛けたうえで展開候補リストへ。
-3. `sub_assembly` → 子テンプレートを解決。見つからなければ警告。見つかれば `qtyMul × line.quantity` で **再帰**。
-4. 訪問済み `template_id` セットで **循環検出**。
+3. `sub_assembly` → 子製品 Rev を解決。見つからなければ警告。見つかれば `qtyMul × line.quantity` で **再帰**。
+4. 訪問済み `product_bom_id` セットで **循環検出**。
 5. 末端行ごとに **`m_procurement_lead_times` から LT 自動提案** → `project_part_lines` へ INSERT。`required_date` は **案件納期を初期値** とし、ユーザーが行ごとに調整【推奨】。
 
-**案件部品行への階層メタ（展開由来・5-A-1 追加列案）**
+**案件部品行への階層メタ（展開由来・5-A-1 / 5-E 追加列）**
 
 サブ展開後も「どの組立の下か」を一覧で分かるように、`project_part_lines` に以下を追加する【計画】。
 
@@ -810,37 +793,42 @@ flowchart TB
 | `bom_level` | INTEGER NOT NULL DEFAULT 0 | ルートからの深さ（0=ルート直下の末端、1=1段サブ経由…） |
 | `assembly_path` | TEXT | 経路表示用（例: `TOP-ASSY/SUB-01/BOLT-M6`） |
 | `parent_assembly_part_number` | TEXT | **直上** のサブ組立品番（ルート直下なら NULL 可） |
-| `root_template_id` | INTEGER | 展開元ルート `m_bom_templates.id` |
-| `source_template_line_id` | INTEGER | 展開元 `m_bom_template_lines.id`（末端行がどのマスタ行由来か） |
+| `root_product_bom_id` | INTEGER | 展開元ルート `m_product_boms.id`（= 案件の `projects.product_bom_id` と一致） |
+| `source_product_bom_line_id` | INTEGER | 展開元 `m_product_bom_lines.id`（末端行がどのマスタ行由来か） |
 
 > 手入力で追加した行は上記を NULL / 0 とし、展開由来のみ埋める。
+> 旧案 `root_template_id` / `source_template_line_id` は **採用しない**（テンプレート別立てを廃止したため）。
 
 **マスタ UI【推奨】**
 
-- マスターデータベースに **「BOM テンプレート」** タブ（ポータル admin）。
-- 親番でヘッダを選び、構成行を CRUD。
-- **ツリー表示【推奨】**: `sub_assembly` 行に **「子 BOM を開く」** リンク。子テンプレート未登録のサブ組立品番は **警告バッジ**。
-- 行追加時: **末端部品** / **サブ組立（別テンプレート参照）** を選択。
-- 既存案件の部品表から **「テンプレートとして保存」** する逆方向も **5-A-1 以降** で検討【未確定】。
+- マスターデータベースに **「製品 BOM」** タブ（ポータル admin、§8.5.14.5 と同一 UI）。
+- 親番（`m_products`）を選び、Rev（`m_product_boms`）を選んで構成行を CRUD。
+- **ツリー表示【推奨】**: `sub_assembly` 行に **「子 BOM を開く」** リンク。子 Rev 未登録のサブ組立品番は **警告バッジ**。
+- 行追加時: **末端部品** / **サブ組立（別 Rev 参照）** を選択。
+- 既存案件の部品表から **「製品 BOM として保存」** する逆方向は **5-E 以降の補助機能** で検討【未確定】。
 
 **部材管理 UI: 一括展開【推奨】**
 
-- 案件選択後、生産案件の親番に一致するテンプレートがあれば **「テンプレートから展開（全階層）」** ボタンを表示。
+- 案件選択後、案件の親番に一致する `m_products` があれば **「製品 BOM から展開（全階層）」** ボタンを表示。
 - 展開前 **プレビュー**: 追加される **末端行数**、通過する **サブ組立数**、**最大階層**、未登録サブ組立の **警告一覧**、既存行との **重複**。
 - 一覧表示: デフォルト **フラット** + `assembly_path` 列（またはインデント）。**ツリー折りたたみ** は 5-A-2 以降【未確定】。
-- 重複方針【未確定】: 同一 `part_number` + 同一 `assembly_path` / 同一 `source_template_line_id` で判定し、**スキップ** / **数量加算** / **上書き** をユーザー選択。
+- 重複方針【未確定】: 同一 `part_number` + 同一 `assembly_path` / 同一 `source_product_bom_line_id` で判定し、**スキップ** / **数量加算** / **上書き** をユーザー選択。
 
 ```mermaid
 flowchart TB
-  ROOT[m_bom_templates 親番 TOP]
-  L1[m_bom_template_lines]
-  SUB[m_bom_templates サブ SUB-01]
-  L2[m_bom_template_lines]
+  PROD[m_products 製品 親番]
+  ROOT[m_product_boms Rev A ルート]
+  L1[m_product_bom_lines 構成]
+  SUBPROD[m_products サブ製品]
+  SUB[m_product_boms サブ Rev]
+  L2[m_product_bom_lines 構成]
   LEAF1[末端 part A]
   LEAF2[末端 part B]
   PROJ[project_part_lines 案件フラット]
+  PROD --> ROOT
   ROOT --> L1
-  L1 -->|sub_assembly| SUB
+  L1 -->|sub_assembly ref_product_bom_id| SUB
+  SUBPROD --> SUB
   SUB --> L2
   L2 --> LEAF1
   L2 --> LEAF2
@@ -852,15 +840,17 @@ flowchart TB
 ```mermaid
 flowchart LR
   subgraph central [中央 DB]
-    BT[m_bom_templates 親番]
-    BTL[m_bom_template_lines 構成]
+    PROD[m_products 製品]
+    BOM[m_product_boms Rev]
+    BOML[m_product_bom_lines 構成]
     MLT[m_procurement_lead_times]
   end
   subgraph satellite [parts-tracker.db]
     LINE[project_part_lines]
   end
-  BT --> BTL
-  BTL -->|再帰展開 末端のみ| LINE
+  PROD --> BOM
+  BOM --> BOML
+  BOML -->|再帰展開 末端のみ| LINE
   MLT -.->|LT 提案| LINE
 ```
 
@@ -929,12 +919,17 @@ flowchart LR
 | **部品一覧（階層表示）** | — | **5-A-1【計画】**: フラット一覧 + `assembly_path` 列（ツリー UI は将来） |
 | **マスタ: 商社** | ○ | マスターデータベースに `m_suppliers` タブ（ポータル admin） |
 | **マスタ: 標準 LT** | ○ | マスターデータベースに `m_procurement_lead_times` タブ（ポータル admin） |
-| **マスタ: BOM テンプレート** | — | **5-A-1【計画】**: `m_bom_templates` / `m_bom_template_lines` タブ（ポータル admin） |
+| **マスタ: 製品 BOM（親番テンプレート兼用）** | — | **5-A-1 / 5-E【計画・統合】**: `m_products` / `m_product_boms` / `m_product_bom_lines` タブ（ポータル admin）。5-A-1 で別立て予定だった `m_bom_templates` は廃止 |
 | **生産ボードへの導線** | △ | MVP 後: 生産案件詳細から「部材管理を開く」 |
 | **BOM CSV インポート** | — | **5-B【計画・最優先入力】**: SolidWorks BOM エクスポートから一括取込（Rev 列対応） |
 | **部品 Rev 列** | — | **5-B【計画】**: 一覧・編集でリビジョン表示 |
 | **非表示部品** | — | **5-B【計画】**: 手配対象外行の非表示トグル・「非表示を含む」表示切替 |
 | **ダッシュボード（全案件横断）** | — | フェーズ 5-C |
+| **製品（親番）起点トップ** | — | **5-E【計画】**: 入口を製品一覧に変更。Rev 数・関連案件数・最新 Rev を表示 |
+| **製品 Rev 一覧・BOM 編集** | — | **5-E【計画】**: 製品 Rev ごとの BOM をマスタとして編集（CSV 取込／サブ展開共用） |
+| **製品マスタ（マスタ DB）** | — | **5-E【計画】**: `m_products` / `m_product_boms` タブ（ポータル admin） |
+| **案件起票（製品中心）** | — | **5-E【計画】**: 製品 + Rev + 数量 + 客先 + 納期 で案件を作成。`product_bom_id` をスナップショット |
+| **BOM Rev 差分ビュー** | — | **5-F【計画】**: 製品 Rev A と Rev B、または案件同士の **追加・削除・数量変更・Rev 上がり** を色分け表示。要約テキスト付き |
 
 - UI テーマ: 図面ライブラリ・工程管理と同様 **`.portal-app-calm-shell`（事務向けライト）**。
 - 一覧ページネーション: **20 / 50 / 100**（他アプリに合わせる）【推奨】。
@@ -951,9 +946,10 @@ flowchart LR
 | `parts-tracker:line:delete` | editor | 行削除 |
 | `parts-tracker:line:setArranged` | editor | **5-A-1【計画】** `{ id, arranged: boolean }` → 手配済 ON/OFF、`arranged_at` / `arranged_by_*` 更新、必要なら arrangement_log 追記 |
 | `parts-tracker:project:summary` | viewer | 遅延・要発注件数など |
-| `parts-tracker:template:match` | viewer | **5-A-1【計画】** `{ seisanProjectId }` → 親番一致テンプレート一覧 |
-| `parts-tracker:template:expand` | editor | **5-A-1【計画】** `{ seisanProjectId, templateId, duplicatePolicy?, expandSubAssemblies?: true }` → **再帰展開**で末端部品行を一括作成 |
-| `parts-tracker:template:previewExpand` | viewer | **5-A-1【計画】** 展開前プレビュー（末端行数・サブ組立数・最大階層・未登録サブ警告） |
+| `parts-tracker:productBom:match` | viewer | **5-A-1 / 5-E【計画・統合】** `{ seisanProjectId }` → 親番一致 `m_products` + 利用可能 Rev 一覧（既存 5-A MVP 案件の後付け展開用） |
+| `parts-tracker:productBom:expand` | editor | **5-A-1 / 5-E【計画・統合】** `{ seisanProjectId, productBomId, duplicatePolicy?, expandSubAssemblies?: true }` → **再帰展開**で末端部品行を一括作成 |
+| `parts-tracker:productBom:previewExpand` | viewer | **5-A-1 / 5-E【計画・統合】** 展開前プレビュー（末端行数・サブ組立数・最大階層・未登録サブ警告） |
+| `parts-tracker:productBom:reapplyNewRev` | editor | **5-E / 5-F【計画】** `{ seisanProjectId, newProductBomId }` → 既存案件を **新 Rev に当て直し**。差分プレビューを介して行ごとに承認反映 |
 | `parts-tracker:db:status` | viewer | DB パス・接続状態（工程管理 `process-mgmt` の status に準拠） |
 | `parts-tracker:import:preview` | editor | **5-B【計画】** CSV 内容のプレビュー・列マッピング確認 |
 | `parts-tracker:import:commit` | editor | **5-B【計画】** 取込実行 → `project_part_lines` 一括 INSERT/更新 |
@@ -966,7 +962,7 @@ flowchart LR
 |------|------|
 | `m_suppliers` | `MASTER_TABLES` 追加 → `master:list` / `master:upsert` 等で CRUD |
 | `m_procurement_lead_times` | 専用 IPC **`master:procurementLeadTime:*`** または `master:*` の table パラメータ拡張【未確定】 |
-| `m_bom_templates` / `m_bom_template_lines` | **5-A-1【計画】** 専用 IPC **`master:bomTemplate:*`**（ヘッダ + 行 CRUD、展開は `parts-tracker` 側） |
+| `m_products` / `m_product_boms` / `m_product_bom_lines` | **5-A-1 / 5-E【計画・統合】** 専用 IPC **`master:productBom:*`**（製品ヘッダ + Rev ヘッダ + 構成行の CRUD、Released 化、Rev コピー）。展開は `parts-tracker` 側。5-A-1 で予定していた `master:bomTemplate:*` は廃止し本 IPC に集約 |
 
 - 生産案件一覧は **新規 IPC を増やさず** 既存 `seisan-project:list` を renderer から invoke（モジュール間 import 禁止のため、部材 handler から seisan repo を直接呼ぶのは **案件メタ取得の read のみ** 可とするかは実装時に判断。【未確定】
 
@@ -991,10 +987,12 @@ src/renderer/src/routes/
 |------|------|----------------|
 | **5-A-0 マスタ** | 中央 DB に `m_suppliers` + `m_procurement_lead_times`、マスタ UI タブ | 商社名と標準 LT を登録・編集できる |
 | **5-A MVP** | `parts-tracker.db` + 部材管理 UI（案件選択・部品表・CRUD・リスク色・LT 自動提案） | 1 案件の部品を登録し、マスタ LT から発注期限が分かる |
-| **5-A-1 効率・現場** | **親番 BOM テンプレート** + **サブ組立の再帰展開** + 案件へ一括展開、**手配済チェック** + `arranged_by` / `arranged_at` 表示 | リピート品で **末端まで** 一括展開でき、手配した人・日時が一覧で分かる |
+| **5-A-1 効率・現場** | **5-E と統合**: 製品 BOM（`m_product_boms`）を親番テンプレート兼用とし、**サブ組立の再帰展開** で末端まで案件に一括展開。**手配済チェック** + `arranged_by` / `arranged_at` 表示は独立に先行可 | リピート品で **末端まで** 一括展開でき、手配した人・日時が一覧で分かる |
 | **5-B 入力効率** | **SolidWorks BOM CSV 一括取込**（Rev 対応）、**非表示部品**、SKU 紐付け、生産ボードからの導線 | 設計 BOM を **最短** で案件部品表に載せ、不要なサブ構成は非表示にできる |
 | **5-C 横断** | 全案件の「要対応部品」ダッシュボード | 調達担当が日次で一覧確認できる |
 | **5-D 連携** | 工程管理・通知（部品遅延をグループ管理者へ等） | 【未確定】 |
+| **5-E 製品中心 BOM** | 入口を **案件選択 → 製品（親番）選択** に切替。製品 Rev ごとに BOM を保持し、案件は **製品 Rev のインスタンス** として作る | 製品単位で長期的に BOM を持ち、案件は **製品 + Rev + 数量 + 客先** だけで起票できる |
+| **5-F BOM 差分** | 同一親番の **Rev A → Rev B の差分表示**（追加・削除・数量変更・Rev 上がり）。案件間の比較も可 | 設計変更時に「何の部品が変わったか」が一目で分かる |
 
 #### 8.5.11 受け入れ基準
 
@@ -1016,8 +1014,8 @@ src/renderer/src/routes/
 
 **5-A-1（親番テンプレート・手配済）【計画・未実装】**
 
-- [ ] 中央 DB に **`m_bom_templates` / `m_bom_template_lines`** があり、マスタ DB から親番ごとの構成部品を CRUD できる（ポータル admin）。
-- [ ] 部材管理で案件を選択し、親番に一致するテンプレートがある場合 **「テンプレートから展開（全階層）」** で `project_part_lines` に **末端部品まで** 一括追加できる（editor 以上）。
+- [ ] 中央 DB に **`m_products` / `m_product_boms` / `m_product_bom_lines`**（5-E と統合確定）があり、マスタ DB から親番ごとの構成部品を **製品 Rev 単位で** CRUD できる（ポータル admin）。
+- [ ] 部材管理で案件を選択し、親番に一致する **製品 BOM**（`m_product_boms` の Rev）がある場合 **「製品 BOM から展開（全階層）」** で `project_part_lines` に **末端部品まで** 一括追加できる（editor 以上）。
 - [ ] **サブ組立**（`line_kind = sub_assembly`）を参照する多階層テンプレートで、数量が **親×子の積** として末端行に反映される。
 - [ ] 展開結果の部品行に **`assembly_path` / `bom_level` 等** が入り、どのサブ組立下かが一覧で分かる。
 - [ ] **循環参照** するテンプレート構成は展開前にエラーとなる。
@@ -1026,6 +1024,28 @@ src/renderer/src/routes/
 - [ ] 部品一覧に **手配済チェック** があり、ON/OFF を editor 以上が操作できる。
 - [ ] 手配済 ON の行に **`arranged_at` と操作者（ユーザー名）** が表示される。
 - [ ] 手配済 OFF（解除）時、**解除前の記録** が `project_part_line_arrangement_log`（または同等）に残る【推奨】。
+- [ ] `npm run typecheck` が通る。
+
+**5-E（製品中心 BOM 管理 / 5-A-1 統合）【計画・未実装】**
+
+- [ ] 中央 DB に **`m_products`** / **`m_product_boms`** / **`m_product_bom_lines`** があり、製品（親番）単位で BOM を Rev ごとに保持できる（ポータル admin）。**5-A-1 の `m_bom_templates` は実装しない**（兼用確定）。
+- [ ] `seisan-board.db / projects` に **`product_id`** / **`product_bom_id`** / **`quantity_units`** が追加され、案件が **どの製品 Rev の発注インスタンスか** を保持する。
+- [ ] 部材管理アプリのトップが **製品一覧** から始まり、Rev 数・関連案件数・最新 Rev・最終更新を確認できる。
+- [ ] 製品 Rev を選ぶと **BOM 編集画面**（CSV 取込・サブ展開共用）が開き、構成行を CRUD できる。
+- [ ] 案件起票時に **製品 + Rev + 数量 + 客先 + 納期** だけで案件が作成でき、`product_bom_id` を **スナップショット** として `projects` に持つ。
+- [ ] 案件部品行は **製品 BOM × `quantity_units`** から自動生成され、以後の手配・遅延管理は既存 5-A MVP と同じ画面で行える。
+- [ ] **製品 BOM が後から更新されても、既存案件には自動追従しない**（§8.5.14.4.1）。新 Rev への当て直しは手動操作で、5-F の差分プレビューを必ず介する。
+- [ ] 既存の **案件起点 UI も残り**、過去案件（`product_id` NULL）をそのまま開ける。
+- [ ] サブ組立の **再帰展開**（旧 5-A-1 のロジック）が `m_product_boms` 上で動く。
+- [ ] `npm run typecheck` が通る。
+
+**5-F（BOM Rev 差分表示）【計画・未実装】**
+
+- [ ] 製品マスタ画面から **同じ親番の Rev A と Rev B を比較** でき、追加・削除・数量変更・Rev 上がりが色分けで一覧表示される。
+- [ ] 差分テーブルとは別に、**要約テキスト**（「追加 3 / 削除 1 / 数量変更 2 / Rev 上がり 5」等）が表示される。
+- [ ] 同じ製品の **過去案件 vs 新案件** の差分も同じ画面ロジックで表示できる。
+- [ ] 案件部品一覧で **「前 Rev からの変更」バッジ** が行ごとに表示できる（変更ありのみ抽出トグルあり）。
+- [ ] 差分は **読み取り専用** で、書き込みは BOM 編集経由とする。
 - [ ] `npm run typecheck` が通る。
 
 **5-B（BOM CSV 取込・Rev・非表示）【計画・未実装】**
@@ -1049,7 +1069,7 @@ src/renderer/src/routes/
 | 順位 | 入力経路 | 向いている場面 |
 |------|----------|----------------|
 | **1** | **BOM CSV 取込（SolidWorks）** | 新規案件・設計 BOM が確定しているとき（**最速**） |
-| 2 | 親番 BOM テンプレート展開（5-A-1） | リピート品・標準構成がマスタ化されているとき |
+| 2 | 製品 BOM 展開（5-A-1 / 5-E 統合・`m_product_boms` から再帰展開） | リピート品・標準構成がマスタ化されているとき |
 | 3 | 手入力（1 行ずつ） | 追加分・例外のみ |
 
 手入力のみでは数百行の BOM 立ち上げに時間がかかるため、**5-B は 5-A-1 と同等かそれ以上に実務優先度が高い**【決定案】。
@@ -1094,7 +1114,7 @@ src/renderer/src/routes/
 | **UI** | 一覧に **目アイコン／非表示** 操作。ツールバーに **「非表示を含む」** チェックで再表示 |
 | **サマリ** | 非表示行は **遅延・要発注件数に含めない**【推奨】（手配対象外のため） |
 | **CSV 取込** | 取込直後の一覧でまとめて非表示にする、または CSV に **除外フラグ列** を将来追加【未確定】 |
-| **テンプレート** | 5-A-1 の BOM テンプレート行にも `default_hidden` を持てる余地【未確定】 |
+| **テンプレート** | `m_product_bom_lines`（5-A-1 / 5-E 統合）にも `default_hidden` を持てる余地【未確定】 |
 
 **非表示 vs 削除**
 
@@ -1114,6 +1134,277 @@ src/renderer/src/routes/
 | `row_count` | INTEGER | 取込行数 |
 | `imported_by_username` | TEXT | 操作者 |
 | `created_at` | TEXT | 取込日時 |
+
+#### 8.5.14 製品中心の BOM 管理【計画・5-E・未実装】
+
+##### 8.5.14.1 課題と方向性
+
+現状（5-A MVP）の部材管理は、**生産案件（製番）を入口** にして部品表を読み込む。
+これでも動くが、長期運用で次の不都合が出る。
+
+- **案件は無限に増えていく**: 会社が続く限り製番は積み上がり、過去案件の一覧は長くなる。
+- **同じ製品なのに毎回 BOM 取込・調整が必要**: 設計が同じでも、案件単位で別データになる。
+- **設計変更の追跡が案件ごと**: ある製品の Rev 履歴を **製品横断** で見にくい。
+- **「製品ごとの定番部品」が散らばる**: リピート品テンプレート（5-A-1）はマスタとして用意できても、**製品の "正" の BOM** がどこにあるかが曖昧。
+
+そこで **「製品（親番）を主役」** とするデータの持ち方を追加する。
+
+| 概念 | 役割 | 数 |
+|------|------|-----|
+| **製品（Product / 親番）** | 「何を作るか」を表す **長期マスタ**。会社が続く限り増える品種は **有限** | 数十〜数百 |
+| **製品 Rev（BOM Version）** | その製品の **設計バージョン**。Rev A / B / C … と推移 | 製品ごとに数〜数十 |
+| **生産案件（インスタンス）** | 「製品 Rev X を 5 台、A 社に納める」**1 回ぶんの発注** | 無限に増える |
+| **案件部品行** | 案件にぶら下がる **実調達ログ**。手配済・発注日などを記録 | 案件ごとに数十〜数百 |
+
+**マクロ → ミクロ の対応**:
+
+```
+製品マスタ（有限）
+   └─ Rev A の BOM
+       └─ 案件 #001（A 社・3 台・2026-06-30 納期） ← 部品行（実調達）
+       └─ 案件 #015（B 社・1 台・2026-08-10 納期） ← 部品行（実調達）
+   └─ Rev B の BOM
+       └─ 案件 #032（C 社・2 台・2026-09-15 納期） ← 部品行（実調達）
+```
+
+> 製品 BOM が **設計の "正"**、案件部品行は **その製品 Rev を作るときの実調達記録**、という分離。
+
+##### 8.5.14.2 入口の切替（UI/UX）
+
+部材管理アプリのトップ画面を、**案件起点** ではなく **製品起点** に組み替える。
+
+| 起点 | 画面 | 主な操作 |
+|------|------|---------|
+| **製品一覧** | 親番（製品）の一覧。Rev 数・関連案件数・最新 Rev・最終更新を表示 | 製品を選ぶ → Rev 一覧へ |
+| **Rev 一覧** | その製品の Rev（A / B / C …）。BOM 行数・差分件数・関連案件 | Rev を選ぶ → BOM 編集／案件適用 |
+| **BOM 編集（製品 Rev）** | 製品 Rev の部品表を編集（マスタとしての正本） | CSV 取込・手入力・サブ展開 |
+| **案件一覧（製品配下）** | この製品 Rev で立てた案件 | 案件を開く → 案件部品行（実調達） |
+| **案件部品行** | 既存の 5-A MVP 画面。製品 BOM のスナップショット＋実調達 | 手配済チェック・LT・必要着日 |
+
+> 既存の **案件選択 UI も残す**（過去案件を直接開く導線として）。**主入口を製品起点に切替** するだけで、案件起点は補助。
+
+##### 8.5.14.3 データモデル（案）
+
+**中央 DB の追加マスタ**
+
+**テーブル: `m_products`（製品マスタ）**
+
+| 列 | 型 | 説明 |
+|----|-----|------|
+| `id` | INTEGER PK | |
+| `part_number` | TEXT NOT NULL UNIQUE | 親番（製品品番） |
+| `name` | TEXT NOT NULL | 製品名称 |
+| `sku_id` | INTEGER | 中央 `m_skus.id`（任意） |
+| `default_supplier_id` | INTEGER | 既定商社（任意） |
+| `note` | TEXT | 備考（製品ファミリ等） |
+| `isActive` | INTEGER DEFAULT 1 | |
+| `createdAt` / `updatedAt` | TEXT | |
+
+**テーブル: `m_product_boms`（製品 BOM ヘッダ・Rev 単位）**
+
+| 列 | 型 | 説明 |
+|----|-----|------|
+| `id` | INTEGER PK | |
+| `product_id` | INTEGER NOT NULL | `m_products.id` |
+| `revision` | TEXT NOT NULL | Rev（`A`, `B`, `01` 等） |
+| `released_at` | TEXT | リリース日時 |
+| `released_by_username` | TEXT | リリース者 |
+| `status` | TEXT | `draft` / `released` / `obsolete` |
+| `note` | TEXT | 変更内容メモ（設計変更履歴の自由記述） |
+| `createdAt` / `updatedAt` | TEXT | |
+| **UNIQUE** | `(product_id, revision)` | 同製品で同 Rev は 1 つ |
+
+**テーブル: `m_product_bom_lines`（製品 BOM 構成行）**
+
+| 列 | 型 | 説明 |
+|----|-----|------|
+| `id` | INTEGER PK | |
+| `product_bom_id` | INTEGER NOT NULL | `m_product_boms.id`（この行が属する製品 Rev） |
+| `line_kind` | TEXT NOT NULL | **`part`**（末端部品）または **`sub_assembly`**（サブ組立参照） |
+| `part_number` | TEXT NOT NULL | 品番（`part` 時は末端品番、`sub_assembly` 時は **サブ組立品番**） |
+| `part_name` | TEXT NOT NULL | 名称 |
+| `quantity` | REAL NOT NULL DEFAULT 1 | 親 1 個あたりの員数 |
+| `source_type` | TEXT NOT NULL | 調達区分（`part` 行のみ必須。`sub_assembly` は展開後の子に適用） |
+| `supplier_id` | INTEGER | `m_suppliers.id`（`part`・購入時） |
+| `sku_id` | INTEGER | `m_skus.id`（任意） |
+| `ref_product_bom_id` | INTEGER | **`sub_assembly` 時**: 参照先 `m_product_boms.id`（推奨） |
+| `ref_part_number` | TEXT | **`sub_assembly` 時**: `ref_product_bom_id` 未設定時に **親番=`part_number`** の最新 `released` Rev を検索 |
+| `sort_order` | INTEGER DEFAULT 0 | 同一 Rev 内の表示順 |
+| `note` | TEXT | 行備考 |
+
+> **5-A-1 統合確定（2026-05-25）**: 5-A-1 で別立て予定だった `m_bom_templates` / `m_bom_template_lines` は **実装しない**。**製品 Rev = 親番テンプレート** と見なし、`m_product_boms` / `m_product_bom_lines` で兼用する。展開アルゴリズム・階層メタの詳細は §8.5.6.4 を参照。
+
+**案件側の追加列（配置先確定: `seisan-board.db` の `projects`）**
+
+**確定事項（2026-05-25）**: **`seisan-board` の `projects` テーブル** に持たせる。理由は「**案件 ＝ 製品 Rev の発注インスタンス**」という意味づけが最も自然で、`parts-tracker` 以外（生産ボード・工程管理・図面ライブラリ）からも製品紐付けが見えると運用上便利なため。
+
+| 追加列（`seisan-board.db / projects`） | 型 | 説明 |
+|---------------------------------------|-----|------|
+| `product_id` | INTEGER | 中央 `m_products.id`（任意・既存案件は NULL 可） |
+| `product_bom_id` | INTEGER | 起票時にスナップショットした `m_product_boms.id` |
+| `quantity_units` | REAL DEFAULT 1 | 製造台数（製品 1 台あたりの BOM × `quantity_units` で部品数量を算出） |
+
+- 中央 DB の `m_products` / `m_product_boms` を **`seisan-board.db` から参照**（中央 DB 統合済みなので同一 DB 内 JOIN 可）。
+- `parts-tracker.db / project_part_lines` 側にはスナップショット出自を **`root_product_bom_id`**（§8.5.6.4）として持つ。`projects.product_bom_id` と冗長だが、案件詳細を引かずに行レベルで参照できるようにする【推奨】。
+- 既存 5-A MVP 案件（`product_id` / `product_bom_id` が NULL）も従来どおり **手入力・CSV 取込・後付け展開** で動作する（5-E 移行は段階的）。
+
+```mermaid
+flowchart TB
+  subgraph central [中央 DB]
+    PROD[m_products 製品]
+    BOM[m_product_boms BOM Rev]
+    BOML[m_product_bom_lines 構成]
+  end
+  subgraph seisan [seisan-board.db]
+    PROJ[projects 案件]
+  end
+  subgraph parts [parts-tracker.db]
+    LINE[project_part_lines 実調達]
+  end
+  PROD --> BOM
+  BOM --> BOML
+  PROJ -.->|product_bom_id<br/>スナップショット| BOM
+  BOML -.->|起票時に展開| LINE
+  PROJ --> LINE
+```
+
+##### 8.5.14.4 案件起票フロー（製品中心）
+
+1. **製品を選ぶ**: `m_products` から親番を選択
+2. **Rev を選ぶ**: 既定は **最新 released**。古い案件のリピートなら旧 Rev も選べる
+3. **数量・客先・納期を入力**: 既存の生産ボード `projects` の作成フロー（`product_id` / `product_bom_id` / `quantity_units` も併せて INSERT）
+4. **BOM をスナップショット**: `m_product_boms` の構成行を **`project_part_lines` に展開**（既存の再帰展開ロジック流用）
+5. **以降は既存 5-A MVP と同じ**: 手配済・遅延・要発注
+
+##### 8.5.14.4.1 製品 BOM 更新時の追従ポリシー【決定（2026-05-25）】
+
+**既存案件には自動追従しない**（既定）。
+
+理由:
+
+- 案件は **発注済み・部品到着済み・手配中** が混在し、上流の BOM 変更を自動反映すると **現場の手配記録が壊れる**。
+- 製品 Rev は **`released` 後に内容を編集しない** ことを運用前提とする（編集が必要なら **新 Rev を切る**）。
+
+具体動作:
+
+| 操作 | 既存案件 | 新規案件 |
+|------|---------|---------|
+| **`m_product_boms.note`** などメタ列の更新 | 影響なし（参照のみ） | 影響なし |
+| **`m_product_bom_lines`** の追加・削除・編集（同じ Rev に対して） | **自動追従しない**。案件部品行は起票時点のスナップショットのまま | 起票時点の最新内容で展開 |
+| **新 Rev（`m_product_boms` 追加）** | 既存案件は **旧 Rev のまま**。`projects.product_bom_id` は更新されない | 既定で新 Rev が選ばれる |
+| **既存案件を新 Rev に "あえて" 当て直す** | 手動操作で許可。**差分（§8.5.15）をプレビュー** → 追加・削除・数量変更を **行ごとに承認** して反映【推奨・5-F と統合】 | — |
+
+UI:
+
+- 案件部品一覧に **「製品 BOM がより新しい Rev に更新されています」** バッジ（軽い通知）を表示【推奨】。
+- バッジから **「新 Rev と比較」（§8.5.15）** を 1 クリックで開ける。
+
+##### 8.5.14.5 製品マスタ画面（マスタ DB 側）
+
+- マスターデータベースに **「製品（親番）」タブ** を追加（ポータル admin）。
+- 列例: 親番 / 名称 / 既定商社 / Rev 数 / 最新 Rev / 関連案件数 / 最終更新。
+- 行クリック → **BOM Rev 一覧**（Rev 追加・コピー・Released 化）。
+- Rev 詳細で **構成行 CRUD**（部材管理の BOM 編集画面を共用）。
+
+##### 8.5.14.6 移行シナリオ（5-A MVP からの段階移行）
+
+- **5-A MVP** のデータ（案件単位の部品行）は維持。
+- 5-E 導入後、過去案件の部品行から **製品 BOM を逆生成** する補助機能を提供【未確定】。
+- 当面は **製品起点 / 案件起点 を併用** し、新規案件から徐々に製品起点に寄せる。
+- マイグレーション順:
+  1. 中央 DB に `m_products` / `m_product_boms` / `m_product_bom_lines` を **追加**（schema 次バージョン）。
+  2. `seisan-board.db / projects` に `product_id` / `product_bom_id` / `quantity_units` を **NULL 許容で追加**。既存案件は NULL のまま。
+  3. `parts-tracker.db / project_part_lines` に `root_product_bom_id` / `source_product_bom_line_id` / `bom_level` / `assembly_path` / `parent_assembly_part_number` を **追加**。
+  4. マスタ UI「製品 BOM」タブを公開。
+  5. 案件起票 UI を **製品中心モード** にも対応（既存の案件起点モードはトグルで残す）。
+  6. 既存案件への **製品 BOM 後付け展開**（手動）を 5-A-1 互換 UI として提供。
+- **5-A-1 の `m_bom_templates`** は実装スキップのため、マイグレーションは **不要**（テーブル自体が存在しない）。
+
+#### 8.5.15 BOM Rev 差分表示（設計変更の見える化）【計画・5-F・未実装】
+
+##### 8.5.15.1 課題
+
+設計変更で **Rev A → Rev B** に上がったとき、現場・調達は次のことを知りたい。
+
+- **追加された部品**（新規発注・新規手配が必要）
+- **削除された部品**（不要在庫リスク・キャンセル要否）
+- **数量が変わった部品**（不足／過剰）
+- **部品 Rev だけが上がった部品**（同じ品番だが図面が更新された）
+
+現状の部材管理は **Rev を行に持つ予定**（5-B）だが、**Rev 同士の比較ビュー** はまだ要件にない。
+これを **「変更ハイライト」** として加える。
+
+##### 8.5.15.2 表示モード
+
+**(1) 製品 Rev の比較（マスタ側）**
+
+- 入口: 製品マスタ → BOM Rev 一覧 → **「Rev A と Rev B を比較」**。
+- 表示: 並列テーブル または 統合テーブル（差分行に色付け）。
+
+| 種別 | 色 | 内容 |
+|------|-----|------|
+| **追加** | 緑 | Rev B にだけ存在する品番 |
+| **削除** | 赤（取消線） | Rev A にだけ存在する品番 |
+| **数量変更** | 黄 | 同品番だが `quantity` が違う（前値 → 新値を併記） |
+| **Rev 上がり** | 青 | 同品番だが部品 `revision` が違う（例: `BOLT-M6 A → B`） |
+| **変更なし** | 灰／非表示 | 既定は **「変更ありのみ表示」** トグル可 |
+
+**(2) 案件と案件の比較**
+
+- 同じ製品の **過去案件 vs 新案件** を比較（リピート品の差分把握）。
+- 過去案件の `project_part_lines` をスナップショットとして扱い、(1) と同じロジックで diff。
+
+**(3) 単一案件内の "前 Rev からの変更" バッジ**
+
+- 案件起票時、製品 BOM が **前 Rev からどう変わったか** を案件部品一覧の **行バッジ**として常時表示。
+- 例: 「この案件で **新規** に発生する部品」「**前案件 Rev からの変更** がある部品」を色分け。
+
+##### 8.5.15.3 比較アルゴリズム（案）
+
+**マッチング キー**:
+
+- **第1段**: `part_number`（必須）
+- **第2段**: 同一品番が複数経路で出る場合は `assembly_path`（5-A-1 列）も照合
+- **第3段**: `revision`（部品 Rev）を **属性比較**（マッチ確定後の差分判定）
+
+**差分種別の判定**:
+
+```
+A 行 = Rev A 側の構成行 / B 行 = Rev B 側
+- A になく B にある → 追加
+- A にあり B にない → 削除
+- 両方にある:
+    - quantity が違う → 数量変更
+    - 部品 revision が違う → Rev 上がり
+    - 上記どちらも違いなし → 変更なし
+```
+
+##### 8.5.15.4 説明・要約（"何が変わったか" を読みやすく）
+
+差分テーブルだけでなく、**要約テキスト** も出す。
+
+> 例:
+> 「**Rev A → Rev B**: 追加 3 件 / 削除 1 件 / 数量変更 2 件 / 部品 Rev 上がり 5 件」
+> 「数量変更の例: `BOLT-M6×20` が 8 → 12 個に増加」
+> 「削除: `BRACKET-OLD` が構成から外れました」
+
+調達担当が現場や上長に説明するときに、**箇条書きの要約** をそのまま使える形にする【推奨】。
+
+##### 8.5.15.5 IPC・データ取り回し（案）
+
+| チャネル | 権限 | 概要 |
+|---------|------|------|
+| `parts-tracker:bomDiff:productRev` | viewer | `{ productId, revA, revB }` → 差分行リスト + 要約 |
+| `parts-tracker:bomDiff:project` | viewer | `{ projectIdA, projectIdB }` → 案件間差分 |
+| `parts-tracker:bomDiff:currentVsPrev` | viewer | `{ seisanProjectId }` → 直前案件・直前 Rev との差分 |
+
+- 差分は **読み取り専用ビュー**。書き込みはなし（編集は通常の BOM 編集経由）。
+
+##### 8.5.15.6 受け入れの目安
+
+- 設計変更で Rev を上げた直後、**1 クリックで** 何が変わったかが分かる。
+- **追加部品** だけを抽出して **発注リスト** として出せる（CSV エクスポート【将来】）。
+- 案件で **「前 Rev からの変更」** が一覧で色分けされ、ベテラン以外でも変更点を見落としにくい。
 
 #### 8.5.12 未確定事項
 
@@ -1136,6 +1427,15 @@ src/renderer/src/routes/
 17. 非表示行を **CSV 再エクスポート** に含めるか。
 18. SolidWorks 以外（Excel 手作り BOM 等）の **汎用 CSV** 対応の要否。
 19. `revision` の一意性ルール（同一品番・別 Rev を別行として常に許容するか）。
+20. ~~**製品中心モデル（5-E）** で、`product_id` / `product_bom_id` を **`seisan-board` 側に持たせる** か **`parts-tracker` 側のみ** か。~~ → **【決定（2026-05-25）】 `seisan-board.db / projects`** に `product_id` / `product_bom_id` / `quantity_units` を追加する（§8.5.14.3）。
+21. ~~5-E 導入後、**5-A-1 の `m_bom_templates` を `m_product_boms` に統合** するか、両者を別概念として残すか。~~ → **【決定（2026-05-25）】統合**。`m_bom_templates` / `m_bom_template_lines` は実装せず、`m_product_boms` / `m_product_bom_lines` で兼用（§8.5.6.4 / §8.5.14.3）。
+22. 製品 Rev の **`status` 遷移**（`draft` → `released` → `obsolete`）の運用ルール。`released` 以外で案件起票を許すか。
+23. ~~製品 BOM を案件に **スナップショット** したあと、製品 BOM 側が更新された場合の **追従ポリシー**。~~ → **【決定（2026-05-25）】 既存案件には自動追従しない**（§8.5.14.4.1）。新 Rev は手動で当て直し、その際は 5-F の差分プレビューを介する。
+24. BOM 差分（5-F）の **マッチング キー** が `part_number` だけで足りるか、**`sku_id`** や **`assembly_path`** も常に必要か。
+25. 5-F の差分結果を **CSV / クリップボード** に書き出す要件の有無（変更通知メール／発注リスト雛形）。
+26. **過去案件の部品行から製品 BOM を逆生成** する自動化を 5-E に含めるか、5-A-1 のテンプレ逆生成と統合するか（5-A-1 / 5-E 統合済み）。
+27. 製品マスタの **画像／代表図面** を持たせるか（図面ライブラリ連携）。
+28. 5-E 移行で **既存 5-A MVP 案件**（`product_id` NULL）の表示を、製品起点トップで **「製品未割当」グループ** にまとめるか、製品起点トップから完全に外すか。
 
 ---
 

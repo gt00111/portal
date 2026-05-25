@@ -10,7 +10,7 @@
 
 | ファイル | 用途 |
 |----------|------|
-| [requirements.md](./requirements.md) | **要件定義書**。ポータルの目的・統合方針・スコープ・受け入れ基準の単一の真実。**部材管理（parts-tracker）** は §8.5（商社・標準 LT・**SolidWorks BOM CSV**・Rev・**非表示部品**・親番 BOM テンプレート 等）・生産ボード直下（3-A-2） |
+| [requirements.md](./requirements.md) | **要件定義書**。ポータルの目的・統合方針・スコープ・受け入れ基準の単一の真実。**部材管理（parts-tracker）** は §8.5（商社・標準 LT・**SolidWorks BOM CSV**・Rev・**非表示部品**・親番 BOM テンプレート・**製品中心 BOM（5-E）**・**Rev 差分表示（5-F）** 等）・生産ボード直下（3-A-2） |
 | [task-progress.md](./task-progress.md) | **フェーズ別タスク管理**。チェックリスト。進捗はここで追う |
 
 ---

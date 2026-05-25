@@ -31,6 +31,7 @@ export interface ProjectPartLine {
   seisanProjectId: string;
   partNumber: string;
   partName: string;
+  revision: string | null;
   quantity: number;
   sourceType: PartSourceType;
   supplierId: number | null;
@@ -44,6 +45,20 @@ export interface ProjectPartLine {
   procurementLeadTimeId: number | null;
   note: string | null;
   sortOrder: number;
+  isArranged: boolean;
+  arrangedAt: string | null;
+  arrangedByUserNameId: number | null;
+  arrangedByUsername: string | null;
+  isHidden: boolean;
+  hiddenAt: string | null;
+  hiddenByUsername: string | null;
+  hiddenReason: string | null;
+  bomLevel: number;
+  assemblyPath: string | null;
+  parentAssemblyPartNumber: string | null;
+  rootProductBomId: number | null;
+  sourceProductBomLineId: number | null;
+  importBatchId: number | null;
   risk: PartLineRisk;
   createdAt: string;
   updatedAt: string;
@@ -53,6 +68,7 @@ export interface ProjectPartLineUpsertInput {
   seisanProjectId: string;
   partNumber: string;
   partName: string;
+  revision?: string | null;
   quantity?: number;
   sourceType: PartSourceType;
   supplierId?: number | null;
@@ -68,9 +84,32 @@ export interface ProjectPartLineUpsertInput {
 export interface ProjectPartSummary {
   seisanProjectId: string;
   totalLines: number;
+  visibleLines: number;
+  hiddenLines: number;
   delayedCount: number;
   needOrderCount: number;
   plannedCount: number;
+  arrangedCount: number;
+}
+
+export interface SetArrangedInput {
+  id: number;
+  arranged: boolean;
+}
+
+export interface SetHiddenInput {
+  id: number;
+  hidden: boolean;
+  reason?: string | null;
+}
+
+export interface ProjectPartArrangementLogEntry {
+  id: number;
+  lineId: number;
+  action: "set" | "unset";
+  userNameId: number | null;
+  username: string | null;
+  occurredAt: string;
 }
 
 export function isPartSourceType(value: unknown): value is PartSourceType {

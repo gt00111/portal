@@ -26,6 +26,7 @@ import { SeisanBoardApp } from "@renderer/routes/SeisanBoardApp.js";
 import { SkuRoute } from "@renderer/routes/SkuRoute.js";
 import { AuditLogPage } from "@renderer/routes/master/AuditLogPage.js";
 import { ProcurementLeadTimePage } from "@renderer/routes/master/ProcurementLeadTimePage.js";
+import { ProductBomPage } from "@renderer/routes/master/ProductBomPage.js";
 import { UserAccessPage } from "@renderer/routes/master/UserAccessPage.js";
 
 export function App(): JSX.Element {
@@ -208,6 +209,7 @@ function AppRoutes(): JSX.Element {
               ))}
               <Route path="m_skus" element={<SkuRoute />} />
               <Route path="procurement-lead-times" element={<ProcurementLeadTimePage />} />
+              <Route path="product-bom" element={<ProductBomPage />} />
               <Route path="user-access" element={<UserAccessPage />} />
               <Route path="audit-log" element={<AuditLogPage />} />
             </Route>
