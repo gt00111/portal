@@ -20,7 +20,7 @@ import { Login } from "@renderer/routes/Login.js";
 import { MasterTableRoute } from "@renderer/routes/MasterDatabase.js";
 import { NotFound } from "@renderer/routes/NotFound.js";
 import { PixoConverterApp } from "@renderer/routes/PixoConverterApp.js";
-import { PartsTrackerApp } from "@renderer/routes/PartsTrackerApp.js";
+import { PartsTrackerRoutes } from "@renderer/routes/PartsTrackerRoutes.js";
 import { ProcessManagementApp } from "@renderer/routes/ProcessManagementApp.js";
 import { SeisanBoardApp } from "@renderer/routes/SeisanBoardApp.js";
 import { SkuRoute } from "@renderer/routes/SkuRoute.js";
@@ -186,10 +186,10 @@ function AppRoutes(): JSX.Element {
               }
             />
             <Route
-              path="/apps/parts-tracker"
+              path="/apps/parts-tracker/*"
               element={
-                <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base">
-                  <PartsTrackerApp session={session} />
+                <div className="portal-app-calm-shell portal-typography-14px flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base text-fg-primary">
+                  <PartsTrackerRoutes session={session} />
                 </div>
               }
             />

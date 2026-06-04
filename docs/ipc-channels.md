@@ -305,10 +305,13 @@ DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削�
 | チャネル | 権限 | Request | Response (`data`) |
 |---------|------|---------|---------------------|
 | `parts-tracker:status` | 🔒 | `undefined` | `{ connected; path }` |
-| `parts-tracker:projectList` | 🔒 | `undefined` | `PartsTrackerProjectOption[]`（`partNumber` を含む。親番 → 製品 BOM マッチに使用） |
+| `parts-tracker:projectList` | 🔒 | `undefined` | `PartsTrackerProjectOption[]`（`partNumber`・`lineCount` を含む。カスケード案件選択 §8.5.17.3） |
+| `parts-tracker:project:suggestRepeatSources` | 🔒 | `{ seisanProjectId }` | `SuggestRepeatSourcesResult`（同一親番の過去案件候補・納期降順 §8.5.17.1） |
+| `parts-tracker:project:cloneBomFrom` | ✏️ | `{ targetProjectId, sourceProjectId, includeHidden?, replaceExisting? }` | `CloneBomFromResult`（前回案件 BOM コピー §8.5.17.1） |
 | `parts-tracker:line:list` | 🔒 | `{ seisanProjectId; includeHidden? }` | `ProjectPartLine[]` |
 | `parts-tracker:line:create` | ✏️ | `ProjectPartLineUpsertInput` | `ProjectPartLine` |
 | `parts-tracker:line:update` | ✏️ | `{ id; input }` | `ProjectPartLine` |
+| `parts-tracker:line:batchUpdate` | ✏️ | `LineInlineBatchUpdateInput`（`updates[]`: id + sourceType + supplierId + status） | `ProjectPartLine[]`（§8.5.16 一括保存・トランザクション。購入+商社空可） |
 | `parts-tracker:line:delete` | ✏️ | `{ id }` | `null` |
 | `parts-tracker:line:setArranged` | ✏️ | `{ id; arranged }` | `ProjectPartLine`（手配済チェック・誰がいつを記録、`project_part_line_arrangement_log` にも追記） |
 | `parts-tracker:line:setHidden` | ✏️ | `{ id; hidden; reason? }` | `ProjectPartLine`（非表示・理由 + ユーザー名を記録） |

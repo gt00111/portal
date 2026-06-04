@@ -6,6 +6,7 @@ import type {
   BomCsvImportCommitResult,
   ImportDuplicatePolicy,
 } from "@shared/partsTrackerCsvFormat.js";
+import { BOM_CSV_DASH } from "@shared/partsTrackerCsvFormat.js";
 import type { PartSourceType } from "@shared/partsTracker.js";
 import { computeOrderByDate, isPartSourceType } from "@shared/partsTracker.js";
 
@@ -17,11 +18,43 @@ function todayIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function normalizeRevisionForDb(revision: string | null | undefined): string | null {
+  const t = revision?.toString().trim();
+  if (!t || t === BOM_CSV_DASH) return BOM_CSV_DASH;
+  return t;
+}
+
+function lineKey(partNumber: string, revision: string | null, assemblyPath: string | null): string {
+  return `${partNumber.trim().toLowerCase()}|${(revision ?? "").toLowerCase()}|${(assemblyPath ?? "").toLowerCase()}`;
+}
+
 function suggestLt(
   sourceType: PartSourceType,
   supplierId: number | null,
   partNumber: string
 ): { leadTimeDays: number; procurementLeadTimeId: number | null } {
+  if (sourceType === "unset") {
+    const rows = getDb()
+      .prepare(
+        `SELECT id, lead_time_days, supplier_id, part_number
+         FROM m_procurement_lead_times
+         WHERE isActive = 1 AND part_number IS NOT NULL AND TRIM(part_number) != ''`
+      )
+      .all() as Array<{
+      id: number;
+      lead_time_days: number;
+      supplier_id: number | null;
+      part_number: string | null;
+    }>;
+    const pn = partNumber.trim().toLowerCase();
+    for (const lt of rows) {
+      if (lt.part_number?.trim().toLowerCase() === pn) {
+        return { leadTimeDays: lt.lead_time_days, procurementLeadTimeId: lt.id };
+      }
+    }
+    return { leadTimeDays: 0, procurementLeadTimeId: null };
+  }
+
   const rows = getDb()
     .prepare(
       `SELECT id, lead_time_days, supplier_id, sku_id, part_number
@@ -151,65 +184,69 @@ export function commitCsvImport(
 
   const existing = ptDb
     .prepare(
-      `SELECT id, part_number, revision FROM project_part_lines WHERE seisan_project_id = ?`
+      `SELECT id, part_number, revision, assembly_path FROM project_part_lines WHERE seisan_project_id = ?`
     )
     .all(seisanProjectId) as Array<{
     id: number;
     part_number: string;
     revision: string | null;
+    assembly_path: string | null;
   }>;
   const keyMap = new Map<string, number>();
   for (const e of existing) {
-    keyMap.set(
-      `${e.part_number.trim().toLowerCase()}|${(e.revision ?? "").toLowerCase()}`,
-      e.id
-    );
+    keyMap.set(lineKey(e.part_number, e.revision, e.assembly_path), e.id);
   }
 
   const insertStmt = ptDb.prepare(
     `INSERT INTO project_part_lines (
       seisan_project_id, part_number, part_name, revision, quantity, source_type, supplier_id,
       lead_time_days, required_date, order_by_date, status, procurement_lead_time_id,
-      note, sort_order, bom_level, parent_assembly_part_number, import_batch_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?)`
+      note, sort_order, bom_level, assembly_path, parent_assembly_part_number, import_batch_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?)`
   );
 
   const updateStmt = ptDb.prepare(
     `UPDATE project_part_lines SET
       part_name = ?, quantity = ?, source_type = ?, supplier_id = ?,
-      lead_time_days = ?, order_by_date = ?,
-      bom_level = ?, parent_assembly_part_number = ?,
-      import_batch_id = ?, updated_at = datetime('now')
+      lead_time_days = ?, order_by_date = ?, note = ?,
+      bom_level = ?, assembly_path = ?, parent_assembly_part_number = ?,
+      sort_order = ?, import_batch_id = ?, updated_at = datetime('now')
      WHERE id = ?`
   );
 
-  let sortOrder = (existing.length + 1) * 10;
-  for (const r of rows) {
+  const sortedInput = [...rows].sort(
+    (a, b) => (a.csvSortOrder ?? 0) - (b.csvSortOrder ?? 0)
+  );
+
+  for (let i = 0; i < sortedInput.length; i++) {
+    const r = sortedInput[i];
     const partNumber = (r.partNumber ?? "").trim();
     const partName = (r.partName ?? "").trim() || partNumber;
     if (!partNumber) {
       skippedCount += 1;
       continue;
     }
-    const sourceType: PartSourceType = isPartSourceType(r.sourceType) ? r.sourceType : "purchase";
+
+    const sourceType: PartSourceType = isPartSourceType(r.sourceType) ? r.sourceType : "unset";
     const supplierId = r.supplierId ?? null;
     const quantity = Math.max(0, Number(r.quantity ?? 1));
-    const revision = r.revision?.toString().trim() || null;
+    const revision = normalizeRevisionForDb(r.revision);
     const note = r.note?.toString().trim() || null;
     const level = Math.max(0, Math.floor(Number(r.assemblyLevel ?? 0)));
     const parent = r.parentAssemblyPartNumber?.toString().trim() || null;
+    const assemblyPath = r.assemblyPath?.toString().trim() || partNumber;
+    const sortOrder = (r.csvSortOrder ?? i) * 10 + 10;
 
     const lt = suggestLt(sourceType, supplierId, partNumber);
     const orderByDate = computeOrderByDate(requiredDate, lt.leadTimeDays);
 
-    const key = `${partNumber.toLowerCase()}|${(revision ?? "").toLowerCase()}`;
+    const key = lineKey(partNumber, revision, assemblyPath);
     const hit = keyMap.get(key);
     if (hit != null && duplicatePolicy !== "replaceAll") {
       if (duplicatePolicy === "appendOnly") {
         skippedCount += 1;
         continue;
       }
-      // updateOnRevision: 同一 part+rev は更新
       updateStmt.run(
         partName,
         quantity,
@@ -217,8 +254,11 @@ export function commitCsvImport(
         supplierId,
         lt.leadTimeDays,
         orderByDate,
+        note,
         level,
+        assemblyPath,
         parent,
+        sortOrder,
         batchId,
         hit
       );
@@ -226,7 +266,7 @@ export function commitCsvImport(
       continue;
     }
 
-    insertStmt.run(
+    const ins = insertStmt.run(
       seisanProjectId,
       partNumber,
       partName,
@@ -241,10 +281,11 @@ export function commitCsvImport(
       note,
       sortOrder,
       level,
+      assemblyPath,
       parent,
       batchId
     );
-    sortOrder += 10;
+    keyMap.set(key, Number(ins.lastInsertRowid));
     insertedCount += 1;
   }
 

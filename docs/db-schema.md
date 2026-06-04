@@ -381,18 +381,33 @@ ORDER BY p.name COLLATE NOCASE;
 
 任意: `project_part_line_arrangement_log`（手配 ON/OFF の履歴、`line_id` / `action` / `user` / `at`）。
 
-### 10.2 計画: 案件部品行の追加列（5-B）
+### 10.2 案件部品行の追加列（5-B）【一部実装済み】
 
-`project_part_lines` への追加（マイグレーション未実施）:
+`project_part_lines` への追加:
 
 | 列 | 役割 |
 |----|------|
-| `revision` | 部品リビジョン（SolidWorks BOM CSV 等） |
+| `revision` | 部品リビジョン（BOM CSV・手入力） |
 | `is_hidden` | 一覧非表示（商社 3D 等で手配対象外のサブ構成） |
 | `hidden_at` / `hidden_by_username` / `hidden_reason` | 非表示操作の監査 |
 | `import_batch_id` | CSV 取込バッチ参照 |
 
 サテライト: `project_part_import_batches`（取込履歴。`source` = `solidworks_bom_csv` 等）。
+
+**SolidWorks BOM CSV（標準8列・2026-05-25 要件・未実装）**
+
+| 取込元列 | 保存先 |
+|----------|--------|
+| `符号` | `sort_order` 補助。空→表示 `-` |
+| `品　　番` | `part_number` |
+| `名　称` | `part_name` |
+| `Rev` | `revision`（`未検出` 可。空→`-`） |
+| `個数` | `quantity` |
+| `材質` | `note` 等。空→`-` |
+| **`親品番`** | `parent_assembly_part_number` |
+| **`レベル`** | `bom_level` → `assembly_path` 生成 |
+
+調達区分・商社コードは **CSV に含めず** UI 手入力。取込時グローバル品番ソートは **禁止**。一覧は **兄弟単位ソート＋ツリー表示**（§8.5.13.5.3）。詳細は [requirements.md §8.5.13](./requirements.md#8513-bom-csv-取込部品-rev非表示部品計画5-b)。
 
 ### 10.3 計画: 製品中心 BOM（5-E）— 5-A-1 統合
 

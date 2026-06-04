@@ -1,26 +1,22 @@
 import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Diff,
+  Copy,
   Download,
-  EyeOff,
   FileSpreadsheet,
   HelpCircle,
   Layers,
-  Package,
-  Pencil,
+  PencilLine,
   Plus,
   RefreshCw,
   Search,
-  Trash2,
-  User,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-import type { BomDiffResult } from "@shared/bomDiff.js";
-import { BOM_DIFF_CHANGE_LABELS } from "@shared/bomDiff.js";
-import { canAppWrite, getAppRole, type AppRole } from "@shared/auth.js";
+import {
+  sortBomTreeRows,
+  type BomTreeSortDirection,
+  type BomTreeSortKey,
+} from "@shared/bomTreeSort.js";
+import { canAppWrite } from "@shared/auth.js";
 import type { MasterRow } from "@shared/master.js";
 import {
   PART_LINE_STATUSES,
@@ -28,11 +24,17 @@ import {
   PART_SOURCE_TYPES,
   PART_SOURCE_TYPE_LABELS,
   type PartLineRisk,
+  type LineInlineBatchUpdateItem,
   type PartLineStatus,
   type PartSourceType,
   type ProjectPartLine,
+  type CloneBomFromResult,
+  type PartsTrackerProjectOption,
   type ProjectPartLineUpsertInput,
   type ProjectPartSummary,
+  type RepeatSourceCandidate,
+  type SourceTabFilter,
+  type SuggestRepeatSourcesResult,
 } from "@shared/partsTracker.js";
 import type {
   BomCsvImportCommitResult,
@@ -48,13 +50,14 @@ import type { SessionUser } from "@shared/types.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { Card } from "@renderer/components/ui/Card.js";
-import { DataTable, type Column } from "@renderer/components/ui/DataTable.js";
+import { PartsBomTreeTable } from "@renderer/routes/parts-tracker/PartsBomTreeTable.js";
 import { Modal } from "@renderer/components/ui/Modal.js";
 import { Select } from "@renderer/components/ui/Select.js";
 import { TextField } from "@renderer/components/ui/TextField.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
-import { PortalAppHeaderLogo } from "@renderer/components/PortalAppHeaderLogo.js";
 import { invoke } from "@renderer/lib/api.js";
+import { ProjectCascadeSelect } from "@renderer/routes/parts-tracker/ProjectCascadeSelect.js";
+import { projectCascadeLabel } from "@renderer/routes/parts-tracker/projectCascade.js";
 import { cn } from "@renderer/lib/cn.js";
 import {
   HELP_ADD_EDIT,
@@ -75,26 +78,16 @@ import {
   HELP_ROLES_VIEWER,
   PARTS_TRACKER_PAGE_TAGLINE,
 } from "@renderer/routes/parts-tracker/partsTrackerHelpCopy.js";
-
-const ROLE_LABELS: Record<AppRole, string> = {
-  admin: "管理者",
-  editor: "編集者",
-  viewer: "閲覧者",
-};
-
-const PAGE_SIZES = [20, 50, 100] as const;
-type PageSize = (typeof PAGE_SIZES)[number];
+import {
+  countBySourceTab,
+  draftFromLine,
+  isDraftDirty,
+  matchesSourceTab,
+  SOURCE_TAB_OPTIONS,
+  type LineInlineDraft,
+} from "@renderer/routes/parts-tracker/partsTrackerInlineEdit.js";
 
 type RiskFilter = "all" | PartLineRisk;
-
-interface ProjectOption {
-  id: string;
-  projectNo: string | null;
-  projectName: string | null;
-  companyName: string;
-  deadline: string;
-  partNumber: string | null;
-}
 
 interface ProductBomMatch {
   productId: number;
@@ -108,42 +101,6 @@ interface ProductBomMatch {
 
 interface Props {
   session: SessionUser;
-}
-
-function projectLabel(p: ProjectOption): string {
-  const no = p.projectNo ? `${p.projectNo} · ` : "";
-  const name = p.projectName ?? "（名称未設定）";
-  return `${no}${name} — ${p.companyName}`;
-}
-
-function riskRank(risk: PartLineRisk): number {
-  if (risk === "delayed") return 0;
-  if (risk === "need_order") return 1;
-  return 2;
-}
-
-function riskBadge(risk: ProjectPartLine["risk"]): JSX.Element {
-  if (risk === "delayed") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-state-danger/15 px-2 py-0.5 text-xs font-medium text-state-danger">
-        <AlertTriangle className="h-3 w-3" aria-hidden />
-        遅延
-      </span>
-    );
-  }
-  if (risk === "need_order") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-        <Clock className="h-3 w-3" aria-hidden />
-        要発注
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center rounded-full bg-bg-elevated px-2 py-0.5 text-xs text-fg-muted">
-      問題なし
-    </span>
-  );
 }
 
 const emptyLineForm = (projectId: string, defaultRequiredDate: string): ProjectPartLineUpsertInput => ({
@@ -160,29 +117,11 @@ const emptyLineForm = (projectId: string, defaultRequiredDate: string): ProjectP
   note: "",
 });
 
-function arrangedBadge(line: ProjectPartLine): JSX.Element {
-  if (!line.isArranged) {
-    return <span className="text-fg-subtle">—</span>;
-  }
-  const who = line.arrangedByUsername ?? "（不明）";
-  const when = (line.arrangedAt ?? "").replace("T", " ").slice(0, 16);
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-xs text-state-success"
-      title={`${who} / ${when}`}
-    >
-      <CheckCircle2 size={12} aria-hidden />
-      <span className="hidden sm:inline">{who}</span>
-    </span>
-  );
-}
-
 export function PartsTrackerApp({ session }: Props): JSX.Element {
   const toast = useToast();
-  const role = getAppRole(session, "parts-tracker");
   const writable = canAppWrite(session, "parts-tracker");
 
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [projects, setProjects] = useState<PartsTrackerProjectOption[]>([]);
   const [suppliers, setSuppliers] = useState<MasterRow[]>([]);
   const [projectId, setProjectId] = useState("");
   const [projectQuery, setProjectQuery] = useState("");
@@ -199,8 +138,12 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
   const [showHidden, setShowHidden] = useState(false);
   const [arrangedFilter, setArrangedFilter] = useState<"all" | "unarranged" | "arranged">("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<PageSize>(20);
+  const [lineSortKey, setLineSortKey] = useState<BomTreeSortKey>("importOrder");
+  const [lineSortDir, setLineSortDir] = useState<BomTreeSortDirection>("asc");
+  const [sourceTab, setSourceTab] = useState<SourceTabFilter>("all");
+  const [editMode, setEditMode] = useState(false);
+  const [inlineDrafts, setInlineDrafts] = useState<Record<number, LineInlineDraft>>({});
+  const [inlineSaving, setInlineSaving] = useState(false);
   const [productBomMatches, setProductBomMatches] = useState<ProductBomMatch[]>([]);
 
   // 5-B: CSV 取込モーダル
@@ -219,19 +162,22 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const [expandMultiplier, setExpandMultiplier] = useState(1);
   const [expandBusy, setExpandBusy] = useState(false);
 
-  // 5-F: 差分モーダル
-  const [diffOpen, setDiffOpen] = useState(false);
-  const [diffResult, setDiffResult] = useState<BomDiffResult | null>(null);
-  const [diffBusy, setDiffBusy] = useState(false);
-
   // 非表示理由入力
   const [hidingLine, setHidingLine] = useState<ProjectPartLine | null>(null);
   const [hideReason, setHideReason] = useState("");
 
+  // §8.5.17.1: 前回案件 BOM コピー
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneSources, setCloneSources] = useState<RepeatSourceCandidate[]>([]);
+  const [cloneSourceId, setCloneSourceId] = useState("");
+  const [cloneIncludeHidden, setCloneIncludeHidden] = useState(true);
+  const [cloneBusy, setCloneBusy] = useState(false);
+  const [cloneTargetPartNumber, setCloneTargetPartNumber] = useState<string | null>(null);
+
   const loadProjects = useCallback(async () => {
     try {
       const [projectList, supplierList, status] = await Promise.all([
-        invoke<ProjectOption[]>("parts-tracker:projectList"),
+        invoke<PartsTrackerProjectOption[]>("parts-tracker:projectList"),
         invoke<MasterRow[]>("master:list", { table: "m_suppliers" }),
         invoke<{ connected: boolean; path: string | null }>("parts-tracker:status"),
       ]);
@@ -244,30 +190,45 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     }
   }, [toast]);
 
-  const loadLines = useCallback(async () => {
-    if (!projectId) {
-      setLines([]);
-      setSummary(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+  const refreshSummary = useCallback(async () => {
+    if (!projectId) return;
     try {
-      const [lineList, sum] = await Promise.all([
-        invoke<ProjectPartLine[]>("parts-tracker:line:list", {
-          seisanProjectId: projectId,
-          includeHidden: true,
-        }),
-        invoke<ProjectPartSummary>("parts-tracker:summary", { seisanProjectId: projectId }),
-      ]);
-      setLines(lineList);
+      const sum = await invoke<ProjectPartSummary>("parts-tracker:summary", {
+        seisanProjectId: projectId,
+      });
       setSummary(sum);
-    } catch (err) {
-      toast.push("error", err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+    } catch {
+      /* サマリのみ失敗は握りつぶす */
     }
-  }, [projectId, toast]);
+  }, [projectId]);
+
+  const loadLines = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!projectId) {
+        setLines([]);
+        setSummary(null);
+        setLoading(false);
+        return;
+      }
+      if (!opts?.silent) setLoading(true);
+      try {
+        const [lineList, sum] = await Promise.all([
+          invoke<ProjectPartLine[]>("parts-tracker:line:list", {
+            seisanProjectId: projectId,
+            includeHidden: true,
+          }),
+          invoke<ProjectPartSummary>("parts-tracker:summary", { seisanProjectId: projectId }),
+        ]);
+        setLines(lineList);
+        setSummary(sum);
+      } catch (err) {
+        toast.push("error", err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!opts?.silent) setLoading(false);
+      }
+    },
+    [projectId, toast]
+  );
 
   const loadProductBomMatches = useCallback(async () => {
     const sel = projects.find((p) => p.id === projectId);
@@ -295,25 +256,22 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   }, [loadLines]);
 
   useEffect(() => {
+    setEditMode(false);
+    setInlineDrafts({});
+    setSourceTab("all");
+  }, [projectId]);
+
+  useEffect(() => {
     void loadProductBomMatches();
   }, [loadProductBomMatches]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [projectId, lineSearch, riskFilter, arrangedFilter, showHidden, pageSize]);
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === projectId) ?? null,
     [projects, projectId]
   );
 
-  const filteredProjects = useMemo(() => {
-    const q = projectQuery.trim().toLowerCase();
-    if (!q) return projects;
-    return projects.filter((p) => projectLabel(p).toLowerCase().includes(q));
-  }, [projects, projectQuery]);
-
-  const filteredLines = useMemo(() => {
+  const linesBeforeSourceTab = useMemo(() => {
     const q = lineSearch.trim().toLowerCase();
     let list = lines;
     if (!showHidden) {
@@ -341,20 +299,125 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
         return hay.includes(q);
       });
     }
-    return [...list].sort((a, b) => {
-      const rd = riskRank(a.risk) - riskRank(b.risk);
-      if (rd !== 0) return rd;
-      const oa = a.orderByDate ?? "";
-      const ob = b.orderByDate ?? "";
-      return oa.localeCompare(ob);
-    });
+    return list;
   }, [lines, lineSearch, riskFilter, arrangedFilter, showHidden]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredLines.length / pageSize));
-  const pagedLines = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return filteredLines.slice(start, start + pageSize);
-  }, [filteredLines, page, pageSize]);
+  const sourceTabCounts = useMemo(
+    () => countBySourceTab(linesBeforeSourceTab),
+    [linesBeforeSourceTab]
+  );
+
+  const filteredLines = useMemo(() => {
+    let list = linesBeforeSourceTab.filter((l) => matchesSourceTab(l, sourceTab));
+    if (lineSortKey === "importOrder" && lineSortDir === "asc") {
+      return [...list].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+    }
+    return sortBomTreeRows(list, lineSortKey, lineSortDir);
+  }, [linesBeforeSourceTab, sourceTab, lineSortKey, lineSortDir]);
+
+  const dirtyInlineCount = useMemo(() => {
+    let n = 0;
+    for (const line of lines) {
+      if (isDraftDirty(line, inlineDrafts[line.id])) n++;
+    }
+    return n;
+  }, [lines, inlineDrafts]);
+
+  const hasInlineDraftChanges = dirtyInlineCount > 0;
+
+  const confirmProjectChange = useCallback(
+    (nextId: string) => {
+      if (nextId === projectId) return true;
+      if (editMode && hasInlineDraftChanges) {
+        return window.confirm("未保存のインライン編集があります。案件を切り替えますか？");
+      }
+      return true;
+    },
+    [projectId, editMode, hasInlineDraftChanges]
+  );
+
+  function handleInlineDraftChange(lineId: number, patch: Partial<LineInlineDraft>): void {
+    setInlineDrafts((prev) => {
+      const line = lines.find((l) => l.id === lineId);
+      if (!line) return prev;
+      const base = prev[lineId] ?? draftFromLine(line);
+      const next: LineInlineDraft = { ...base, ...patch };
+      if (next.sourceType !== "purchase") {
+        next.supplierId = null;
+      }
+      return { ...prev, [lineId]: next };
+    });
+  }
+
+  function requestExitEditMode(): void {
+    if (hasInlineDraftChanges) {
+      if (!window.confirm("未保存の変更があります。編集を破棄して終了しますか？")) return;
+    }
+    setEditMode(false);
+    setInlineDrafts({});
+  }
+
+  function toggleEditMode(): void {
+    if (editMode) {
+      requestExitEditMode();
+      return;
+    }
+    setEditMode(true);
+    setInlineDrafts({});
+  }
+
+  async function handleInlineBulkSave(): Promise<void> {
+    const updates: LineInlineBatchUpdateItem[] = [];
+    for (const line of lines) {
+      const draft = inlineDrafts[line.id];
+      if (!isDraftDirty(line, draft)) continue;
+      const d = draft ?? draftFromLine(line);
+      updates.push({
+        id: line.id,
+        sourceType: d.sourceType,
+        supplierId: d.sourceType === "purchase" ? d.supplierId : null,
+        status: line.isArranged ? d.status : line.status,
+      });
+    }
+    if (updates.length === 0) {
+      toast.push("info", "保存する変更がありません。");
+      return;
+    }
+    setInlineSaving(true);
+    try {
+      const updated = await invoke<ProjectPartLine[]>("parts-tracker:line:batchUpdate", {
+        updates,
+      });
+      const byId = new Map(updated.map((u) => [u.id, u]));
+      setLines((prev) => prev.map((l) => byId.get(l.id) ?? l));
+      setEditMode(false);
+      setInlineDrafts({});
+      await refreshSummary();
+      toast.push("success", `${updates.length} 件を保存しました。`);
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setInlineSaving(false);
+    }
+  }
+
+  function openEditLine(line: ProjectPartLine): void {
+    setEditing(line);
+    setCreating(false);
+    setForm({
+      seisanProjectId: line.seisanProjectId,
+      partNumber: line.partNumber,
+      partName: line.partName,
+      revision: line.revision,
+      quantity: line.quantity,
+      sourceType: line.sourceType,
+      supplierId: line.supplierId,
+      leadTimeDays: line.leadTimeDays,
+      requiredDate: line.requiredDate,
+      status: line.status,
+      note: line.note ?? "",
+    });
+  }
 
   async function suggestLeadTime(next: ProjectPartLineUpsertInput): Promise<void> {
     try {
@@ -412,11 +475,25 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
 
   async function handleSetArranged(line: ProjectPartLine, next: boolean): Promise<void> {
     try {
-      await invoke<ProjectPartLine>("parts-tracker:line:setArranged", {
+      const updated = await invoke<ProjectPartLine>("parts-tracker:line:setArranged", {
         id: line.id,
         arranged: next,
       });
-      await loadLines();
+      setLines((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      await refreshSummary();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleToggleHidden(line: ProjectPartLine): Promise<void> {
+    try {
+      const updated = await invoke<ProjectPartLine>("parts-tracker:line:setHidden", {
+        id: line.id,
+        hidden: false,
+      });
+      setLines((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      await refreshSummary();
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
     }
@@ -424,15 +501,17 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
 
   async function handleConfirmHide(): Promise<void> {
     if (!hidingLine) return;
+    const targetId = hidingLine.id;
     try {
-      await invoke("parts-tracker:line:setHidden", {
-        id: hidingLine.id,
+      const updated = await invoke<ProjectPartLine>("parts-tracker:line:setHidden", {
+        id: targetId,
         hidden: true,
         reason: hideReason || null,
       });
       setHidingLine(null);
       setHideReason("");
-      await loadLines();
+      setLines((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      await refreshSummary();
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
     }
@@ -488,7 +567,9 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           supplierId: r.matchedSupplierId,
           assemblyLevel: r.assemblyLevel,
           parentAssemblyPartNumber: r.parentAssemblyPartNumber,
+          assemblyPath: r.assemblyPath,
           note: r.note,
+          csvSortOrder: r.csvSortOrder,
         }));
       const res = await invoke<BomCsvImportCommitResult>("parts-tracker:import:commit", {
         seisanProjectId: projectId,
@@ -565,250 +646,74 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     }
   }
 
-  async function handleOpenLatestDiff(): Promise<void> {
+  async function openCloneModal(): Promise<void> {
     if (!projectId) return;
-    setDiffOpen(true);
-    setDiffResult(null);
-    setDiffBusy(true);
+    setCloneOpen(true);
+    setCloneSourceId("");
+    setCloneBusy(true);
     try {
-      const res = await invoke<BomDiffResult | null>(
-        "parts-tracker:bomDiff:currentVsLatest",
+      const res = await invoke<SuggestRepeatSourcesResult>(
+        "parts-tracker:project:suggestRepeatSources",
         { seisanProjectId: projectId }
       );
-      if (!res) {
-        toast.push("info", "比較対象がありません（最新 Rev = 現在の Rev か、製品 BOM 未登録）。");
-        setDiffOpen(false);
-        return;
+      setCloneTargetPartNumber(res.targetPartNumber);
+      setCloneSources(res.candidates);
+      if (res.candidates.length > 0) {
+        setCloneSourceId(res.candidates[0].id);
       }
-      setDiffResult(res);
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
-      setDiffOpen(false);
+      setCloneOpen(false);
     } finally {
-      setDiffBusy(false);
+      setCloneBusy(false);
     }
   }
 
-  const columns = useMemo<Array<Column<ProjectPartLine>>>(() => {
-    const base: Array<Column<ProjectPartLine>> = [
-      {
-        key: "arranged",
-        header: "手配済",
-        width: "112px",
-        render: (l) => (
-          <div className="flex items-center gap-2">
-            {writable ? (
-              <input
-                type="checkbox"
-                checked={l.isArranged}
-                onChange={(e) => void handleSetArranged(l, e.target.checked)}
-                className="h-4 w-4 cursor-pointer accent-state-success"
-                aria-label="手配済"
-              />
-            ) : (
-              <CheckCircle2
-                size={14}
-                className={l.isArranged ? "text-state-success" : "text-fg-subtle"}
-                aria-hidden
-              />
-            )}
-            {arrangedBadge(l)}
-          </div>
-        ),
-      },
-      {
-        key: "risk",
-        header: "リスク",
-        width: "100px",
-        render: (l) => riskBadge(l.risk),
-      },
-      {
-        key: "partNumber",
-        header: "品番",
-        width: "120px",
-        render: (l) => (
-          <div className="flex flex-col">
-            <span className="font-mono text-xs">{l.partNumber}</span>
-            {l.assemblyPath && l.bomLevel > 0 && (
-              <span
-                className="truncate font-mono text-[10px] text-fg-subtle"
-                title={l.assemblyPath}
-              >
-                L{l.bomLevel} · {l.parentAssemblyPartNumber ?? "—"}
-              </span>
-            )}
-          </div>
-        ),
-      },
-      {
-        key: "revision",
-        header: "Rev",
-        width: "60px",
-        render: (l) =>
-          l.revision ? (
-            <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 font-mono text-[10px]">
-              {l.revision}
-            </span>
-          ) : (
-            <span className="text-fg-subtle">—</span>
-          ),
-      },
-      { key: "partName", header: "部品名称", render: (l) => l.partName },
-      {
-        key: "quantity",
-        header: "数量",
-        width: "72px",
-        align: "right",
-        render: (l) => l.quantity,
-      },
-      {
-        key: "sourceType",
-        header: "区分",
-        width: "88px",
-        render: (l) => PART_SOURCE_TYPE_LABELS[l.sourceType],
-      },
-      {
-        key: "supplier",
-        header: "商社",
-        width: "120px",
-        render: (l) => <span className="text-fg-muted">{l.supplierName ?? "—"}</span>,
-      },
-      {
-        key: "leadTimeDays",
-        header: "LT",
-        width: "56px",
-        align: "right",
-        render: (l) => `${l.leadTimeDays}日`,
-      },
-      {
-        key: "requiredDate",
-        header: "必要着日",
-        width: "108px",
-        render: (l) => l.requiredDate,
-      },
-      {
-        key: "orderByDate",
-        header: "発注期限",
-        width: "108px",
-        render: (l) => (
-          <span className={cn(l.risk === "need_order" && "font-medium text-amber-700 dark:text-amber-300")}>
-            {l.orderByDate ?? "—"}
-          </span>
-        ),
-      },
-      {
-        key: "status",
-        header: "状態",
-        width: "88px",
-        render: (l) => PART_LINE_STATUS_LABELS[l.status],
-      },
-      {
-        key: "note",
-        header: "備考",
-        render: (l) => (
-          <span className="line-clamp-2 max-w-[12rem] text-xs text-fg-muted">{l.note ?? "—"}</span>
-        ),
-      },
-    ];
-    if (writable) {
-      base.push({
-        key: "actions",
-        header: "",
-        width: "128px",
-        align: "right",
-        render: (l) => (
-          <div className="flex justify-end gap-0.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              title="編集"
-              onClick={() => {
-                setEditing(l);
-                setCreating(false);
-                setForm({
-                  seisanProjectId: l.seisanProjectId,
-                  partNumber: l.partNumber,
-                  partName: l.partName,
-                  revision: l.revision,
-                  quantity: l.quantity,
-                  sourceType: l.sourceType,
-                  supplierId: l.supplierId,
-                  leadTimeDays: l.leadTimeDays,
-                  requiredDate: l.requiredDate,
-                  status: l.status,
-                  note: l.note ?? "",
-                });
-              }}
-            >
-              <Pencil size={14} aria-hidden />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              title={l.isHidden ? "再表示" : "非表示にする"}
-              onClick={() => {
-                if (l.isHidden) {
-                  void invoke("parts-tracker:line:setHidden", { id: l.id, hidden: false }).then(
-                    () => loadLines()
-                  );
-                } else {
-                  setHidingLine(l);
-                  setHideReason("");
-                }
-              }}
-            >
-              <EyeOff
-                size={14}
-                className={l.isHidden ? "text-fg-subtle" : "text-amber-700 dark:text-amber-300"}
-                aria-hidden
-              />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              title="削除"
-              onClick={() => void handleDelete(l)}
-            >
-              <Trash2 size={14} className="text-state-danger" aria-hidden />
-            </Button>
-          </div>
-        ),
-      });
+  async function handleCloneCommit(): Promise<void> {
+    if (!projectId || !cloneSourceId) {
+      toast.push("info", "コピー元案件を選択してください。");
+      return;
     }
-    return base;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [writable]);
+    const targetLines = summary?.totalLines ?? 0;
+    if (targetLines > 0) {
+      const ok = window.confirm(
+        `先案件に ${targetLines} 件の部品行があります。全て削除してからコピーします。よろしいですか？`
+      );
+      if (!ok) return;
+    }
+    setCloneBusy(true);
+    try {
+      const res = await invoke<CloneBomFromResult>("parts-tracker:project:cloneBomFrom", {
+        targetProjectId: projectId,
+        sourceProjectId: cloneSourceId,
+        includeHidden: cloneIncludeHidden,
+        replaceExisting: targetLines > 0,
+      });
+      toast.push(
+        "success",
+        `BOM をコピーしました（${res.insertedCount} 行${res.removedCount > 0 ? ` / 削除 ${res.removedCount}` : ""}）`
+      );
+      setCloneOpen(false);
+      setEditMode(false);
+      setInlineDrafts({});
+      await loadLines();
+      await loadProjects();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCloneBusy(false);
+    }
+  }
 
   const modalOpen = creating || editing !== null;
   const defaultRequired = selectedProject?.deadline ?? "";
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-base">
-      <header className="sticky top-0 z-40 flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 border-b border-border-subtle bg-bg-surface px-3 py-2 sm:flex-nowrap sm:px-4 sm:py-0">
-        <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
-          <PortalAppHeaderLogo
-            appId="parts-tracker"
-            className="h-8 w-auto max-h-9 max-w-[min(200px,50vw)] shrink-0 object-contain sm:h-9 sm:max-w-[min(200px,28vw)]"
-          />
-          <div className="flex min-w-0 items-center gap-2">
-            <Package className="h-5 w-5 shrink-0 text-accent-primary sm:hidden" aria-hidden />
-            <h1 className="truncate text-base font-semibold text-fg-primary sm:text-lg">部材管理</h1>
-          </div>
-        </div>
-        <div className="flex w-full min-w-0 shrink-0 items-center justify-end gap-2 text-sm text-fg-muted sm:w-auto">
-          <User className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden />
-          <span className="max-w-[min(8rem,35vw)] truncate sm:max-w-[8rem]">{session.username}</span>
-          <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-xs text-fg-subtle">
-            {ROLE_LABELS[role ?? "viewer"]}
-          </span>
-        </div>
-      </header>
+  const cloneSourcePreview = cloneSources.find((c) => c.id === cloneSourceId);
 
-      <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-        <div className="mx-auto max-w-6xl space-y-4 px-4 py-6">
+  return (
+    <>
+    <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+        <div className="w-full space-y-4 px-3 py-4 sm:px-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <p className="max-w-3xl text-sm leading-relaxed text-fg-muted">{PARTS_TRACKER_PAGE_TAGLINE}</p>
             <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
@@ -824,33 +729,15 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           )}
 
           <Card className="space-y-4 p-4">
-            <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
-              <div className="space-y-2">
-                <label className="text-sm text-fg-muted">案件を検索</label>
-                <div className="relative">
-                  <Search
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle"
-                    aria-hidden
-                  />
-                  <input
-                    type="search"
-                    placeholder="製番・案件名・客先"
-                    value={projectQuery}
-                    onChange={(e) => setProjectQuery(e.target.value)}
-                    className="h-10 w-full rounded-lg border border-border-strong bg-bg-surface pl-9 pr-3 text-sm placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-                  />
-                </div>
-              </div>
-              <Select
-                label="生産案件"
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                options={[
-                  { value: "", label: "（案件を選択）" },
-                  ...filteredProjects.map((p) => ({ value: p.id, label: projectLabel(p) })),
-                ]}
-              />
-              <div className="flex flex-wrap gap-2 lg:pb-0.5">
+            <ProjectCascadeSelect
+              projects={projects}
+              value={projectId}
+              onChange={setProjectId}
+              searchQuery={projectQuery}
+              onSearchQueryChange={setProjectQuery}
+              beforeChange={confirmProjectChange}
+            />
+            <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-4">
                 <Button type="button" variant="secondary" size="sm" onClick={() => void loadLines()} disabled={loading}>
                   <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden />
                   更新
@@ -876,19 +763,18 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                     BOM CSV 取込
                   </Button>
                 )}
-                {projectId && (
+                {writable && projectId && (
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
-                    onClick={() => void handleOpenLatestDiff()}
-                    title="現在の案件 BOM と、製品マスタの最新 Rev を比較"
+                    onClick={() => void openCloneModal()}
+                    title="同一親番の過去案件から部品表をコピー（手配・状態は初期化）"
                   >
-                    <Diff size={16} aria-hidden />
-                    最新 Rev と比較
+                    <Copy size={16} aria-hidden />
+                    前回案件から BOM コピー
                   </Button>
                 )}
-              </div>
             </div>
 
             {selectedProject && (
@@ -936,12 +822,12 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                       key={m.productBomId}
                       type="button"
                       onClick={() => void openExpand(m.productBomId)}
-                      className="rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5 text-xs hover:border-accent-secondary"
+                      className="rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm hover:border-accent-secondary"
                       title={`${m.productPartNumber} (${m.productName})`}
                     >
                       Rev {m.revision}
                       {m.status === "released" && (
-                        <span className="ml-1 rounded bg-state-success/15 px-1 py-0.5 text-[10px] text-state-success">
+                        <span className="ml-1 rounded bg-state-success/15 px-1 py-0.5 text-sm text-state-success">
                           released
                         </span>
                       )}
@@ -953,88 +839,198 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           </Card>
 
           {projectId && (
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-              <div className="relative min-w-[200px] flex-1 sm:max-w-md">
-                <Search
-                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle"
-                  aria-hidden
-                />
-                <input
-                  type="search"
-                  placeholder="品番・名称・商社・備考で検索"
-                  value={lineSearch}
-                  onChange={(e) => setLineSearch(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-border-strong bg-bg-surface pl-9 pr-3 text-sm placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-                />
-              </div>
-              <div>
-                <span className="mb-1 block text-xs text-fg-subtle">リスク</span>
-                <div className="flex rounded-md border border-border-subtle bg-bg-surface p-0.5">
-                  {(
-                    [
-                      ["all", "すべて"],
-                      ["need_order", "要発注"],
-                      ["delayed", "遅延"],
-                      ["ok", "問題なし"],
-                    ] as const
-                  ).map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
+            <>
+              <div className="flex flex-wrap gap-1 rounded-lg border border-border-subtle bg-bg-surface p-1">
+                {SOURCE_TAB_OPTIONS.map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                      sourceTab === id
+                        ? "bg-accent-primary text-bg-base"
+                        : "text-fg-muted hover:bg-bg-elevated hover:text-fg-primary"
+                    )}
+                    onClick={() => setSourceTab(id)}
+                  >
+                    {label}
+                    <span
                       className={cn(
-                        "rounded px-2.5 py-1.5 text-xs font-medium sm:px-3",
-                        riskFilter === id ? "bg-accent-primary text-bg-base" : "text-fg-muted hover:text-fg-primary"
+                        "ml-1.5 tabular-nums",
+                        sourceTab === id ? "text-bg-base/80" : "text-fg-subtle"
                       )}
-                      onClick={() => setRiskFilter(id)}
                     >
-                      {label}
-                    </button>
-                  ))}
+                      ({sourceTabCounts[id]})
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {writable && (
+                <div
+                  className={cn(
+                    "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2",
+                    editMode
+                      ? "border-accent-primary/40 bg-accent-primary/5"
+                      : "border-border-subtle bg-bg-surface"
+                  )}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={editMode ? "primary" : "secondary"}
+                      size="sm"
+                      onClick={toggleEditMode}
+                    >
+                      <PencilLine size={14} aria-hidden />
+                      {editMode ? "編集モード ON" : "編集モード"}
+                    </Button>
+                    {editMode && (
+                      <span className="text-sm text-fg-muted">
+                        {hasInlineDraftChanges
+                          ? `未保存の変更: ${dirtyInlineCount} 件`
+                          : "区分・商社・状態（手配済行のみ）をプルダウンで編集"}
+                      </span>
+                    )}
+                  </div>
+                  {editMode && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        disabled={!hasInlineDraftChanges || inlineSaving}
+                        onClick={() => void handleInlineBulkSave()}
+                      >
+                        一括保存
+                        {dirtyInlineCount > 0 ? ` (${dirtyInlineCount})` : ""}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={inlineSaving}
+                        onClick={requestExitEditMode}
+                      >
+                        キャンセル
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+              <div className="flex min-w-0 flex-1 flex-col flex-wrap items-end gap-3 sm:flex-row sm:justify-start">
+                <div className="relative w-full min-w-[12rem] sm:max-w-md sm:flex-1">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle"
+                    aria-hidden
+                  />
+                  <input
+                    type="search"
+                    placeholder="品番・名称・商社・備考で検索"
+                    value={lineSearch}
+                    onChange={(e) => setLineSearch(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-border-strong bg-bg-surface pl-9 pr-3 text-sm text-fg-primary placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                  />
+                </div>
+                <div>
+                  <span className="mb-1 block text-sm text-fg-subtle">リスク</span>
+                  <div className="flex rounded-md border border-border-subtle bg-bg-surface p-0.5">
+                    {(
+                      [
+                        ["all", "すべて"],
+                        ["need_order", "要発注"],
+                        ["delayed", "遅延"],
+                        ["ok", "問題なし"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={cn(
+                          "rounded px-2.5 py-1.5 text-sm font-medium sm:px-3",
+                          riskFilter === id
+                            ? "bg-accent-primary text-bg-base"
+                            : "text-fg-muted hover:text-fg-primary"
+                        )}
+                        onClick={() => setRiskFilter(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <span className="mb-1 block text-sm text-fg-subtle">手配</span>
+                  <div className="flex rounded-md border border-border-subtle bg-bg-surface p-0.5">
+                    {(
+                      [
+                        ["all", "すべて"],
+                        ["unarranged", "未手配"],
+                        ["arranged", "手配済"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={cn(
+                          "rounded px-2.5 py-1.5 text-sm font-medium sm:px-3",
+                          arrangedFilter === id
+                            ? "bg-state-success text-bg-base"
+                            : "text-fg-muted hover:text-fg-primary"
+                        )}
+                        onClick={() => setArrangedFilter(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <div>
-                <span className="mb-1 block text-xs text-fg-subtle">手配</span>
-                <div className="flex rounded-md border border-border-subtle bg-bg-surface p-0.5">
-                  {(
-                    [
-                      ["all", "すべて"],
-                      ["unarranged", "未手配"],
-                      ["arranged", "手配済"],
-                    ] as const
-                  ).map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={cn(
-                        "rounded px-2.5 py-1.5 text-xs font-medium sm:px-3",
-                        arrangedFilter === id
-                          ? "bg-state-success text-bg-base"
-                          : "text-fg-muted hover:text-fg-primary"
-                      )}
-                      onClick={() => setArrangedFilter(id)}
-                    >
-                      {label}
-                    </button>
-                  ))}
+              <div className="flex shrink-0 flex-wrap items-end justify-end gap-3">
+                <label className="inline-flex items-center gap-2 whitespace-nowrap text-sm text-fg-muted">
+                  <input
+                    type="checkbox"
+                    checked={showHidden}
+                    onChange={(e) => setShowHidden(e.target.checked)}
+                    className="h-4 w-4 accent-amber-500"
+                  />
+                  非表示行も表示
+                </label>
+                <div className="flex flex-wrap items-end gap-2">
+                  <Select
+                    label="並び（ツリー維持）"
+                    value={lineSortKey}
+                    onChange={(e) => setLineSortKey(e.target.value as BomTreeSortKey)}
+                    options={[
+                      { value: "importOrder", label: "取込順" },
+                      { value: "partNumber", label: "品番" },
+                      { value: "revision", label: "Rev" },
+                      { value: "quantity", label: "個数" },
+                      { value: "material", label: "材質" },
+                    ]}
+                  />
+                  <Select
+                    label="方向"
+                    value={lineSortDir}
+                    onChange={(e) => setLineSortDir(e.target.value as BomTreeSortDirection)}
+                    options={[
+                      { value: "asc", label: "昇順" },
+                      { value: "desc", label: "降順" },
+                    ]}
+                  />
                 </div>
               </div>
-              <label className="inline-flex items-center gap-2 text-xs text-fg-muted">
-                <input
-                  type="checkbox"
-                  checked={showHidden}
-                  onChange={(e) => setShowHidden(e.target.checked)}
-                  className="h-4 w-4 accent-amber-500"
-                />
-                非表示行も表示
-              </label>
             </div>
+            </>
           )}
 
           {!projectId ? (
             <Card className="p-8 text-center text-sm text-fg-muted">
               生産案件を選択すると、部品表が表示されます。
             </Card>
-          ) : loading ? (
+          ) : loading && lines.length === 0 ? (
             <Card className="p-8 text-center text-sm text-fg-muted">読み込み中...</Card>
           ) : lines.length === 0 ? (
             <Card className="space-y-3 p-8 text-center">
@@ -1051,73 +1047,41 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
               条件に一致する部品行がありません。検索またはリスクフィルタを変更してください。
             </Card>
           ) : (
-            <Card className="overflow-hidden p-0">
-              <DataTable
-                columns={columns}
-                rows={pagedLines}
-                keyOf={(r) => r.id}
-                rowClassName={(r) =>
-                  cn(
-                    r.isHidden && "bg-bg-elevated/30 text-fg-subtle",
-                    r.isArranged && !r.isHidden && "bg-state-success/5"
-                  )
-                }
+            <Card className="flex max-h-[min(70vh,calc(100dvh-14rem))] flex-col overflow-hidden p-0">
+              <PartsBomTreeTable
+                rows={filteredLines}
+                writable={writable}
+                editMode={editMode}
+                drafts={inlineDrafts}
+                suppliers={suppliers}
+                onDraftChange={writable ? handleInlineDraftChange : undefined}
+                onSetArranged={(line, next) => void handleSetArranged(line, next)}
+                onEdit={openEditLine}
+                onToggleHidden={(line) => void handleToggleHidden(line)}
+                onHideRequest={(line) => {
+                  setHidingLine(line);
+                  setHideReason("");
+                }}
+                onDelete={(line) => void handleDelete(line)}
               />
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle px-4 py-3 text-sm text-fg-muted">
-                <span>
-                  {filteredLines.length} 件中 {(page - 1) * pageSize + 1}–
-                  {Math.min(page * pageSize, filteredLines.length)} 件を表示
-                </span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-2 text-xs">
-                    表示件数
-                    <select
-                      value={pageSize}
-                      onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
-                      className="rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-sm text-fg-primary"
-                    >
-                      {PAGE_SIZES.map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => p - 1)}
-                  >
-                    前へ
-                  </Button>
-                  <span className="text-xs">
-                    {page} / {totalPages}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    次へ
-                  </Button>
-                </div>
+              <div className="shrink-0 border-t border-border-subtle px-4 py-2 text-sm text-fg-muted">
+                全 {filteredLines.length} 件を表示（BOM ツリー・ページ分割なし）
+                {lines.length !== filteredLines.length && (
+                  <span className="ml-2">／登録 {lines.length} 件</span>
+                )}
               </div>
             </Card>
           )}
         </div>
-      </main>
+    </main>
 
       <Modal open={helpOpen} title="部材管理のヘルプ" onClose={() => setHelpOpen(false)} width="xl">
         <div className="space-y-3 text-sm leading-relaxed text-fg-primary">
           {dbPath ? (
             <div>
               <p>{HELP_DB_STORAGE_NOTE}</p>
-              <p className="mt-2 text-xs font-medium text-fg-muted">{HELP_DB_PATH_LABEL}</p>
-              <p className="mt-1 break-all font-mono text-xs text-fg-muted">{dbPath}</p>
+              <p className="mt-2 text-sm font-medium text-fg-muted">{HELP_DB_PATH_LABEL}</p>
+              <p className="mt-1 break-all font-mono text-sm text-fg-muted">{dbPath}</p>
             </div>
           ) : (
             <p>{HELP_DB_STORAGE_NOTE}</p>
@@ -1134,7 +1098,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           <p>{HELP_BOM_DIFF}</p>
           <p>{HELP_MASTER}</p>
           <p>{writable ? HELP_ROLES_EDITOR : HELP_ROLES_VIEWER}</p>
-          <p className="text-xs text-fg-muted">{HELP_FUTURE}</p>
+          <p className="text-sm text-fg-muted">{HELP_FUTURE}</p>
         </div>
       </Modal>
 
@@ -1146,10 +1110,10 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
         width="xl"
       >
         <div className="space-y-4 text-sm">
-          <div className="rounded-md border border-border-subtle bg-bg-elevated/40 p-3 text-xs text-fg-muted">
+          <div className="rounded-md border border-border-subtle bg-bg-elevated/40 p-3 text-sm text-fg-muted">
             <p>
-              品番・名称・数量・リビジョン・調達区分・商社・レベル・親品番・備考の列ヘッダを自動認識します。
-              重複行のポリシーを選んでから取り込んでください。
+              標準8列（符号・品番・名称・Rev・個数・材質・親品番・レベル）を認識します。空欄は
+              「-」にします。調達区分・商社は取込後に手入力です。重複ポリシーを選んで取り込んでください。
             </p>
             <Button
               type="button"
@@ -1172,7 +1136,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                 const f = e.target.files?.[0];
                 if (f) void handleCsvFile(f);
               }}
-              className="text-xs"
+              className="text-sm"
             />
             <Select
               label="重複行の扱い"
@@ -1188,7 +1152,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
 
           {csvPreview && (
             <div className="rounded-md border border-border-subtle">
-              <div className="flex flex-wrap gap-2 border-b border-border-subtle px-3 py-2 text-xs">
+              <div className="flex flex-wrap gap-2 border-b border-border-subtle px-3 py-2 text-sm">
                 <span>合計 {csvPreview.totalRows} 行</span>
                 {csvPreview.errorCount > 0 && (
                   <span className="text-state-danger">エラー {csvPreview.errorCount}</span>
@@ -1199,14 +1163,14 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                   </span>
                 )}
                 {csvPreview.unmatchedSupplierNames.length > 0 && (
-                  <span className="text-xs text-fg-muted">
+                  <span className="text-sm text-fg-muted">
                     未マッチ商社: {csvPreview.unmatchedSupplierNames.join(", ")}
                   </span>
                 )}
               </div>
-              <div className="max-h-80 overflow-auto text-xs">
+              <div className="max-h-80 overflow-auto text-sm">
                 <table className="w-full">
-                  <thead className="sticky top-0 bg-bg-elevated text-[10px] uppercase tracking-wider">
+                  <thead className="sticky top-0 bg-bg-elevated text-sm uppercase tracking-wider">
                     <tr>
                       <th className="px-2 py-1 text-left">#</th>
                       <th className="px-2 py-1 text-left">品番</th>
@@ -1215,7 +1179,8 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                       <th className="px-2 py-1 text-right">数量</th>
                       <th className="px-2 py-1 text-left">区分</th>
                       <th className="px-2 py-1 text-left">商社</th>
-                      <th className="px-2 py-1 text-left">L</th>
+                      <th className="px-2 py-1 text-left">Lv</th>
+                      <th className="px-2 py-1 text-left">親品番</th>
                       <th className="px-2 py-1 text-left">問題</th>
                     </tr>
                   </thead>
@@ -1232,7 +1197,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                         >
                           <td className="px-2 py-1 text-fg-subtle">{r.rowIndex}</td>
                           <td className="px-2 py-1 font-mono">{r.partNumber}</td>
-                          <td className="px-2 py-1 font-mono">{r.revision ?? ""}</td>
+                          <td className="px-2 py-1 font-mono">{r.revision}</td>
                           <td className="px-2 py-1">{r.partName}</td>
                           <td className="px-2 py-1 text-right">{r.quantity}</td>
                           <td className="px-2 py-1">{PART_SOURCE_TYPE_LABELS[r.sourceType]}</td>
@@ -1243,12 +1208,15 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                             )}
                           </td>
                           <td className="px-2 py-1">{r.assemblyLevel}</td>
+                          <td className="px-2 py-1 font-mono text-sm">
+                            {r.parentAssemblyPartNumber ?? "—"}
+                          </td>
                           <td className="px-2 py-1">
                             {r.issues.map((i, idx) => (
                               <span
                                 key={idx}
                                 className={cn(
-                                  "block text-[10px]",
+                                  "block text-sm",
                                   i.level === "error"
                                     ? "text-state-danger"
                                     : "text-amber-700 dark:text-amber-300"
@@ -1264,7 +1232,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                   </tbody>
                 </table>
                 {csvPreview.rows.length > 200 && (
-                  <div className="px-3 py-2 text-xs text-fg-subtle">
+                  <div className="px-3 py-2 text-sm text-fg-subtle">
                     （プレビューは先頭 200 行のみ。コミット時はすべて処理されます）
                   </div>
                 )}
@@ -1303,7 +1271,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap gap-2 text-xs">
+              <div className="flex flex-wrap gap-2 text-sm">
                 <StatChip
                   label="親番"
                   value={`${expandPreview.productPartNumber} Rev ${expandPreview.productRevision}`}
@@ -1343,7 +1311,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                 />
               </div>
               {expandPreview.missingSubAssemblies.length > 0 && (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
                   <p className="font-medium text-amber-800 dark:text-amber-200">
                     以下のサブ組立は製品 BOM 未登録のため、サブ部品まで自動展開できません:
                   </p>
@@ -1357,8 +1325,8 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                 </div>
               )}
               <div className="max-h-80 overflow-auto rounded-md border border-border-subtle">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-bg-elevated text-[10px] uppercase tracking-wider">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-bg-elevated text-sm uppercase tracking-wider">
                     <tr>
                       <th className="px-2 py-1 text-left">レベル</th>
                       <th className="px-2 py-1 text-left">パス</th>
@@ -1403,68 +1371,6 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
               {expandBusy ? "展開中..." : "この案件に展開"}
             </Button>
           </div>
-        </div>
-      </Modal>
-
-      {/* 5-F: BOM Rev 差分モーダル */}
-      <Modal
-        open={diffOpen}
-        title="BOM Rev 差分"
-        onClose={() => setDiffOpen(false)}
-        width="xl"
-      >
-        {diffBusy && <p className="text-sm text-fg-muted">比較中...</p>}
-        {!diffBusy && diffResult && (
-          <div className="space-y-3 text-sm">
-            <div className="rounded-md bg-bg-elevated/50 px-3 py-2 text-xs">
-              <p className="font-medium">{diffResult.summaryText}</p>
-              <p className="mt-1 text-fg-subtle">
-                A: {diffResult.aLabel} → B: {diffResult.bLabel}
-              </p>
-            </div>
-            <div className="max-h-96 overflow-auto rounded-md border border-border-subtle">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-bg-elevated text-[10px] uppercase tracking-wider">
-                  <tr>
-                    <th className="px-2 py-1 text-left">区分</th>
-                    <th className="px-2 py-1 text-left">品番</th>
-                    <th className="px-2 py-1 text-left">名称</th>
-                    <th className="px-2 py-1 text-right">A 数量 / Rev</th>
-                    <th className="px-2 py-1 text-right">B 数量 / Rev</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {diffResult.entries.map((e) => (
-                    <tr
-                      key={e.matchKey}
-                      className={cn(
-                        "border-t border-border-subtle",
-                        e.kind === "added" && "bg-state-success/5",
-                        e.kind === "removed" && "bg-state-danger/5",
-                        e.kind === "quantityChanged" && "bg-amber-500/5",
-                        e.kind === "revisionChanged" && "bg-accent-secondary/5"
-                      )}
-                    >
-                      <td className="px-2 py-1 text-fg-muted">{BOM_DIFF_CHANGE_LABELS[e.kind]}</td>
-                      <td className="px-2 py-1 font-mono">{e.partNumber}</td>
-                      <td className="px-2 py-1">{e.partName}</td>
-                      <td className="px-2 py-1 text-right text-fg-muted">
-                        {e.a ? `${e.a.quantity} / ${e.a.revision ?? "—"}` : "—"}
-                      </td>
-                      <td className="px-2 py-1 text-right text-fg-muted">
-                        {e.b ? `${e.b.quantity} / ${e.b.revision ?? "—"}` : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-        <div className="mt-3 flex justify-end">
-          <Button type="button" variant="secondary" onClick={() => setDiffOpen(false)}>
-            閉じる
-          </Button>
         </div>
       </Modal>
 
@@ -1606,7 +1512,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
             required
           />
           {defaultRequired && !editing && (
-            <p className="text-xs text-fg-muted">
+            <p className="text-sm text-fg-muted">
               案件納期（{defaultRequired}）を初期値にしています。部品ごとに調整してください。
             </p>
           )}
@@ -1642,7 +1548,78 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           </div>
         </form>
       </Modal>
-    </div>
+
+      <Modal
+        open={cloneOpen}
+        title="前回案件から BOM をコピー"
+        onClose={() => setCloneOpen(false)}
+        width="md"
+      >
+        {cloneBusy && !cloneSources.length ? (
+          <p className="text-sm text-fg-muted">候補を読み込み中...</p>
+        ) : (
+          <div className="space-y-4 text-sm">
+            {cloneTargetPartNumber ? (
+              <p className="text-fg-muted">
+                対象の親番: <span className="font-mono text-fg-primary">{cloneTargetPartNumber}</span>
+                。同一親番の過去案件からコピーします（手配済・状態・発注日は初期化）。
+              </p>
+            ) : (
+              <p className="text-state-warning">
+                この案件に親番が未設定のため、候補がありません。生産ボードで親番を設定してください。
+              </p>
+            )}
+            <Select
+              label="コピー元（過去案件）"
+              value={cloneSourceId}
+              onChange={(e) => setCloneSourceId(e.target.value)}
+              disabled={cloneSources.length === 0}
+              options={[
+                { value: "", label: "（案件を選択）" },
+                ...cloneSources.map((c) => ({
+                  value: c.id,
+                  label: projectCascadeLabel({
+                    ...c,
+                    partNumber: cloneTargetPartNumber,
+                  }),
+                })),
+              ]}
+            />
+            {cloneSourcePreview && (
+              <p className="text-fg-subtle">
+                コピー元: {cloneSourcePreview.lineCount} 行（表示行ベース）
+              </p>
+            )}
+            <label className="flex items-center gap-2 text-fg-muted">
+              <input
+                type="checkbox"
+                checked={cloneIncludeHidden}
+                onChange={(e) => setCloneIncludeHidden(e.target.checked)}
+                className="rounded border-border-strong"
+              />
+              非表示行もコピーする
+            </label>
+            {(summary?.totalLines ?? 0) > 0 && (
+              <p className="rounded-md border border-state-warning/40 bg-state-warning/10 px-3 py-2 text-state-warning">
+                先案件に既存の部品行があります。確定時は全置換（既存行を削除してからコピー）します。
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setCloneOpen(false)}>
+                キャンセル
+              </Button>
+              <Button
+                type="button"
+                disabled={cloneBusy || !cloneSourceId}
+                onClick={() => void handleCloneCommit()}
+              >
+                {cloneBusy ? "コピー中..." : "コピーを実行"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </>
   );
 }
 
@@ -1658,7 +1635,7 @@ function StatChip({
   return (
     <div
       className={cn(
-        "rounded-lg border px-3 py-1.5 text-xs",
+        "rounded-lg border px-3 py-1.5 text-sm",
         tone === "danger" && "border-state-danger/30 bg-state-danger/5 text-state-danger",
         tone === "warning" && "border-amber-500/30 bg-amber-500/5 text-amber-800 dark:text-amber-200",
         tone === "neutral" && "border-border-subtle bg-bg-elevated/50 text-fg-muted"

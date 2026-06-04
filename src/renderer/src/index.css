@@ -129,6 +129,36 @@ html {
   background-color: rgb(var(--color-accent-primary) / 0.22);
 }
 
+/**
+ * 部材管理: 画面内の文字サイズを 14px に統一（Tailwind text-* の上書き）。
+ */
+.portal-typography-14px {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.portal-typography-14px .text-\[10px\],
+.portal-typography-14px .text-\[11px\],
+.portal-typography-14px .text-xs,
+.portal-typography-14px .text-sm,
+.portal-typography-14px .text-base,
+.portal-typography-14px .text-lg,
+.portal-typography-14px .text-xl,
+.portal-typography-14px .text-2xl {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+@media (min-width: 640px) {
+  .portal-typography-14px .sm\:text-sm,
+  .portal-typography-14px .sm\:text-base,
+  .portal-typography-14px .sm\:text-lg,
+  .portal-typography-14px .sm\:text-xl {
+    font-size: 14px;
+    line-height: 1.35;
+  }
+}
+
 /* 生産ボード: 週末セル・ガント印刷など */
 .weekend-cell {
   background: #ffe5e5 !important;

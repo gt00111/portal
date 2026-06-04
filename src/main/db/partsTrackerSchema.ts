@@ -136,4 +136,62 @@ export function initPartsTrackerSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_part_arrangement_log_line
       ON project_part_line_arrangement_log(line_id);
   `);
+
+  migrateSourceTypeUnset(db);
+}
+
+/** source_type に unset（未設定）を許可 */
+function migrateSourceTypeUnset(db: Database.Database): void {
+  const master = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'project_part_lines'`)
+    .get() as { sql: string } | undefined;
+  if (!master?.sql || master.sql.includes("'unset'")) return;
+
+  db.exec(`
+    CREATE TABLE project_part_lines_mig (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seisan_project_id TEXT NOT NULL,
+      part_number TEXT NOT NULL,
+      part_name TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 1,
+      source_type TEXT NOT NULL DEFAULT 'unset'
+        CHECK (source_type IN ('inhouse', 'purchase', 'supplied', 'unset')),
+      supplier_id INTEGER,
+      lead_time_days INTEGER NOT NULL DEFAULT 0,
+      required_date TEXT NOT NULL,
+      order_by_date TEXT,
+      ordered_at TEXT,
+      status TEXT NOT NULL DEFAULT 'planned'
+        CHECK (status IN ('planned', 'ordered', 'in_progress', 'received', 'delayed')),
+      sku_id INTEGER,
+      procurement_lead_time_id INTEGER,
+      note TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      revision TEXT,
+      is_hidden INTEGER NOT NULL DEFAULT 0,
+      hidden_at TEXT,
+      hidden_by_username TEXT,
+      hidden_reason TEXT,
+      import_batch_id INTEGER,
+      is_arranged INTEGER NOT NULL DEFAULT 0,
+      arranged_at TEXT,
+      arranged_by_user_name_id INTEGER,
+      arranged_by_username TEXT,
+      bom_level INTEGER NOT NULL DEFAULT 0,
+      assembly_path TEXT,
+      parent_assembly_part_number TEXT,
+      root_product_bom_id INTEGER,
+      source_product_bom_line_id INTEGER
+    );
+    INSERT INTO project_part_lines_mig SELECT * FROM project_part_lines;
+    DROP TABLE project_part_lines;
+    ALTER TABLE project_part_lines_mig RENAME TO project_part_lines;
+    CREATE INDEX IF NOT EXISTS idx_part_lines_project ON project_part_lines(seisan_project_id);
+    CREATE INDEX IF NOT EXISTS idx_part_lines_status ON project_part_lines(status);
+    CREATE INDEX IF NOT EXISTS idx_part_lines_arranged ON project_part_lines(is_arranged);
+    CREATE INDEX IF NOT EXISTS idx_part_lines_hidden ON project_part_lines(is_hidden);
+    CREATE INDEX IF NOT EXISTS idx_part_lines_root_bom ON project_part_lines(root_product_bom_id);
+  `);
 }

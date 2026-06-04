@@ -8,13 +8,21 @@ import type {
 } from "@shared/bomDiff.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 import type {
+  CloneBomFromInput,
+  CloneBomFromResult,
+  LineInlineBatchUpdateInput,
   PartSourceType,
+  PartsTrackerProjectOption,
   ProjectPartLine,
   ProjectPartLineUpsertInput,
   ProjectPartSummary,
+  RepeatSourceCandidate,
   SetArrangedInput,
   SetHiddenInput,
+  SuggestRepeatSourcesInput,
+  SuggestRepeatSourcesResult,
 } from "@shared/partsTracker.js";
+import { isPartLineStatus, isPartSourceType } from "@shared/partsTracker.js";
 import type {
   BomCsvImportBatchRow,
   BomCsvImportCommitInput,
@@ -42,17 +50,9 @@ import { getSession } from "@main/session.js";
 
 import * as csvImport from "./bom-csv-import.repo.js";
 import * as bomDiff from "./bom-diff.repo.js";
+import * as projectClone from "./project-bom-clone.repo.js";
 import * as expand from "./product-bom-expand.repo.js";
 import * as repo from "./parts-tracker.repo.js";
-
-export interface PartsTrackerProjectOption {
-  id: string;
-  projectNo: string | null;
-  projectName: string | null;
-  companyName: string;
-  deadline: string;
-  partNumber: string | null;
-}
 
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle("parts-tracker:status", async () => {
@@ -77,6 +77,7 @@ export function register(ipcMain: IpcMain): void {
         sort_by: "deadline",
         sort_order: "asc",
       });
+      const lineCounts = projectClone.countVisibleLinesByProject();
       const items: PartsTrackerProjectOption[] = result.items.map((p) => ({
         id: p.id,
         projectNo: p.project_no,
@@ -84,6 +85,7 @@ export function register(ipcMain: IpcMain): void {
         companyName: p.company_name,
         deadline: p.deadline,
         partNumber: p.part_number ?? null,
+        lineCount: lineCounts.get(p.id) ?? 0,
       }));
       return ok(items);
     } catch (err) {
@@ -131,6 +133,33 @@ export function register(ipcMain: IpcMain): void {
         if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
         const line = repo.update(id, data?.input ?? {});
         return ok<ProjectPartLine>(line);
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "parts-tracker:line:batchUpdate",
+    async (_event, data: LineInlineBatchUpdateInput) => {
+      try {
+        assertCanWriteApp("parts-tracker");
+        ensurePartsTracker();
+        const updates = data?.updates ?? [];
+        const patches = updates.map((u) => {
+          const id = Number(u.id);
+          if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
+          if (!isPartSourceType(u.sourceType)) throw new Error("調達区分が不正です。");
+          if (!isPartLineStatus(u.status)) throw new Error("状態が不正です。");
+          return {
+            id,
+            sourceType: u.sourceType,
+            supplierId: u.supplierId ?? null,
+            status: u.status,
+          };
+        });
+        const lines = repo.batchUpdateInline(patches);
+        return ok<ProjectPartLine[]>(lines);
       } catch (err) {
         return fail(err);
       }
@@ -327,6 +356,64 @@ export function register(ipcMain: IpcMain): void {
         const id = (data?.seisanProjectId ?? "").toString().trim();
         if (!id) throw new Error("案件 ID が必要です。");
         return ok<BomCsvImportBatchRow[]>(csvImport.listImportBatches(id));
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  // -------- §8.5.17.1: リピート BOM コピー --------
+
+  ipcMain.handle(
+    "parts-tracker:project:suggestRepeatSources",
+    async (_event, data: SuggestRepeatSourcesInput) => {
+      try {
+        assertCanViewApp("parts-tracker");
+        ensureSeisanSatellite();
+        ensurePartsTracker();
+        const targetId = (data?.seisanProjectId ?? "").trim();
+        if (!targetId) throw new Error("案件 ID が必要です。");
+        const target = seisanProjects.get(targetId);
+        if (!target) throw new Error("対象案件が見つかりません。");
+        const pn = (target.part_number ?? "").trim() || null;
+        if (!pn) {
+          return ok<SuggestRepeatSourcesResult>({ targetPartNumber: null, candidates: [] });
+        }
+        const all = seisanProjects.list({ limit: 500, sort_by: "deadline", sort_order: "desc" });
+        const lineCounts = projectClone.countVisibleLinesByProject();
+        const candidates: RepeatSourceCandidate[] = all.items
+          .filter((p) => p.id !== targetId && (p.part_number ?? "").trim() === pn)
+          .map((p) => ({
+            id: p.id,
+            projectNo: p.project_no,
+            projectName: p.project_name,
+            companyName: p.company_name,
+            deadline: p.deadline,
+            lineCount: lineCounts.get(p.id) ?? 0,
+          }));
+        return ok<SuggestRepeatSourcesResult>({ targetPartNumber: pn, candidates });
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "parts-tracker:project:cloneBomFrom",
+    async (_event, data: CloneBomFromInput) => {
+      try {
+        assertCanWriteApp("parts-tracker");
+        ensurePartsTracker();
+        const target = (data?.targetProjectId ?? "").trim();
+        const source = (data?.sourceProjectId ?? "").trim();
+        if (!target || !source) throw new Error("コピー元・先の案件 ID が必要です。");
+        const res = projectClone.cloneBomFrom({
+          targetProjectId: target,
+          sourceProjectId: source,
+          includeHidden: data?.includeHidden,
+          replaceExisting: data?.replaceExisting,
+        });
+        return ok<CloneBomFromResult>(res);
       } catch (err) {
         return fail(err);
       }

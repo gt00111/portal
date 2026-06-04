@@ -1,10 +1,11 @@
-export const PART_SOURCE_TYPES = ["inhouse", "purchase", "supplied"] as const;
+export const PART_SOURCE_TYPES = ["inhouse", "purchase", "supplied", "unset"] as const;
 export type PartSourceType = (typeof PART_SOURCE_TYPES)[number];
 
 export const PART_SOURCE_TYPE_LABELS: Record<PartSourceType, string> = {
   inhouse: "社内製作",
   purchase: "購入",
   supplied: "支給品",
+  unset: "未設定",
 };
 
 export const PART_LINE_STATUSES = [
@@ -97,6 +98,20 @@ export interface SetArrangedInput {
   arranged: boolean;
 }
 
+/** §8.5.16 一覧インライン編集の一括保存 */
+export interface LineInlineBatchUpdateItem {
+  id: number;
+  sourceType: PartSourceType;
+  supplierId: number | null;
+  status: PartLineStatus;
+}
+
+export interface LineInlineBatchUpdateInput {
+  updates: LineInlineBatchUpdateItem[];
+}
+
+export type SourceTabFilter = "all" | PartSourceType;
+
 export interface SetHiddenInput {
   id: number;
   hidden: boolean;
@@ -110,6 +125,48 @@ export interface ProjectPartArrangementLogEntry {
   userNameId: number | null;
   username: string | null;
   occurredAt: string;
+}
+
+/** §8.5.17.3 案件選択（projectList 応答） */
+export interface PartsTrackerProjectOption {
+  id: string;
+  projectNo: string | null;
+  projectName: string | null;
+  companyName: string;
+  deadline: string;
+  partNumber: string | null;
+  lineCount: number;
+}
+
+/** §8.5.17.1 リピート BOM コピー元候補 */
+export interface RepeatSourceCandidate {
+  id: string;
+  projectNo: string | null;
+  projectName: string | null;
+  companyName: string;
+  deadline: string;
+  lineCount: number;
+}
+
+export interface SuggestRepeatSourcesInput {
+  seisanProjectId: string;
+}
+
+export interface SuggestRepeatSourcesResult {
+  targetPartNumber: string | null;
+  candidates: RepeatSourceCandidate[];
+}
+
+export interface CloneBomFromInput {
+  targetProjectId: string;
+  sourceProjectId: string;
+  includeHidden?: boolean;
+  replaceExisting?: boolean;
+}
+
+export interface CloneBomFromResult {
+  insertedCount: number;
+  removedCount: number;
 }
 
 export function isPartSourceType(value: unknown): value is PartSourceType {

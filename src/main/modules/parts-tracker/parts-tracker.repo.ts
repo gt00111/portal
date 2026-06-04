@@ -146,7 +146,16 @@ const LINE_SELECT = `
   FROM project_part_lines
 `;
 
-function normalizeUpsert(input: ProjectPartLineUpsertInput, existing?: ProjectPartLine): {
+interface NormalizeUpsertOptions {
+  /** §8.5.16 一覧インライン一括保存時は購入でも商社空を許容 */
+  allowPurchaseWithoutSupplier?: boolean;
+}
+
+function normalizeUpsert(
+  input: ProjectPartLineUpsertInput,
+  existing?: ProjectPartLine,
+  options?: NormalizeUpsertOptions
+): {
   partNumber: string;
   partName: string;
   revision: string | null;
@@ -171,9 +180,14 @@ function normalizeUpsert(input: ProjectPartLineUpsertInput, existing?: ProjectPa
   if (!requiredDate) throw new Error("必要着日は必須です。");
   if (!isPartSourceType(input.sourceType)) throw new Error("調達区分が不正です。");
 
-  const supplierId = input.supplierId ?? null;
-  if (input.sourceType === "purchase" && supplierId == null) {
+  let supplierId = input.supplierId ?? null;
+  if (input.sourceType !== "purchase") {
+    supplierId = null;
+  } else if (supplierId == null && !options?.allowPurchaseWithoutSupplier) {
     throw new Error("購入区分では商社を選択してください。");
+  }
+  if (input.sourceType === "unset") {
+    /* CSV 取込直後など。商社・LT は後から手入力 */
   }
 
   let leadTimeDays = input.leadTimeDays;
@@ -331,6 +345,62 @@ export function update(id: number, input: Partial<ProjectPartLineUpsertInput>): 
   const row = findById(id);
   if (!row) throw new Error("更新後の取得に失敗しました。");
   return row;
+}
+
+export interface LineInlinePatch {
+  id: number;
+  sourceType: PartSourceType;
+  supplierId: number | null;
+  status: PartLineStatus;
+}
+
+export function batchUpdateInline(patches: LineInlinePatch[]): ProjectPartLine[] {
+  if (patches.length === 0) return [];
+  const db = getPartsTrackerDb();
+  const run = db.transaction(() => {
+    const out: ProjectPartLine[] = [];
+    for (const patch of patches) {
+      const existing = findById(patch.id);
+      if (!existing) throw new Error(`部品行 id=${patch.id} が見つかりません。`);
+      const merged: ProjectPartLineUpsertInput = {
+        seisanProjectId: existing.seisanProjectId,
+        partNumber: existing.partNumber,
+        partName: existing.partName,
+        revision: existing.revision,
+        quantity: existing.quantity,
+        sourceType: patch.sourceType,
+        supplierId: patch.sourceType === "purchase" ? patch.supplierId : null,
+        requiredDate: existing.requiredDate,
+        status: patch.status,
+        note: existing.note,
+        sortOrder: existing.sortOrder,
+        skuId: existing.skuId,
+        orderedAt: existing.orderedAt,
+      };
+      const n = normalizeUpsert(merged, existing, { allowPurchaseWithoutSupplier: true });
+      db.prepare(
+        `UPDATE project_part_lines SET
+          source_type = ?, supplier_id = ?,
+          lead_time_days = ?, order_by_date = ?,
+          status = ?, procurement_lead_time_id = ?,
+          updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(
+        n.sourceType,
+        n.supplierId,
+        n.leadTimeDays,
+        n.orderByDate,
+        n.status,
+        n.procurementLeadTimeId,
+        patch.id
+      );
+      const row = findById(patch.id);
+      if (!row) throw new Error("更新後の取得に失敗しました。");
+      out.push(row);
+    }
+    return out;
+  });
+  return run();
 }
 
 export function remove(id: number): void {
