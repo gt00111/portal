@@ -1,3 +1,4 @@
+import { DASHBOARD_PAGE_TAGLINE } from '@renderer/apps/seisan-board/seisanBoardHelpCopy.js'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HelpCircle, RefreshCw, AlertTriangle } from 'lucide-react'
@@ -231,6 +232,7 @@ export function DashboardPage() {
             <DialogTitle>ダッシュボードの見方</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
+            <p className="font-medium text-foreground">{DASHBOARD_PAGE_TAGLINE}</p>
             <section>
               <h3 className="mb-1 font-semibold text-foreground">KPIカード（上段の数値）</h3>
               <ul className="list-inside list-disc space-y-1">

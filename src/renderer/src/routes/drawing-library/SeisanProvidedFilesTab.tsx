@@ -18,7 +18,7 @@ import {
 import { PdfCardThumbnail } from "@renderer/routes/drawing-library/PdfJsViewer.js";
 import {
   CUSTOMER_DRAWINGS_TAB_HELP,
-  DRAWING_LIBRARY_OVERVIEW,
+  CUSTOMER_DRAWINGS_PAGE_TAGLINE,
 } from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
 
 interface Props {
@@ -349,20 +349,20 @@ export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
-          <HelpCircle size={16} aria-hidden />
-          ヘルプ
-        </Button>
-        <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-          更新
-        </Button>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+            <HelpCircle size={16} aria-hidden />
+            ヘルプ
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            更新
+          </Button>
       </div>
 
       <Modal open={helpOpen} title="図面ライブラリ（顧客図面）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
         <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
-          <p>{DRAWING_LIBRARY_OVERVIEW}</p>
+          <p className="font-medium text-fg-primary">{CUSTOMER_DRAWINGS_PAGE_TAGLINE}</p>
           <p>{CUSTOMER_DRAWINGS_TAB_HELP}</p>
         </div>
       </Modal>

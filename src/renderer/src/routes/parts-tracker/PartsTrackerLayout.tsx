@@ -1,4 +1,4 @@
-import { Diff, Package, User } from "lucide-react";
+import { Diff, History, Package, User } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { getAppRole, type AppRole } from "@shared/auth.js";
@@ -48,6 +48,12 @@ export function PartsTrackerLayout({ session }: Props): JSX.Element {
               <span className="inline-flex items-center gap-1">
                 <Diff size={14} aria-hidden />
                 案件間比較
+              </span>
+            </NavLink>
+            <NavLink to="/apps/parts-tracker/history" className={navClass}>
+              <span className="inline-flex items-center gap-1">
+                <History size={14} aria-hidden />
+                変更履歴
               </span>
             </NavLink>
           </nav>

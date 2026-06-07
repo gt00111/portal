@@ -11,26 +11,43 @@ import {
 import { useMemo, useState, type ReactNode } from "react";
 
 import {
+  buildBomParentRowContext,
+  bomTreeRowSurfaceClass,
+  isBomParentAssemblyRow,
+} from "@shared/bomParentRows.js";
+import {
   PART_LINE_STATUSES,
   PART_LINE_STATUS_LABELS,
   PART_SOURCE_TYPES,
   PART_SOURCE_TYPE_LABELS,
+  showsProcurementLeadTime,
   type PartLineStatus,
   type PartSourceType,
   type ProjectPartLine,
 } from "@shared/partsTracker.js";
 import type { MasterRow } from "@shared/master.js";
 
+import { BomStructureBadge } from "@renderer/routes/parts-tracker/BomStructureBadge.js";
+import {
+  BOM_TABLE_CELL,
+  BOM_TABLE_HEAD,
+  BOM_TABLE_PART_NUMBER_CELL,
+  BOM_TABLE_PART_NUMBER_HEAD,
+} from "@renderer/routes/parts-tracker/bomTableLayout.js";
+import { BomTruncatableText } from "@renderer/routes/parts-tracker/BomTruncatableText.js";
 import type { LineInlineDraft } from "@renderer/routes/parts-tracker/partsTrackerInlineEdit.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { cn } from "@renderer/lib/cn.js";
 
-const CELL = "px-1.5 py-0.5 align-middle";
-const HEAD = "px-1.5 py-1 align-middle";
-
 const INLINE_SELECT =
-  "h-7 max-w-full min-w-0 rounded border border-border-strong bg-bg-surface px-1 py-0 text-sm text-fg-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary";
+  "h-7 min-w-[6.5rem] w-[8.5rem] max-w-[11rem] rounded border border-border-strong bg-bg-surface px-2 py-0 text-sm text-fg-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary";
+
+const INLINE_SELECT_SUPPLIER =
+  "h-7 min-w-[8rem] w-[10.5rem] max-w-[13rem] rounded border border-border-strong bg-bg-surface px-2 py-0 text-sm text-fg-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary";
+
+const INLINE_SELECT_STATUS =
+  "h-7 min-w-[6rem] w-[8rem] max-w-[10rem] rounded border border-border-strong bg-bg-surface px-2 py-0 text-sm text-fg-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary";
 
 function RowIconButton({
   title,
@@ -64,17 +81,6 @@ function materialLabel(note: string | null): string {
   const m = note.match(/^材質:\s*(.+?)(?:\s\/\s|$)/);
   if (m) return m[1].trim();
   return "—";
-}
-
-function parentPathsWithChildren(rows: ProjectPartLine[]): Set<string> {
-  const out = new Set<string>();
-  for (const row of rows) {
-    const path = row.assemblyPath?.trim();
-    if (!path) continue;
-    const idx = path.lastIndexOf("/");
-    if (idx > 0) out.add(path.slice(0, idx));
-  }
-  return out;
 }
 
 function isVisibleUnderCollapse(row: ProjectPartLine, collapsed: Set<string>): boolean {
@@ -128,9 +134,17 @@ function arrangedMeta(line: ProjectPartLine): JSX.Element {
   );
 }
 
+export interface PartsBomTreeTableActions {
+  canBulkEdit: boolean;
+  canSetArranged: boolean;
+  canEditLine: boolean;
+  canDeleteLine: boolean;
+  canSetHidden: boolean;
+}
+
 export interface PartsBomTreeTableProps {
   rows: ProjectPartLine[];
-  writable: boolean;
+  actions: PartsBomTreeTableActions;
   editMode?: boolean;
   drafts?: Record<number, LineInlineDraft>;
   suppliers?: MasterRow[];
@@ -156,7 +170,7 @@ function resolveDraft(
 
 export function PartsBomTreeTable({
   rows,
-  writable,
+  actions,
   editMode = false,
   drafts,
   suppliers = [],
@@ -169,19 +183,20 @@ export function PartsBomTreeTable({
 }: PartsBomTreeTableProps): JSX.Element {
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => new Set());
 
-  const { branchParents, collapsiblePaths } = useMemo(() => {
+  const { branchParents, collapsiblePaths, parentRowContext } = useMemo(() => {
     const roots = new Set<string>();
     for (const row of rows) {
       const path = row.assemblyPath?.trim();
       if (!path) continue;
       if (row.bomLevel <= 0) roots.add(path);
     }
-    const parents = parentPathsWithChildren(rows);
+    const parentRowContext = buildBomParentRowContext(rows);
+    const parents = parentRowContext.parentAssemblyPaths;
     const collapsible = new Set<string>();
     for (const p of parents) {
       if (!roots.has(p)) collapsible.add(p);
     }
-    return { branchParents: parents, collapsiblePaths: collapsible };
+    return { branchParents: parents, collapsiblePaths: collapsible, parentRowContext };
   }, [rows]);
 
   const visibleRows = useMemo(
@@ -219,9 +234,12 @@ export function PartsBomTreeTable({
   const allCollapsibleCollapsed =
     hasCollapsible && [...collapsiblePaths].every((p) => collapsedPaths.has(p));
 
+  const showOpsColumn =
+    actions.canEditLine || actions.canDeleteLine || actions.canSetHidden;
+
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-1.5">
+    <div className="min-w-0">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-1.5">
         <Button
           type="button"
           variant="secondary"
@@ -243,31 +261,32 @@ export function PartsBomTreeTable({
           すべて折りたたむ
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
-      <table className="w-full min-w-[1200px] border-collapse text-sm leading-tight text-fg-primary">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[1320px] border-collapse text-sm leading-tight text-fg-primary">
         <thead className="sticky top-0 z-10 bg-bg-elevated/95 text-sm uppercase tracking-wider text-fg-muted backdrop-blur-sm">
           <tr>
-            <th className={cn("w-7 px-0.5", HEAD)} aria-label="展開" />
-            <th className={cn("w-9 text-center", HEAD)}>Lv</th>
-            <th className={cn("min-w-[7rem] text-left", HEAD)}>親品番</th>
-            <th className={cn("w-[4.5rem] text-left", HEAD)}>手配済</th>
-            <th className={cn("w-14 text-left", HEAD)}>リスク</th>
-            <th className={cn("min-w-[6.5rem] text-left", HEAD)}>品番</th>
-            <th className={cn("w-12 text-left", HEAD)}>Rev</th>
-            <th className={cn("min-w-[7rem] text-left", HEAD)}>名称</th>
-            <th className={cn("w-10 text-right", HEAD)}>個数</th>
-            <th className={cn("w-14 text-left", HEAD)}>材質</th>
-            <th className={cn("w-14 text-left", HEAD)}>区分</th>
-            <th className={cn("min-w-[4.5rem] text-left", HEAD)}>商社</th>
-            <th className={cn("w-9 text-right", HEAD)}>LT</th>
-            <th className={cn("w-[5.5rem] text-left", HEAD)}>必要着日</th>
-            <th className={cn("w-[5.5rem] text-left", HEAD)}>発注期限</th>
-            <th className={cn("w-14 text-left", HEAD)}>状態</th>
-            {writable && (
+            <th className={cn("w-8 px-1", BOM_TABLE_HEAD)} aria-label="展開" />
+            <th className={cn("w-10 text-center", BOM_TABLE_HEAD)}>Lv</th>
+            <th className={cn("w-14 text-center", BOM_TABLE_HEAD)}>構造</th>
+            <th className={cn("min-w-[9.5rem] text-left", BOM_TABLE_HEAD)}>親品番</th>
+            <th className={cn("min-w-[4.5rem] text-left", BOM_TABLE_HEAD)}>手配済</th>
+            <th className={cn("min-w-[3.5rem] text-left", BOM_TABLE_HEAD)}>リスク</th>
+            <th className={cn("min-w-[12rem] text-left", BOM_TABLE_PART_NUMBER_HEAD)}>品番</th>
+            <th className={cn("min-w-[3rem] text-left", BOM_TABLE_HEAD)}>Rev</th>
+            <th className={cn("min-w-[10rem] text-left", BOM_TABLE_HEAD)}>名称</th>
+            <th className={cn("min-w-[2.5rem] text-right", BOM_TABLE_HEAD)}>個数</th>
+            <th className={cn("min-w-[3.5rem] text-left", BOM_TABLE_HEAD)}>材質</th>
+            <th className={cn("min-w-[3.5rem] text-left", BOM_TABLE_HEAD)}>区分</th>
+            <th className={cn("min-w-[4.5rem] text-left", BOM_TABLE_HEAD)}>商社</th>
+            <th className={cn("min-w-[2.25rem] text-right", BOM_TABLE_HEAD)}>LT</th>
+            <th className={cn("min-w-[5.5rem] text-left", BOM_TABLE_HEAD)}>必要着日</th>
+            <th className={cn("min-w-[5.5rem] text-left", BOM_TABLE_HEAD)}>発注期限</th>
+            <th className={cn("min-w-[3.5rem] text-left", BOM_TABLE_HEAD)}>状態</th>
+            {showOpsColumn && (
               <th
                 className={cn(
-                  "sticky right-0 z-10 w-[5.5rem] bg-bg-elevated/95 text-right backdrop-blur-sm",
-                  HEAD
+                  "sticky right-0 z-10 min-w-[5.5rem] bg-bg-elevated/95 text-right backdrop-blur-sm",
+                  BOM_TABLE_HEAD
                 )}
               >
                 操作
@@ -279,7 +298,7 @@ export function PartsBomTreeTable({
           {visibleRows.length === 0 && (
             <tr>
               <td
-                colSpan={writable ? 17 : 16}
+                colSpan={showOpsColumn ? 18 : 17}
                 className="px-4 py-8 text-center text-fg-subtle"
               >
                 表示する行がありません。
@@ -289,6 +308,7 @@ export function PartsBomTreeTable({
           {visibleRows.map((line) => {
             const path = line.assemblyPath?.trim() ?? "";
             const hasChildren = path.length > 0 && branchParents.has(path);
+            const isParentRow = isBomParentAssemblyRow(line, parentRowContext);
             const isCollapsed = path.length > 0 && collapsedPaths.has(path);
             const indent = Math.min(line.bomLevel, 8) * 12;
 
@@ -297,14 +317,14 @@ export function PartsBomTreeTable({
                 key={line.id}
                 className={cn(
                   "border-t border-border-subtle transition-colors",
-                  line.isHidden && "bg-bg-elevated/50 text-fg-muted",
-                  line.isArranged && !line.isHidden && "bg-state-success/[0.06]",
-                  line.risk === "delayed" &&
-                    !line.isHidden &&
-                    "border-l-2 border-l-state-danger bg-state-danger/[0.03]"
+                  bomTreeRowSurfaceClass({
+                    isHidden: line.isHidden,
+                    isDelayed: line.risk === "delayed",
+                    isArranged: line.isArranged,
+                  })
                 )}
               >
-                <td className={cn("px-0.5", CELL)}>
+                <td className={cn("px-1", BOM_TABLE_CELL)}>
                   {hasChildren ? (
                     <button
                       type="button"
@@ -320,7 +340,7 @@ export function PartsBomTreeTable({
                     </button>
                   ) : null}
                 </td>
-                <td className={cn("text-center", CELL)}>
+                <td className={cn("text-center", BOM_TABLE_CELL)}>
                   <span
                     className={cn(
                       "inline-flex min-w-[1.25rem] justify-center rounded px-0.5 py-0 font-mono text-sm leading-tight",
@@ -331,21 +351,23 @@ export function PartsBomTreeTable({
                     {line.bomLevel}
                   </span>
                 </td>
-                <td className={CELL}>
+                <td className={cn("text-center", BOM_TABLE_CELL)}>
+                  <BomStructureBadge isParent={isParentRow} />
+                </td>
+                <td className={BOM_TABLE_CELL}>
                   {line.bomLevel <= 0 && !line.parentAssemblyPartNumber ? (
-                    <span className="text-sm font-medium text-fg-muted">（ルート）</span>
+                    <span className="whitespace-nowrap text-sm font-medium text-fg-muted">（ルート）</span>
                   ) : (
-                    <span
-                      className="block max-w-[10rem] truncate font-mono text-sm text-fg-primary"
-                      title={line.parentAssemblyPartNumber ?? undefined}
-                    >
-                      {line.parentAssemblyPartNumber ?? "—"}
-                    </span>
+                    <BomTruncatableText
+                      value={line.parentAssemblyPartNumber}
+                      mono
+                      ariaLabel={`親品番 ${line.parentAssemblyPartNumber ?? ""}`}
+                    />
                   )}
                 </td>
-                <td className={CELL}>
+                <td className={BOM_TABLE_CELL}>
                   <div className="flex items-center gap-1">
-                    {writable ? (
+                    {actions.canSetArranged ? (
                       <input
                         type="checkbox"
                         checked={line.isArranged}
@@ -363,25 +385,32 @@ export function PartsBomTreeTable({
                     {arrangedMeta(line)}
                   </div>
                 </td>
-                <td className={CELL}>{riskBadge(line.risk)}</td>
-                <td className={CELL}>
+                <td className={BOM_TABLE_CELL}>{riskBadge(line.risk)}</td>
+                <td className={BOM_TABLE_PART_NUMBER_CELL}>
                   <div
                     style={{ paddingLeft: `${indent}px` }}
-                    className="border-l border-border-subtle/80 pl-1 leading-tight"
+                    className="inline-flex min-w-0 max-w-full border-l border-border-subtle/80 pl-1.5"
                   >
-                    <span className="font-mono text-sm font-medium">{line.partNumber}</span>
+                    <BomTruncatableText
+                      value={line.partNumber}
+                      mono
+                      emphasize
+                      ariaLabel={`品番 ${line.partNumber}`}
+                    />
                   </div>
                 </td>
-                <td className={cn("font-mono text-sm", CELL)}>{line.revision ?? "—"}</td>
-                <td className={cn("max-w-[12rem] truncate text-sm", CELL)}>{line.partName}</td>
-                <td className={cn("text-right tabular-nums", CELL)}>{line.quantity}</td>
-                <td className={cn("truncate text-sm text-fg-muted", CELL)}>
+                <td className={cn("font-mono text-sm", BOM_TABLE_CELL)}>{line.revision ?? "—"}</td>
+                <td className={BOM_TABLE_CELL}>
+                  <BomTruncatableText value={line.partName} ariaLabel={`名称 ${line.partName}`} />
+                </td>
+                <td className={cn("text-right tabular-nums", BOM_TABLE_CELL)}>{line.quantity}</td>
+                <td className={cn("text-sm text-fg-muted", BOM_TABLE_CELL)}>
                   {materialLabel(line.note)}
                 </td>
-                <td className={cn("max-w-[7rem]", CELL)}>
-                  {editMode && writable && onDraftChange ? (
+                <td className={cn(BOM_TABLE_CELL, editMode && actions.canBulkEdit && "min-w-[9rem]")}>
+                  {editMode && actions.canBulkEdit && onDraftChange ? (
                     <select
-                      className={cn(INLINE_SELECT, "w-full")}
+                      className={INLINE_SELECT}
                       value={resolveDraft(line, drafts).sourceType}
                       aria-label={`${line.partNumber} の調達区分`}
                       onChange={(e) =>
@@ -406,11 +435,11 @@ export function PartsBomTreeTable({
                     </span>
                   )}
                 </td>
-                <td className={cn("max-w-[8rem]", CELL)}>
-                  {editMode && writable && onDraftChange ? (
+                <td className={cn(BOM_TABLE_CELL, editMode && actions.canBulkEdit && "min-w-[11rem]")}>
+                  {editMode && actions.canBulkEdit && onDraftChange ? (
                     resolveDraft(line, drafts).sourceType === "purchase" ? (
                       <select
-                        className={cn(INLINE_SELECT, "w-full")}
+                        className={INLINE_SELECT_SUPPLIER}
                         value={
                           resolveDraft(line, drafts).supplierId != null
                             ? String(resolveDraft(line, drafts).supplierId)
@@ -434,26 +463,33 @@ export function PartsBomTreeTable({
                       <span className="text-sm text-fg-subtle">—</span>
                     )
                   ) : (
-                    <span className="block max-w-[6rem] truncate text-sm text-fg-muted">
+                    <span className="inline-block max-w-[6rem] truncate text-sm text-fg-muted">
                       {line.supplierName ?? "—"}
                     </span>
                   )}
                 </td>
-                <td className={cn("text-right text-sm tabular-nums", CELL)}>{line.leadTimeDays}日</td>
-                <td className={cn("whitespace-nowrap text-sm", CELL)}>{line.requiredDate}</td>
-                <td className={cn("whitespace-nowrap text-sm", CELL)}>
-                  <span
-                    className={cn(
-                      line.risk === "need_order" && "font-medium text-amber-700 dark:text-amber-300"
-                    )}
-                  >
-                    {line.orderByDate ?? "—"}
-                  </span>
+                <td className={cn("text-right text-sm tabular-nums", BOM_TABLE_CELL)}>
+                  {showsProcurementLeadTime(line.sourceType) ? `${line.leadTimeDays}日` : "—"}
                 </td>
-                <td className={cn("max-w-[6rem]", CELL)}>
-                  {editMode && writable && onDraftChange && line.isArranged ? (
+                <td className={cn("text-sm", BOM_TABLE_CELL)}>{line.requiredDate}</td>
+                <td className={cn("text-sm", BOM_TABLE_CELL)}>
+                  {showsProcurementLeadTime(line.sourceType) ? (
+                    <span
+                      className={cn(
+                        line.risk === "need_order" &&
+                          "font-medium text-amber-700 dark:text-amber-300"
+                      )}
+                    >
+                      {line.orderByDate ?? "—"}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className={cn(BOM_TABLE_CELL, editMode && actions.canBulkEdit && "min-w-[9rem]")}>
+                  {editMode && actions.canBulkEdit && onDraftChange && line.isArranged ? (
                     <select
-                      className={cn(INLINE_SELECT, "w-full")}
+                      className={INLINE_SELECT_STATUS}
                       value={resolveDraft(line, drafts).status}
                       aria-label={`${line.partNumber} の状態`}
                       onChange={(e) =>
@@ -472,39 +508,45 @@ export function PartsBomTreeTable({
                     </span>
                   )}
                 </td>
-                {writable && (
+                {showOpsColumn && (
                   <td
                     className={cn(
                       "sticky right-0 z-[1]",
-                      CELL,
+                      BOM_TABLE_CELL,
                       line.isHidden ? "bg-bg-elevated/90" : "bg-bg-surface/95",
                       "backdrop-blur-sm"
                     )}
                   >
                     <div className="flex items-center justify-end gap-0.5">
-                      <RowIconButton title="編集" onClick={() => onEdit(line)}>
-                        <Pencil size={13} aria-hidden />
-                      </RowIconButton>
-                      <RowIconButton
-                        title={line.isHidden ? "一覧に再表示" : "一覧から非表示"}
-                        className={
-                          !line.isHidden
-                            ? "text-amber-800 hover:bg-amber-500/10 hover:text-amber-900 dark:text-amber-300"
-                            : undefined
-                        }
-                        onClick={() =>
-                          line.isHidden ? onToggleHidden(line) : onHideRequest(line)
-                        }
-                      >
-                        <EyeOff size={13} aria-hidden />
-                      </RowIconButton>
-                      <RowIconButton
-                        title="削除"
-                        className="hover:text-state-danger"
-                        onClick={() => onDelete(line)}
-                      >
-                        <Trash2 size={13} className="text-state-danger" aria-hidden />
-                      </RowIconButton>
+                      {actions.canEditLine && (
+                        <RowIconButton title="編集" onClick={() => onEdit(line)}>
+                          <Pencil size={13} aria-hidden />
+                        </RowIconButton>
+                      )}
+                      {actions.canSetHidden && (
+                        <RowIconButton
+                          title={line.isHidden ? "一覧に再表示" : "一覧から非表示"}
+                          className={
+                            !line.isHidden
+                              ? "text-amber-800 hover:bg-amber-500/10 hover:text-amber-900 dark:text-amber-300"
+                              : undefined
+                          }
+                          onClick={() =>
+                            line.isHidden ? onToggleHidden(line) : onHideRequest(line)
+                          }
+                        >
+                          <EyeOff size={13} aria-hidden />
+                        </RowIconButton>
+                      )}
+                      {actions.canDeleteLine && (
+                        <RowIconButton
+                          title="削除"
+                          className="hover:text-state-danger"
+                          onClick={() => onDelete(line)}
+                        >
+                          <Trash2 size={13} className="text-state-danger" aria-hidden />
+                        </RowIconButton>
+                      )}
                     </div>
                   </td>
                 )}

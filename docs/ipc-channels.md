@@ -300,7 +300,7 @@ DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削�
 
 ## 6g. `parts-tracker:*`（部材管理サテライト DB）
 
-中央マスタ DB と**同じディレクトリ**の `parts-tracker.db`。`project_part_lines` を案件ごとに管理。`seisan-board.db / projects` を参照（製番）。`parts-tracker:productBom:*` と `parts-tracker:bomDiff:*` は中央 DB の製品 BOM を読みに行く。
+中央マスタ DB と**同じディレクトリ**の `parts-tracker.db`。`project_part_lines` を案件ごとに管理。`seisan-board.db / projects` を参照（製番）。**§8.5.18**: 製品 BOM マスタは UI 廃止。`parts-tracker:productBom:*` は IPC 残置（後方互換）。`parts-tracker:bomDiff:project` は案件間比較で使用。BOM エクスポートは renderer の `buildBomExportFromLines`（共有）で生成。
 
 | チャネル | 権限 | Request | Response (`data`) |
 |---------|------|---------|---------------------|
@@ -312,12 +312,13 @@ DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削�
 | `parts-tracker:line:create` | ✏️ | `ProjectPartLineUpsertInput` | `ProjectPartLine` |
 | `parts-tracker:line:update` | ✏️ | `{ id; input }` | `ProjectPartLine` |
 | `parts-tracker:line:batchUpdate` | ✏️ | `LineInlineBatchUpdateInput`（`updates[]`: id + sourceType + supplierId + status） | `ProjectPartLine[]`（§8.5.16 一括保存・トランザクション。購入+商社空可） |
-| `parts-tracker:line:delete` | ✏️ | `{ id }` | `null` |
+| `parts-tracker:line:delete` | admin | `{ id }` | `null`（§8.5.20） |
 | `parts-tracker:line:setArranged` | ✏️ | `{ id; arranged }` | `ProjectPartLine`（手配済チェック・誰がいつを記録、`project_part_line_arrangement_log` にも追記） |
 | `parts-tracker:line:setHidden` | ✏️ | `{ id; hidden; reason? }` | `ProjectPartLine`（非表示・理由 + ユーザー名を記録） |
 | `parts-tracker:summary` | 🔒 | `{ seisanProjectId }` | `ProjectPartSummary`（`visibleLines` / `hiddenLines` / `arrangedCount` を含む） |
-| `parts-tracker:suggestLeadTime` | 🔒 | `{ sourceType; supplierId?; skuId?; partNumber? }` | `ResolvedLeadTime` |
-| `parts-tracker:productBom:match` | 🔒 | `{ partNumber }` | 親番一致の `m_products` × `m_product_boms` の一覧（リリース優先、更新順） |
+| `parts-tracker:suggestLeadTime` | 🔒 | `{ sourceType; supplierId?; skuId?; partNumber? }` | `ResolvedLeadTime`（**購入・支給のみ**有効。社内・未設定は 0 §8.5.18.2） |
+| `parts-tracker:history:index` | 🔒 | `undefined` | `PartsTrackerHistoryEntry[]`（部品行≥1 の案件メタ＋集計 §8.5.18.4） |
+| `parts-tracker:productBom:match` | 🔒 | `{ partNumber }` | 親番一致の `m_products` × `m_product_boms` の一覧（**UI 非推奨・IPC 残置**） |
 | `parts-tracker:productBom:previewExpand` | 🔒 | `{ productBomId; multiplier? }` | `ProductBomExpandPreview`（多階層を再帰展開、循環検出・未登録サブ組立検出） |
 | `parts-tracker:productBom:expand` | ✏️ | `ProductBomExpandInput` | `ProductBomExpandResult`（`skip` / `addQuantity` / `overwrite` ポリシー） |
 | `parts-tracker:import:preview` | 🔒 | `{ csvText }` | `BomCsvPreviewResult`（列ヘッダ自動認識、商社マスタ照合、エラー・警告検出） |

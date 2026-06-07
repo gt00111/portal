@@ -8,9 +8,9 @@ import { Modal } from "@renderer/components/ui/Modal.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
 import {
-  DRAWING_LIBRARY_OVERVIEW,
+  PDF_COMPARE_PAGE_TAGLINE,
+  PDF_COMPARE_TAB_HELP,
   PDF_COMPARE_TAB_HELP_NOTE,
-  PDF_COMPARE_TAB_HELP_PRIMARY,
 } from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
 
 function basename(path: string): string {
@@ -160,7 +160,7 @@ export function PdfCompareBonusTab(): JSX.Element {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-start">
+      <div className="flex justify-end">
         <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
           <HelpCircle size={16} aria-hidden />
           ヘルプ
@@ -169,8 +169,8 @@ export function PdfCompareBonusTab(): JSX.Element {
 
       <Modal open={helpOpen} title="図面ライブラリ（PDF比較）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
         <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
-          <p>{DRAWING_LIBRARY_OVERVIEW}</p>
-          <p>{PDF_COMPARE_TAB_HELP_PRIMARY}</p>
+          <p className="font-medium text-fg-primary">{PDF_COMPARE_PAGE_TAGLINE}</p>
+          <p>{PDF_COMPARE_TAB_HELP}</p>
           <p className="text-xs text-fg-muted">{PDF_COMPARE_TAB_HELP_NOTE}</p>
         </div>
       </Modal>

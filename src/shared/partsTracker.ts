@@ -169,12 +169,35 @@ export interface CloneBomFromResult {
   removedCount: number;
 }
 
+/** §8.5.18.4 トレーサビリティ履歴インデックス */
+export interface PartsTrackerHistoryEntry {
+  projectId: string;
+  projectNo: string | null;
+  projectName: string | null;
+  companyName: string;
+  deadline: string;
+  partNumber: string | null;
+  totalLines: number;
+  visibleLines: number;
+  hiddenLines: number;
+  lastUpdatedAt: string | null;
+  lastImportAt: string | null;
+  lastImportFileName: string | null;
+  lastImportRowCount: number | null;
+  importBatchCount: number;
+}
+
 export function isPartSourceType(value: unknown): value is PartSourceType {
   return typeof value === "string" && (PART_SOURCE_TYPES as readonly string[]).includes(value);
 }
 
 export function isPartLineStatus(value: unknown): value is PartLineStatus {
   return typeof value === "string" && (PART_LINE_STATUSES as readonly string[]).includes(value);
+}
+
+/** §8.5.18: LT・発注期限を一覧表示する区分 */
+export function showsProcurementLeadTime(sourceType: PartSourceType): boolean {
+  return sourceType === "purchase" || sourceType === "supplied";
 }
 
 export function todayIsoLocal(): string {
@@ -203,15 +226,17 @@ export function computePartLineRisk(input: {
   requiredDate: string;
   orderByDate: string | null;
   leadTimeDays: number;
+  sourceType?: PartSourceType;
 }): PartLineRisk {
   if (input.status === "received") return "ok";
   const today = todayIsoLocal();
   if (input.requiredDate < today) return "delayed";
-  const orderBy =
-    input.orderByDate ?? computeOrderByDate(input.requiredDate, input.leadTimeDays);
-  if (input.status === "planned" && today > orderBy) return "need_order";
-  if (input.status === "planned" && today > subtractDaysFromIso(input.requiredDate, input.leadTimeDays)) {
-    return "need_order";
+  const useLt =
+    input.sourceType == null || showsProcurementLeadTime(input.sourceType);
+  if (useLt && input.status === "planned") {
+    const orderBy =
+      input.orderByDate ?? computeOrderByDate(input.requiredDate, input.leadTimeDays);
+    if (today > orderBy) return "need_order";
   }
   return "ok";
 }

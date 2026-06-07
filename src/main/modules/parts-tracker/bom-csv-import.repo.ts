@@ -8,7 +8,11 @@ import type {
 } from "@shared/partsTrackerCsvFormat.js";
 import { BOM_CSV_DASH } from "@shared/partsTrackerCsvFormat.js";
 import type { PartSourceType } from "@shared/partsTracker.js";
-import { computeOrderByDate, isPartSourceType } from "@shared/partsTracker.js";
+import {
+  computeOrderByDate,
+  isPartSourceType,
+  showsProcurementLeadTime,
+} from "@shared/partsTracker.js";
 
 import { getDb } from "@main/db/connection.js";
 import { getPartsTrackerDb } from "@main/db/partsTrackerConnection.js";
@@ -33,25 +37,7 @@ function suggestLt(
   supplierId: number | null,
   partNumber: string
 ): { leadTimeDays: number; procurementLeadTimeId: number | null } {
-  if (sourceType === "unset") {
-    const rows = getDb()
-      .prepare(
-        `SELECT id, lead_time_days, supplier_id, part_number
-         FROM m_procurement_lead_times
-         WHERE isActive = 1 AND part_number IS NOT NULL AND TRIM(part_number) != ''`
-      )
-      .all() as Array<{
-      id: number;
-      lead_time_days: number;
-      supplier_id: number | null;
-      part_number: string | null;
-    }>;
-    const pn = partNumber.trim().toLowerCase();
-    for (const lt of rows) {
-      if (lt.part_number?.trim().toLowerCase() === pn) {
-        return { leadTimeDays: lt.lead_time_days, procurementLeadTimeId: lt.id };
-      }
-    }
+  if (!showsProcurementLeadTime(sourceType)) {
     return { leadTimeDays: 0, procurementLeadTimeId: null };
   }
 

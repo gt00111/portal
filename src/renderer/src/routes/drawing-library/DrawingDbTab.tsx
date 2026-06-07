@@ -30,7 +30,8 @@ import {
   type DrawingListPageSize,
 } from "@renderer/routes/drawing-library/drawingListPageSize.js";
 import {
-  DRAWING_LIBRARY_OVERVIEW,
+  HELP_DB_STORAGE_NOTE,
+  WORK_DRAWINGS_PAGE_TAGLINE,
   WORK_DRAWINGS_TAB_HELP,
 } from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
 import { PdfCardThumbnail, PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
@@ -572,12 +573,11 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
-          <HelpCircle size={16} aria-hidden />
-          ヘルプ
-        </Button>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+            <HelpCircle size={16} aria-hidden />
+            ヘルプ
+          </Button>
           <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
             更新
@@ -588,12 +588,12 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
               新規
             </Button>
           )}
-        </div>
       </div>
 
       <Modal open={helpOpen} title="図面ライブラリ（自社発行）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
         <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
-          <p>{DRAWING_LIBRARY_OVERVIEW}</p>
+          <p className="font-medium text-fg-primary">{WORK_DRAWINGS_PAGE_TAGLINE}</p>
+          <p className="text-fg-muted">{HELP_DB_STORAGE_NOTE}</p>
           <p>{WORK_DRAWINGS_TAB_HELP}</p>
         </div>
       </Modal>

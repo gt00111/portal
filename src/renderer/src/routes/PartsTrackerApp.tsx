@@ -1,9 +1,10 @@
 import {
+  ClipboardCopy,
   Copy,
   Download,
+  Printer,
   FileSpreadsheet,
   HelpCircle,
-  Layers,
   PencilLine,
   Plus,
   RefreshCw,
@@ -16,17 +17,23 @@ import {
   type BomTreeSortDirection,
   type BomTreeSortKey,
 } from "@shared/bomTreeSort.js";
-import { canAppWrite } from "@shared/auth.js";
 import type { MasterRow } from "@shared/master.js";
 import {
-  PART_LINE_STATUSES,
+  canPartsTrackerBulkEdit,
+  canPartsTrackerDeleteLine,
+  canPartsTrackerEditBomIdentity,
+  canPartsTrackerImport,
+  canPartsTrackerModalEdit,
+  canPartsTrackerSetArranged,
+  canPartsTrackerSetHidden,
+  filterEditorLineUpdateInput,
+  getPartsTrackerAppRole,
+} from "@shared/partsTrackerAuth.js";
+import {
   PART_LINE_STATUS_LABELS,
-  PART_SOURCE_TYPES,
   PART_SOURCE_TYPE_LABELS,
   type PartLineRisk,
   type LineInlineBatchUpdateItem,
-  type PartLineStatus,
-  type PartSourceType,
   type ProjectPartLine,
   type CloneBomFromResult,
   type PartsTrackerProjectOption,
@@ -35,17 +42,15 @@ import {
   type RepeatSourceCandidate,
   type SourceTabFilter,
   type SuggestRepeatSourcesResult,
+  showsProcurementLeadTime,
 } from "@shared/partsTracker.js";
-import type {
-  BomCsvImportCommitResult,
-  BomCsvPreviewResult,
-  ImportDuplicatePolicy,
+import {
+  buildBomExportFromLines,
+  suggestBomExportFileName,
+  type BomCsvImportCommitResult,
+  type BomCsvPreviewResult,
+  type ImportDuplicatePolicy,
 } from "@shared/partsTrackerCsvFormat.js";
-import type {
-  ExpandDuplicatePolicy,
-  ProductBomExpandPreview,
-  ProductBomExpandResult,
-} from "@shared/productBom.js";
 import type { SessionUser } from "@shared/types.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
@@ -58,26 +63,9 @@ import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
 import { ProjectCascadeSelect } from "@renderer/routes/parts-tracker/ProjectCascadeSelect.js";
 import { projectCascadeLabel } from "@renderer/routes/parts-tracker/projectCascade.js";
+import { openBomPrintWindow } from "@renderer/routes/parts-tracker/partsBomPrint.js";
 import { cn } from "@renderer/lib/cn.js";
-import {
-  HELP_ADD_EDIT,
-  HELP_ARRANGED,
-  HELP_BOM_DIFF,
-  HELP_CSV_IMPORT,
-  HELP_DB_PATH_LABEL,
-  HELP_DB_STORAGE_NOTE,
-  HELP_FUTURE,
-  HELP_HIDDEN,
-  HELP_MASTER,
-  HELP_OVERVIEW,
-  HELP_PRODUCT_BOM,
-  HELP_PROJECT_SELECT,
-  HELP_REVISION,
-  HELP_RISK,
-  HELP_ROLES_EDITOR,
-  HELP_ROLES_VIEWER,
-  PARTS_TRACKER_PAGE_TAGLINE,
-} from "@renderer/routes/parts-tracker/partsTrackerHelpCopy.js";
+import { PartsTrackerHelpContent } from "@renderer/routes/parts-tracker/PartsTrackerHelpContent.js";
 import {
   countBySourceTab,
   draftFromLine,
@@ -88,16 +76,6 @@ import {
 } from "@renderer/routes/parts-tracker/partsTrackerInlineEdit.js";
 
 type RiskFilter = "all" | PartLineRisk;
-
-interface ProductBomMatch {
-  productId: number;
-  productPartNumber: string;
-  productName: string;
-  productBomId: number;
-  revision: string;
-  status: string;
-  updatedAt: string;
-}
 
 interface Props {
   session: SessionUser;
@@ -119,7 +97,26 @@ const emptyLineForm = (projectId: string, defaultRequiredDate: string): ProjectP
 
 export function PartsTrackerApp({ session }: Props): JSX.Element {
   const toast = useToast();
-  const writable = canAppWrite(session, "parts-tracker");
+  const appRole = getPartsTrackerAppRole(session);
+  const canImport = canPartsTrackerImport(session);
+  const canBulkEdit = canPartsTrackerBulkEdit(session);
+  const canEditBomIdentity = canPartsTrackerEditBomIdentity(session);
+  const canModalEdit = canPartsTrackerModalEdit(session);
+  const canDeleteLine = canPartsTrackerDeleteLine(session);
+  const canSetHidden = canPartsTrackerSetHidden(session);
+  const canSetArranged = canPartsTrackerSetArranged(session);
+  const isViewer = appRole === "viewer";
+
+  const tableActions = useMemo(
+    () => ({
+      canBulkEdit,
+      canSetArranged,
+      canEditLine: canModalEdit,
+      canDeleteLine,
+      canSetHidden,
+    }),
+    [canBulkEdit, canSetArranged, canModalEdit, canDeleteLine, canSetHidden]
+  );
 
   const [projects, setProjects] = useState<PartsTrackerProjectOption[]>([]);
   const [suppliers, setSuppliers] = useState<MasterRow[]>([]);
@@ -133,7 +130,6 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const [form, setForm] = useState<ProjectPartLineUpsertInput>(emptyLineForm("", ""));
   const [saving, setSaving] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [dbPath, setDbPath] = useState<string | null>(null);
   const [lineSearch, setLineSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
   const [showHidden, setShowHidden] = useState(false);
@@ -144,8 +140,6 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const [editMode, setEditMode] = useState(false);
   const [inlineDrafts, setInlineDrafts] = useState<Record<number, LineInlineDraft>>({});
   const [inlineSaving, setInlineSaving] = useState(false);
-  const [productBomMatches, setProductBomMatches] = useState<ProductBomMatch[]>([]);
-
   // 5-B: CSV 取込モーダル
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [csvOpen, setCsvOpen] = useState(false);
@@ -153,14 +147,6 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const [csvPreview, setCsvPreview] = useState<BomCsvPreviewResult | null>(null);
   const [csvPolicy, setCsvPolicy] = useState<ImportDuplicatePolicy>("updateOnRevision");
   const [csvBusy, setCsvBusy] = useState(false);
-
-  // 5-E: 展開モーダル
-  const [expandOpen, setExpandOpen] = useState(false);
-  const [expandBomId, setExpandBomId] = useState<number | null>(null);
-  const [expandPreview, setExpandPreview] = useState<ProductBomExpandPreview | null>(null);
-  const [expandPolicy, setExpandPolicy] = useState<ExpandDuplicatePolicy>("skip");
-  const [expandMultiplier, setExpandMultiplier] = useState(1);
-  const [expandBusy, setExpandBusy] = useState(false);
 
   // 非表示理由入力
   const [hidingLine, setHidingLine] = useState<ProjectPartLine | null>(null);
@@ -176,15 +162,19 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
 
   const loadProjects = useCallback(async () => {
     try {
-      const [projectList, supplierList, status] = await Promise.all([
+      const [projectList, supplierList] = await Promise.all([
         invoke<PartsTrackerProjectOption[]>("parts-tracker:projectList"),
         invoke<MasterRow[]>("master:list", { table: "m_suppliers" }),
-        invoke<{ connected: boolean; path: string | null }>("parts-tracker:status"),
       ]);
       setProjects(projectList);
       setSuppliers(supplierList.filter((s) => s.isActive));
-      setDbPath(status.path);
-      setProjectId((prev) => prev || projectList[0]?.id || "");
+      const openId = sessionStorage.getItem("parts-tracker:openProjectId");
+      if (openId && projectList.some((p) => p.id === openId)) {
+        setProjectId(openId);
+        sessionStorage.removeItem("parts-tracker:openProjectId");
+      } else {
+        setProjectId((prev) => prev || projectList[0]?.id || "");
+      }
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
     }
@@ -230,23 +220,6 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     [projectId, toast]
   );
 
-  const loadProductBomMatches = useCallback(async () => {
-    const sel = projects.find((p) => p.id === projectId);
-    const pn = sel?.partNumber?.trim();
-    if (!pn) {
-      setProductBomMatches([]);
-      return;
-    }
-    try {
-      const matches = await invoke<ProductBomMatch[]>("parts-tracker:productBom:match", {
-        partNumber: pn,
-      });
-      setProductBomMatches(matches);
-    } catch {
-      setProductBomMatches([]);
-    }
-  }, [projectId, projects]);
-
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
@@ -260,11 +233,6 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     setInlineDrafts({});
     setSourceTab("all");
   }, [projectId]);
-
-  useEffect(() => {
-    void loadProductBomMatches();
-  }, [loadProductBomMatches]);
-
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === projectId) ?? null,
@@ -420,6 +388,10 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   }
 
   async function suggestLeadTime(next: ProjectPartLineUpsertInput): Promise<void> {
+    if (!showsProcurementLeadTime(next.sourceType)) {
+      setForm((f) => ({ ...f, leadTimeDays: undefined }));
+      return;
+    }
     try {
       const resolved = await invoke<{ leadTimeDays: number }>("parts-tracker:suggestLeadTime", {
         sourceType: next.sourceType,
@@ -455,12 +427,14 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { ...form, seisanProjectId: projectId };
       if (editing) {
+        const payload = canEditBomIdentity
+          ? { ...form, seisanProjectId: projectId }
+          : filterEditorLineUpdateInput({ ...form, seisanProjectId: projectId });
         await invoke("parts-tracker:line:update", { id: editing.id, input: payload });
         toast.push("success", "更新しました。");
       } else {
-        await invoke("parts-tracker:line:create", payload);
+        await invoke("parts-tracker:line:create", { ...form, seisanProjectId: projectId });
         toast.push("success", "登録しました。");
       }
       setEditing(null);
@@ -594,55 +568,58 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     }
   }
 
-  async function openExpand(bomId: number): Promise<void> {
-    setExpandBomId(bomId);
-    setExpandOpen(true);
-    setExpandPreview(null);
-    try {
-      const preview = await invoke<ProductBomExpandPreview>(
-        "parts-tracker:productBom:previewExpand",
-        { productBomId: bomId, multiplier: expandMultiplier }
-      );
-      setExpandPreview(preview);
-    } catch (err) {
-      toast.push("error", err instanceof Error ? err.message : String(err));
+  function handleExportCsvDownload(): void {
+    if (filteredLines.length === 0) {
+      toast.push("info", "エクスポートする行がありません。");
+      return;
     }
+    const csv = buildBomExportFromLines(filteredLines);
+    const name = suggestBomExportFileName({
+      projectNo: selectedProject?.projectNo ?? null,
+      projectName: selectedProject?.projectName ?? null,
+    });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.push("success", `${filteredLines.length} 行を CSV で保存しました。`);
   }
 
-  async function refreshExpandPreview(nextMultiplier: number): Promise<void> {
-    if (!expandBomId) return;
-    try {
-      const preview = await invoke<ProductBomExpandPreview>(
-        "parts-tracker:productBom:previewExpand",
-        { productBomId: expandBomId, multiplier: nextMultiplier }
-      );
-      setExpandPreview(preview);
-    } catch {
-      /* noop */
+  async function handleExportCopyClipboard(): Promise<void> {
+    if (filteredLines.length === 0) {
+      toast.push("info", "コピーする行がありません。");
+      return;
     }
-  }
-
-  async function handleExpandCommit(): Promise<void> {
-    if (!expandBomId || !projectId) return;
-    setExpandBusy(true);
+    const tsv = buildBomExportFromLines(filteredLines, { delimiter: "\t" });
     try {
-      const res = await invoke<ProductBomExpandResult>("parts-tracker:productBom:expand", {
-        seisanProjectId: projectId,
-        productBomId: expandBomId,
-        duplicatePolicy: expandPolicy,
-        multiplier: expandMultiplier,
-        requiredDate: selectedProject?.deadline ?? null,
-      });
+      await navigator.clipboard.writeText(tsv);
       toast.push(
         "success",
-        `展開: 追加 ${res.insertedCount} / 更新 ${res.updatedCount} / スキップ ${res.skippedCount}`
+        `${filteredLines.length} 行をコピーしました。Excel 等に貼り付けて印刷できます。`
       );
-      setExpandOpen(false);
-      await loadLines();
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
-    } finally {
-      setExpandBusy(false);
+    }
+  }
+
+  function handlePrintBom(): void {
+    if (filteredLines.length === 0) {
+      toast.push("info", "印刷する行がありません。");
+      return;
+    }
+    const projectLabel = selectedProject
+      ? projectCascadeLabel(selectedProject)
+      : "（案件未選択）";
+    const ok = openBomPrintWindow(filteredLines, {
+      title: "部材管理 — 部品一覧",
+      projectLabel,
+      lineCount: filteredLines.length,
+    });
+    if (!ok) {
+      toast.push("error", "印刷ウィンドウを開けませんでした。ポップアップを許可してください。");
     }
   }
 
@@ -714,17 +691,16 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     <>
     <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <div className="w-full space-y-4 px-3 py-4 sm:px-4">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <p className="max-w-3xl text-sm leading-relaxed text-fg-muted">{PARTS_TRACKER_PAGE_TAGLINE}</p>
+          <div className="flex justify-end">
             <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
               <HelpCircle size={16} aria-hidden />
               ヘルプ
             </Button>
           </div>
 
-          {!writable && (
+          {isViewer && (
             <div className="rounded-lg border border-border-subtle bg-bg-surface/80 px-4 py-3 text-sm text-fg-muted">
-              閲覧者モードです。部品行の追加・編集はできません。
+              閲覧者モードです。データの変更はできません。CSV 出力・コピー（印刷用）・印刷、検索・ソート、非表示行の表示切替のみ利用できます。
             </div>
           )}
 
@@ -742,13 +718,13 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                   <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden />
                   更新
                 </Button>
-                {writable && projectId && (
+                {canImport && projectId && (
                   <Button type="button" size="sm" onClick={openCreate}>
                     <Plus size={16} aria-hidden />
                     部品行を追加
                   </Button>
                 )}
-                {writable && projectId && (
+                {canImport && projectId && (
                   <Button
                     type="button"
                     variant="secondary"
@@ -763,7 +739,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                     BOM CSV 取込
                   </Button>
                 )}
-                {writable && projectId && (
+                {canImport && projectId && (
                   <Button
                     type="button"
                     variant="secondary"
@@ -774,6 +750,40 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                     <Copy size={16} aria-hidden />
                     前回案件から BOM コピー
                   </Button>
+                )}
+                {projectId && filteredLines.length > 0 && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleExportCsvDownload}
+                      title="表示中の部品表を CSV で保存"
+                    >
+                      <Download size={16} aria-hidden />
+                      CSV 出力
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void handleExportCopyClipboard()}
+                      title="表示中の部品表をタブ区切りでコピー（Excel に貼り付けて印刷）"
+                    >
+                      <ClipboardCopy size={16} aria-hidden />
+                      コピー（印刷用）
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handlePrintBom}
+                      title="表示中の部品表を印刷用レイアウトで印刷"
+                    >
+                      <Printer size={16} aria-hidden />
+                      印刷
+                    </Button>
+                  </>
                 )}
             </div>
 
@@ -810,32 +820,6 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
               </div>
             )}
 
-            {writable && selectedProject?.partNumber && productBomMatches.length > 0 && (
-              <div className="rounded-lg border border-accent-secondary/30 bg-accent-secondary/5 p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-accent-secondary">
-                  <Layers size={16} aria-hidden />
-                  製品 BOM テンプレート（親番: {selectedProject.partNumber}）
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {productBomMatches.map((m) => (
-                    <button
-                      key={m.productBomId}
-                      type="button"
-                      onClick={() => void openExpand(m.productBomId)}
-                      className="rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm hover:border-accent-secondary"
-                      title={`${m.productPartNumber} (${m.productName})`}
-                    >
-                      Rev {m.revision}
-                      {m.status === "released" && (
-                        <span className="ml-1 rounded bg-state-success/15 px-1 py-0.5 text-sm text-state-success">
-                          released
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </Card>
 
           {projectId && (
@@ -866,7 +850,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                 ))}
               </div>
 
-              {writable && (
+              {canBulkEdit && (
                 <div
                   className={cn(
                     "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2",
@@ -1035,7 +1019,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           ) : lines.length === 0 ? (
             <Card className="space-y-3 p-8 text-center">
               <p className="text-sm text-fg-muted">この案件には部品行がまだありません。</p>
-              {writable && (
+              {canImport && (
                 <Button type="button" size="sm" onClick={openCreate}>
                   <Plus size={16} aria-hidden />
                   最初の部品行を追加
@@ -1047,14 +1031,14 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
               条件に一致する部品行がありません。検索またはリスクフィルタを変更してください。
             </Card>
           ) : (
-            <Card className="flex max-h-[min(70vh,calc(100dvh-14rem))] flex-col overflow-hidden p-0">
+            <Card className="p-0">
               <PartsBomTreeTable
                 rows={filteredLines}
-                writable={writable}
+                actions={tableActions}
                 editMode={editMode}
                 drafts={inlineDrafts}
                 suppliers={suppliers}
-                onDraftChange={writable ? handleInlineDraftChange : undefined}
+                onDraftChange={canBulkEdit ? handleInlineDraftChange : undefined}
                 onSetArranged={(line, next) => void handleSetArranged(line, next)}
                 onEdit={openEditLine}
                 onToggleHidden={(line) => void handleToggleHidden(line)}
@@ -1076,30 +1060,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     </main>
 
       <Modal open={helpOpen} title="部材管理のヘルプ" onClose={() => setHelpOpen(false)} width="xl">
-        <div className="space-y-3 text-sm leading-relaxed text-fg-primary">
-          {dbPath ? (
-            <div>
-              <p>{HELP_DB_STORAGE_NOTE}</p>
-              <p className="mt-2 text-sm font-medium text-fg-muted">{HELP_DB_PATH_LABEL}</p>
-              <p className="mt-1 break-all font-mono text-sm text-fg-muted">{dbPath}</p>
-            </div>
-          ) : (
-            <p>{HELP_DB_STORAGE_NOTE}</p>
-          )}
-          <p>{HELP_OVERVIEW}</p>
-          <p>{HELP_PROJECT_SELECT}</p>
-          <p>{HELP_ADD_EDIT}</p>
-          <p>{HELP_RISK}</p>
-          <p>{HELP_ARRANGED}</p>
-          <p>{HELP_REVISION}</p>
-          <p>{HELP_HIDDEN}</p>
-          <p>{HELP_CSV_IMPORT}</p>
-          <p>{HELP_PRODUCT_BOM}</p>
-          <p>{HELP_BOM_DIFF}</p>
-          <p>{HELP_MASTER}</p>
-          <p>{writable ? HELP_ROLES_EDITOR : HELP_ROLES_VIEWER}</p>
-          <p className="text-sm text-fg-muted">{HELP_FUTURE}</p>
-        </div>
+        <PartsTrackerHelpContent variant="main" appRole={appRole} />
       </Modal>
 
       {/* 5-B: CSV 取込モーダル */}
@@ -1255,125 +1216,6 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
         </div>
       </Modal>
 
-      {/* 5-E: 製品 BOM 展開モーダル */}
-      <Modal
-        open={expandOpen}
-        title="製品 BOM を案件に展開"
-        onClose={() => setExpandOpen(false)}
-        width="xl"
-      >
-        <div className="space-y-4 text-sm">
-          {!expandPreview ? (
-            <p className="text-fg-muted">プレビューを読み込み中...</p>
-          ) : expandPreview.cycleDetected ? (
-            <div className="rounded-md border border-state-danger/30 bg-state-danger/5 p-3 text-state-danger">
-              循環参照を検出しました: {(expandPreview.cyclePath ?? []).join(" → ")}
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-2 text-sm">
-                <StatChip
-                  label="親番"
-                  value={`${expandPreview.productPartNumber} Rev ${expandPreview.productRevision}`}
-                />
-                <StatChip label="末端部品" value={`${expandPreview.totalLeafLines} 件`} />
-                <StatChip label="サブ組立" value={`${expandPreview.subAssemblyCount} 件`} />
-                <StatChip label="最大深さ" value={`Lv ${expandPreview.maxDepth}`} />
-                {expandPreview.missingSubAssemblies.length > 0 && (
-                  <StatChip
-                    label="参照未登録"
-                    value={`${expandPreview.missingSubAssemblies.length} 件`}
-                    tone="warning"
-                  />
-                )}
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <TextField
-                  label="数量倍率"
-                  type="number"
-                  min={1}
-                  value={String(expandMultiplier)}
-                  onChange={(e) => {
-                    const v = Math.max(1, Number(e.target.value) || 1);
-                    setExpandMultiplier(v);
-                    void refreshExpandPreview(v);
-                  }}
-                />
-                <Select
-                  label="重複行の扱い"
-                  value={expandPolicy}
-                  onChange={(e) => setExpandPolicy(e.target.value as ExpandDuplicatePolicy)}
-                  options={[
-                    { value: "skip", label: "既存はスキップ（推奨）" },
-                    { value: "addQuantity", label: "既存の数量に加算" },
-                    { value: "overwrite", label: "既存を上書き" },
-                  ]}
-                />
-              </div>
-              {expandPreview.missingSubAssemblies.length > 0 && (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
-                  <p className="font-medium text-amber-800 dark:text-amber-200">
-                    以下のサブ組立は製品 BOM 未登録のため、サブ部品まで自動展開できません:
-                  </p>
-                  <ul className="mt-1 list-disc pl-5">
-                    {expandPreview.missingSubAssemblies.map((m) => (
-                      <li key={m.sourceProductBomLineId}>
-                        {m.partNumber}（パス: {m.parentAssemblyPath}）
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="max-h-80 overflow-auto rounded-md border border-border-subtle">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-bg-elevated text-sm uppercase tracking-wider">
-                    <tr>
-                      <th className="px-2 py-1 text-left">レベル</th>
-                      <th className="px-2 py-1 text-left">パス</th>
-                      <th className="px-2 py-1 text-left">品番</th>
-                      <th className="px-2 py-1 text-left">名称</th>
-                      <th className="px-2 py-1 text-right">数量</th>
-                      <th className="px-2 py-1 text-left">区分</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expandPreview.items.slice(0, 200).map((it, idx) => (
-                      <tr key={idx} className="border-t border-border-subtle">
-                        <td className="px-2 py-1 text-fg-subtle">L{it.bomLevel}</td>
-                        <td className="px-2 py-1 truncate font-mono text-fg-muted">
-                          {it.assemblyPath}
-                        </td>
-                        <td className="px-2 py-1 font-mono">{it.partNumber}</td>
-                        <td className="px-2 py-1">{it.partName}</td>
-                        <td className="px-2 py-1 text-right">{it.quantity}</td>
-                        <td className="px-2 py-1">{PART_SOURCE_TYPE_LABELS[it.sourceType]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {expandPreview.items.length > 200 && (
-                  <div className="px-3 py-2 text-fg-subtle">
-                    （プレビューは先頭 200 行のみ）
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setExpandOpen(false)}>
-              キャンセル
-            </Button>
-            <Button
-              type="button"
-              disabled={!expandPreview || expandBusy || expandPreview.cycleDetected}
-              onClick={() => void handleExpandCommit()}
-            >
-              {expandBusy ? "展開中..." : "この案件に展開"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
       {/* 非表示理由ダイアログ */}
       <Modal
         open={hidingLine !== null}
@@ -1425,52 +1267,54 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
         width="lg"
       >
         <form className="space-y-4" onSubmit={(e) => void handleSubmit(e)}>
+          {canEditBomIdentity && editing && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm leading-relaxed text-amber-950 dark:text-amber-100">
+              品番・部品名称・Rev・数量の変更は原則行わず、<strong>生産技術に最新の BOM CSV 取込</strong>
+              を依頼してください。やむを得ず手修正する場合のみ保存してください。
+            </div>
+          )}
+          {canEditBomIdentity && creating && (
+            <div className="rounded-md border border-border-subtle bg-bg-elevated/50 px-3 py-2 text-sm text-fg-muted">
+              手動追加は管理者向けです。通常は BOM CSV 取込または前回案件コピーを利用してください。調達区分・状態は一括編集モードで設定します。
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
-          <TextField
-            label="品番"
-            value={form.partNumber}
-            onChange={(e) => {
-              const next = { ...form, partNumber: e.target.value };
-              setForm(next);
-              void suggestLeadTime(next);
-            }}
-            required
-          />
-          <TextField
-            label="部品名称"
-            value={form.partName}
-            onChange={(e) => setForm((f) => ({ ...f, partName: e.target.value }))}
-            required
-          />
-          <TextField
-            label="Rev"
-            value={form.revision ?? ""}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, revision: e.target.value.trim() || null }))
-            }
-            placeholder="A / 01 等"
-          />
-          <TextField
-            label="数量"
-            type="number"
-            min={0}
-            step="any"
-            value={String(form.quantity ?? 1)}
-            onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) || 0 }))}
-          />
-          <Select
-            label="調達区分"
-            value={form.sourceType}
-            onChange={(e) => {
-              const next = { ...form, sourceType: e.target.value as PartSourceType };
-              setForm(next);
-              void suggestLeadTime(next);
-            }}
-            options={PART_SOURCE_TYPES.map((t) => ({
-              value: t,
-              label: PART_SOURCE_TYPE_LABELS[t],
-            }))}
-          />
+          {canEditBomIdentity && (
+            <>
+              <TextField
+                label="品番"
+                value={form.partNumber}
+                onChange={(e) => {
+                  const next = { ...form, partNumber: e.target.value };
+                  setForm(next);
+                  void suggestLeadTime(next);
+                }}
+                required
+              />
+              <TextField
+                label="部品名称"
+                value={form.partName}
+                onChange={(e) => setForm((f) => ({ ...f, partName: e.target.value }))}
+                required
+              />
+              <TextField
+                label="Rev"
+                value={form.revision ?? ""}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, revision: e.target.value.trim() || null }))
+                }
+                placeholder="A / 01 等"
+              />
+              <TextField
+                label="数量"
+                type="number"
+                min={0}
+                step="any"
+                value={String(form.quantity ?? 1)}
+                onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) || 0 }))}
+              />
+            </>
+          )}
           {form.sourceType === "purchase" && (
             <div className="sm:col-span-2">
               <Select
@@ -1491,45 +1335,40 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
               />
             </div>
           )}
-          <TextField
-            label="リードタイム（日）"
-            type="number"
-            min={0}
-            value={form.leadTimeDays != null ? String(form.leadTimeDays) : ""}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                leadTimeDays: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-              }))
-            }
-            placeholder="空欄で標準 LT を自動提案"
-          />
+          {showsProcurementLeadTime(form.sourceType) && (
+            <TextField
+              label="リードタイム（日）"
+              type="number"
+              min={0}
+              value={form.leadTimeDays != null ? String(form.leadTimeDays) : ""}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  leadTimeDays: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                }))
+              }
+              placeholder="空欄で標準 LT を自動提案（購入・支給のみ）"
+            />
+          )}
           <TextField
             label="必要着日"
             type="date"
             value={form.requiredDate}
             onChange={(e) => setForm((f) => ({ ...f, requiredDate: e.target.value }))}
-            required
+            required={canEditBomIdentity || creating}
           />
-          {defaultRequired && !editing && (
-            <p className="text-sm text-fg-muted">
+          {defaultRequired && !editing && canEditBomIdentity && (
+            <p className="text-sm text-fg-muted sm:col-span-2">
               案件納期（{defaultRequired}）を初期値にしています。部品ごとに調整してください。
             </p>
           )}
-          <Select
-            label="状態"
-            value={form.status ?? "planned"}
-            onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as PartLineStatus }))}
-            options={PART_LINE_STATUSES.map((s) => ({
-              value: s,
-              label: PART_LINE_STATUS_LABELS[s],
-            }))}
-          />
-          <TextField
-            label="備考"
-            value={form.note ?? ""}
-            onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-          />
+          <div className="sm:col-span-2">
+            <TextField
+              label="備考"
+              value={form.note ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+            />
+          </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button

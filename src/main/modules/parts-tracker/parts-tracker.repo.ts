@@ -10,6 +10,7 @@ import {
   computePartLineRisk,
   isPartLineStatus,
   isPartSourceType,
+  showsProcurementLeadTime,
 } from "@shared/partsTracker.js";
 import type { ProcurementLeadTimeRow } from "@shared/procurementLeadTime.js";
 import { pickBestLeadTime } from "@shared/procurementLeadTime.js";
@@ -128,6 +129,7 @@ export function mapLine(raw: DbLineRow): ProjectPartLine {
       requiredDate: raw.required_date,
       orderByDate,
       leadTimeDays: raw.lead_time_days,
+      sourceType: raw.source_type as PartSourceType,
     }),
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
@@ -194,14 +196,19 @@ function normalizeUpsert(
   let procurementLeadTimeId: number | null = existing?.procurementLeadTimeId ?? null;
 
   if (leadTimeDays == null || leadTimeDays === undefined) {
-    const resolved = pickBestLeadTime(loadLeadTimeMasterRows(), {
-      sourceType: input.sourceType,
-      supplierId,
-      skuId: input.skuId ?? null,
-      partNumber,
-    });
-    leadTimeDays = resolved.leadTimeDays;
-    procurementLeadTimeId = resolved.procurementLeadTimeId;
+    if (showsProcurementLeadTime(input.sourceType)) {
+      const resolved = pickBestLeadTime(loadLeadTimeMasterRows(), {
+        sourceType: input.sourceType,
+        supplierId,
+        skuId: input.skuId ?? null,
+        partNumber,
+      });
+      leadTimeDays = resolved.leadTimeDays;
+      procurementLeadTimeId = resolved.procurementLeadTimeId;
+    } else {
+      leadTimeDays = 0;
+      procurementLeadTimeId = null;
+    }
   } else {
     leadTimeDays = Math.max(0, Math.floor(Number(leadTimeDays)));
   }
@@ -518,5 +525,8 @@ export function suggestLeadTime(input: {
   skuId?: number | null;
   partNumber?: string | null;
 }): { leadTimeDays: number; procurementLeadTimeId: number | null } {
+  if (!showsProcurementLeadTime(input.sourceType)) {
+    return { leadTimeDays: 0, procurementLeadTimeId: null };
+  }
   return pickBestLeadTime(loadLeadTimeMasterRows(), input);
 }

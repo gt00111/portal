@@ -16,6 +16,7 @@ Electron 打包や UI から参照するアイコン・ロゴの置き場所で�
 |----------|----------------------------------------|
 | `drawing-library/` | 図面ライブラリ |
 | `master-database/` | マスタDB |
+| `parts-tracker/` | 部材管理 |
 | `pixo-converter/` | PixoConvert |
 | `portal/` | ポータル本体 |
 | `process-management/` | 工程管理 |

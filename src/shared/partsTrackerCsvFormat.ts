@@ -1,5 +1,11 @@
 /** 部材管理 BOM CSV 取込（標準8列）の列定義・テンプレ生成 */
 
+import type { ProjectPartLine } from "./partsTracker.js";
+import {
+  PART_LINE_STATUS_LABELS,
+  PART_SOURCE_TYPE_LABELS,
+  showsProcurementLeadTime,
+} from "./partsTracker.js";
 import type { PartSourceType } from "./partsTracker.js";
 
 export const BOM_CSV_DASH = "-";
@@ -490,4 +496,77 @@ export function previewBomCsv(input: PreviewBomCsvInput): BomCsvPreviewResult {
     detectedColumns: detected,
     unmatchedSupplierNames: [...unmatched],
   };
+}
+
+function exportMaterialFromNote(note: string | null): string {
+  if (!note) return BOM_CSV_DASH;
+  const m = note.match(/^材質:\s*(.+?)(?:\s\/\s|$)/);
+  return m?.[1]?.trim() || BOM_CSV_DASH;
+}
+
+function escapeDelimitedCell(value: string, sep: string): string {
+  if (sep === "\t") return value.replace(/\t/g, " ");
+  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+/** §8.5.18.3: 部品行 → CSV/TSV（標準8列＋調達拡張列） */
+export function buildBomExportFromLines(
+  lines: ProjectPartLine[],
+  opts?: { delimiter?: "," | "\t"; includeBom?: boolean }
+): string {
+  const sep = opts?.delimiter ?? ",";
+  const bom = sep === "," ? "\uFEFF" : "";
+  const headers = [
+    "符号",
+    "品番",
+    "名称",
+    "Rev",
+    "個数",
+    "材質",
+    "親品番",
+    "レベル",
+    "区分",
+    "商社",
+    "LT日",
+    "必要着日",
+    "発注期限",
+    "状態",
+    "手配済",
+  ];
+  const rows = [...lines].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+  const body = rows.map((line) => {
+    const rev =
+      line.revision && line.revision !== BOM_CSV_DASH ? line.revision : BOM_CSV_DASH;
+    const showLt = showsProcurementLeadTime(line.sourceType);
+    const cells = [
+      BOM_CSV_DASH,
+      line.partNumber,
+      line.partName,
+      rev,
+      String(line.quantity),
+      exportMaterialFromNote(line.note),
+      line.parentAssemblyPartNumber?.trim() || BOM_CSV_DASH,
+      String(line.bomLevel),
+      PART_SOURCE_TYPE_LABELS[line.sourceType],
+      line.supplierName ?? BOM_CSV_DASH,
+      showLt ? String(line.leadTimeDays) : BOM_CSV_DASH,
+      line.requiredDate,
+      showLt ? (line.orderByDate ?? BOM_CSV_DASH) : BOM_CSV_DASH,
+      PART_LINE_STATUS_LABELS[line.status],
+      line.isArranged ? "1" : "0",
+    ];
+    return cells.map((c) => escapeDelimitedCell(c, sep)).join(sep);
+  });
+  return `${bom}${headers.join(sep)}\n${body.join("\n")}\n`;
+}
+
+export function suggestBomExportFileName(input: {
+  projectNo: string | null;
+  projectName: string | null;
+}): string {
+  const no = (input.projectNo ?? "案件").replace(/[^\w\u3040-\u30ff\u4e00-\u9fff-]+/g, "_");
+  const name = (input.projectName ?? "").slice(0, 20).replace(/[^\w\u3040-\u30ff\u4e00-\u9fff-]+/g, "_");
+  const date = new Date().toISOString().slice(0, 10);
+  return `${no}${name ? `_${name}` : ""}_bom_${date}.csv`;
 }

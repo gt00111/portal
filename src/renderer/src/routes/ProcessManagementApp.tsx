@@ -34,7 +34,6 @@ import {
   BOARD_HELP_UNDO_VIEWER,
   BOARD_HELP_VIEW_ACTIVE_TEMPLATE,
   BOARD_PAGE_TAGLINE,
-  HELP_DB_PATH_LABEL,
   HELP_DB_STORAGE_NOTE,
   MY_TASKS_HELP_CASE_VIEW,
   MY_TASKS_HELP_COMPLETE_MISTAKE_VIEWER,
@@ -659,7 +658,6 @@ function MyTaskCard({
 export function ProcessManagementApp({ session }: Props): JSX.Element {
   const canOperatePmTasks = canOperateProcessMgmtApp(session);
   const [tab, setTab] = useState<TabId>("board");
-  const [statusPath, setStatusPath] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -689,11 +687,6 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
   const [undoReason, setUndoReason] = useState("");
   const [undoSubmitting, setUndoSubmitting] = useState(false);
   const [undoError, setUndoError] = useState<string | null>(null);
-
-  const refreshStatus = useCallback(async () => {
-    const s = await invoke<{ connected: boolean; path: string | null }>("process-mgmt:status");
-    setStatusPath(s.path);
-  }, []);
 
   const refreshBoard = useCallback(async () => {
     const data = await invoke<PmBoardTask[]>("process-mgmt:task:listBoard", {
@@ -897,17 +890,6 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        setMessage(null);
-        await refreshStatus();
-      } catch (err) {
-        setMessage(err instanceof Error ? err.message : String(err));
-      }
-    })();
-  }, [refreshStatus]);
-
-  useEffect(() => {
     if (tab !== "board") return;
     void (async () => {
       try {
@@ -1044,8 +1026,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
 
           {tab === "board" && (
             <section className="space-y-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <p className="max-w-3xl text-sm leading-relaxed text-fg-muted">{BOARD_PAGE_TAGLINE}</p>
+              <div className="flex justify-end">
                 <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
                   <HelpCircle size={16} aria-hidden />
                   ヘルプ
@@ -1441,8 +1422,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
 
           {tab === "mytasks" && (
             <section className="space-y-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <p className="max-w-3xl text-sm leading-relaxed text-fg-muted">{MY_TASKS_PAGE_TAGLINE}</p>
+              <div className="flex justify-end">
                 <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
                   <HelpCircle size={16} aria-hidden />
                   ヘルプ
@@ -1491,15 +1471,10 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
         width="lg"
       >
         <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
-          {statusPath ? (
-            <div>
-              <p>{HELP_DB_STORAGE_NOTE}</p>
-              <p className="mt-2 text-xs font-medium text-fg-muted">{HELP_DB_PATH_LABEL}</p>
-              <p className="mt-1 break-all font-mono text-xs text-fg-muted">{statusPath}</p>
-            </div>
-          ) : (
-            <p>{HELP_DB_STORAGE_NOTE}</p>
-          )}
+          <p className="font-medium text-fg-primary">
+            {tab === "board" ? BOARD_PAGE_TAGLINE : MY_TASKS_PAGE_TAGLINE}
+          </p>
+          <p className="text-fg-muted">{HELP_DB_STORAGE_NOTE}</p>
           {tab === "board" ? (
             <>
               <p>{BOARD_HELP_OVERVIEW}</p>

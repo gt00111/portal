@@ -12,6 +12,7 @@ import type {
   CloneBomFromResult,
   LineInlineBatchUpdateInput,
   PartSourceType,
+  PartsTrackerHistoryEntry,
   PartsTrackerProjectOption,
   ProjectPartLine,
   ProjectPartLineUpsertInput,
@@ -36,7 +37,14 @@ import type {
 } from "@shared/productBom.js";
 import type { ResolvedLeadTime } from "@shared/procurementLeadTime.js";
 
+import { getAppRole } from "@shared/auth.js";
 import {
+  assertEditorMayUpdateLine,
+  filterEditorLineUpdateInput,
+} from "@shared/partsTrackerAuth.js";
+
+import {
+  assertAppRoleAtLeast,
   assertCanViewApp,
   assertCanWriteApp,
   assertLoggedIn,
@@ -50,6 +58,7 @@ import { getSession } from "@main/session.js";
 
 import * as csvImport from "./bom-csv-import.repo.js";
 import * as bomDiff from "./bom-diff.repo.js";
+import * as history from "./parts-tracker-history.repo.js";
 import * as projectClone from "./project-bom-clone.repo.js";
 import * as expand from "./product-bom-expand.repo.js";
 import * as repo from "./parts-tracker.repo.js";
@@ -113,7 +122,7 @@ export function register(ipcMain: IpcMain): void {
     "parts-tracker:line:create",
     async (_event, data: ProjectPartLineUpsertInput) => {
       try {
-        assertCanWriteApp("parts-tracker");
+        assertAppRoleAtLeast("parts-tracker", "admin");
         ensurePartsTracker();
         const line = repo.create(data);
         return ok<ProjectPartLine>(line);
@@ -127,11 +136,21 @@ export function register(ipcMain: IpcMain): void {
     "parts-tracker:line:update",
     async (_event, data: { id?: number; input?: Partial<ProjectPartLineUpsertInput> }) => {
       try {
-        assertCanWriteApp("parts-tracker");
+        const session = assertCanWriteApp("parts-tracker");
         ensurePartsTracker();
         const id = Number(data?.id);
         if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
-        const line = repo.update(id, data?.input ?? {});
+        const existing = repo.findById(id);
+        if (!existing) throw new Error("部品行が見つかりません。");
+        const role = getAppRole(session, "parts-tracker");
+        let patch = data?.input ?? {};
+        if (role === "editor") {
+          assertEditorMayUpdateLine(patch, existing);
+          patch = filterEditorLineUpdateInput(patch);
+        } else if (role !== "admin") {
+          throw new Error("権限が不足しています。");
+        }
+        const line = repo.update(id, patch);
         return ok<ProjectPartLine>(line);
       } catch (err) {
         return fail(err);
@@ -168,7 +187,7 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("parts-tracker:line:delete", async (_event, data: { id?: number }) => {
     try {
-      assertCanWriteApp("parts-tracker");
+      assertAppRoleAtLeast("parts-tracker", "admin");
       ensurePartsTracker();
       const id = Number(data?.id);
       if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
@@ -202,7 +221,7 @@ export function register(ipcMain: IpcMain): void {
   // 5-B: 非表示
   ipcMain.handle("parts-tracker:line:setHidden", async (_event, data: SetHiddenInput) => {
     try {
-      assertCanWriteApp("parts-tracker");
+      assertAppRoleAtLeast("parts-tracker", "admin");
       ensurePartsTracker();
       const id = Number(data?.id);
       if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
@@ -306,7 +325,7 @@ export function register(ipcMain: IpcMain): void {
     "parts-tracker:import:preview",
     async (_event, data: { csvText?: string }) => {
       try {
-        assertCanViewApp("parts-tracker");
+        assertAppRoleAtLeast("parts-tracker", "admin");
         const text = (data?.csvText ?? "").toString();
         if (!text.trim()) throw new Error("CSV テキストが空です。");
         const suppliers = getDb()
@@ -323,7 +342,7 @@ export function register(ipcMain: IpcMain): void {
     "parts-tracker:import:commit",
     async (_event, data: BomCsvImportCommitInput) => {
       try {
-        assertCanWriteApp("parts-tracker");
+        assertAppRoleAtLeast("parts-tracker", "admin");
         ensurePartsTracker();
         const session = getSession();
         return ok<BomCsvImportCommitResult>(
@@ -402,7 +421,7 @@ export function register(ipcMain: IpcMain): void {
     "parts-tracker:project:cloneBomFrom",
     async (_event, data: CloneBomFromInput) => {
       try {
-        assertCanWriteApp("parts-tracker");
+        assertAppRoleAtLeast("parts-tracker", "admin");
         ensurePartsTracker();
         const target = (data?.targetProjectId ?? "").trim();
         const source = (data?.sourceProjectId ?? "").trim();
@@ -419,6 +438,19 @@ export function register(ipcMain: IpcMain): void {
       }
     }
   );
+
+  // -------- §8.5.18.4: トレーサビリティ履歴 --------
+
+  ipcMain.handle("parts-tracker:history:index", async () => {
+    try {
+      assertCanViewApp("parts-tracker");
+      ensureSeisanSatellite();
+      ensurePartsTracker();
+      return ok<PartsTrackerHistoryEntry[]>(history.listHistoryIndex());
+    } catch (err) {
+      return fail(err);
+    }
+  });
 
   // -------- 5-F: BOM Rev 差分 --------
 

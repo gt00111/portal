@@ -1,4 +1,7 @@
+import { HelpCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { getPartsTrackerAppRole } from "@shared/partsTrackerAuth.js";
 
 import type { BomDiffResult } from "@shared/bomDiff.js";
 import type { PartsTrackerProjectOption } from "@shared/partsTracker.js";
@@ -6,7 +9,9 @@ import type { SessionUser } from "@shared/types.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { Card } from "@renderer/components/ui/Card.js";
+import { Modal } from "@renderer/components/ui/Modal.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
+import { PartsTrackerHelpContent } from "@renderer/routes/parts-tracker/PartsTrackerHelpContent.js";
 import { invoke } from "@renderer/lib/api.js";
 import { BomDiffResultPanel } from "@renderer/routes/parts-tracker/BomDiffResultPanel.js";
 import { ProjectCascadeSelect } from "@renderer/routes/parts-tracker/ProjectCascadeSelect.js";
@@ -16,8 +21,10 @@ interface Props {
   session: SessionUser;
 }
 
-export function PartsTrackerComparePage({ session: _session }: Props): JSX.Element {
+export function PartsTrackerComparePage({ session }: Props): JSX.Element {
   const toast = useToast();
+  const appRole = getPartsTrackerAppRole(session);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [projects, setProjects] = useState<PartsTrackerProjectOption[]>([]);
   const [searchA, setSearchA] = useState("");
   const [searchB, setSearchB] = useState("");
@@ -83,9 +90,12 @@ export function PartsTrackerComparePage({ session: _session }: Props): JSX.Eleme
   return (
     <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
       <div className="w-full space-y-4 px-3 py-4 sm:px-4">
-        <p className="max-w-3xl text-sm leading-relaxed text-fg-muted">
-          前回案件と今回案件の BOM 差分を専用画面で確認します。比較元が前回、比較先が今回です。
-        </p>
+        <div className="flex justify-end">
+          <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+            <HelpCircle size={16} aria-hidden />
+            ヘルプ
+          </Button>
+        </div>
 
         <Card className="space-y-6 p-4">
           <div className="space-y-3">
@@ -158,6 +168,10 @@ export function PartsTrackerComparePage({ session: _session }: Props): JSX.Eleme
           </Card>
         )}
       </div>
+
+      <Modal open={helpOpen} title="案件間比較のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
+        <PartsTrackerHelpContent variant="compare" appRole={appRole} />
+      </Modal>
     </main>
   );
 }

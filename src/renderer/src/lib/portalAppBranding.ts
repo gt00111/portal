@@ -9,6 +9,8 @@ import masterDatabaseIcon from "@branding/master-database/icon.png?url";
 import masterDatabaseLogo from "@branding/master-database/logo.png?url";
 import pixoConverterIcon from "@branding/pixo-converter/icon.ico?url";
 import pixoConverterLogo from "@branding/pixo-converter/logo.png?url";
+import partsTrackerIcon from "@branding/parts-tracker/icon.ico?url";
+import partsTrackerLogo from "@branding/parts-tracker/logo.png?url";
 import processManagementIcon from "@branding/process-management/icon.ico?url";
 import processManagementLogo from "@branding/process-management/logo.png?url";
 import seisanBoardIcon from "@branding/seisan-board/seisan-board-icon.ico?url";
@@ -17,6 +19,7 @@ import seisanBoardLogo from "@branding/seisan-board/seisan-board.png?url";
 const PORTAL_APP_LIST_ICON_URL = {
   "master-database": masterDatabaseIcon,
   "drawing-library": drawingLibraryIcon,
+  "parts-tracker": partsTrackerIcon,
   "pixo-converter": pixoConverterIcon,
   "process-management": processManagementIcon,
   "seisan-board": seisanBoardIcon,
@@ -25,6 +28,7 @@ const PORTAL_APP_LIST_ICON_URL = {
 const PORTAL_APP_HEADER_LOGO_URL = {
   "master-database": masterDatabaseLogo,
   "drawing-library": drawingLibraryLogo,
+  "parts-tracker": partsTrackerLogo,
   "pixo-converter": pixoConverterLogo,
   "process-management": processManagementLogo,
   "seisan-board": seisanBoardLogo,
