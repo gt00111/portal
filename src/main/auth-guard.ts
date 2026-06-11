@@ -66,13 +66,18 @@ export function assertAppRoleAtLeast(
   return session;
 }
 
-/** 工程管理のタスク操作（開始・完了等）。閲覧者も可 */
+/** 工程管理のマイタスク一覧等（viewer 以上） */
 export function assertCanOperateProcessMgmtTasks(): SessionUser {
   const session = assertLoggedIn();
   if (!canOperateProcessMgmtApp(session)) {
     throw new Error("工程管理のタスク操作権限がありません。");
   }
   return session;
+}
+
+/** 工程管理のタスク変更操作（開始・完了・並行設定等）。editor 以上 */
+export function assertCanWriteProcessMgmtTasks(): SessionUser {
+  return assertAppRoleAtLeast("process-management", "editor");
 }
 
 export function assertPasswordChangedOrChanging(): SessionUser {

@@ -248,16 +248,28 @@ DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削�
 | `process-mgmt:task:getDetail` | 🔒 | `{ id }` | `PmTask` |
 | `process-mgmt:task:update` | ✏️ | `{ id; title; description; assignee; status }` | `PmTask` |
 | `process-mgmt:task:delete` | ✏️ | `{ id }` | `{ id }` |
-| `process-mgmt:task:listBoard` | 🔒 | `{ mode: 'active' \| 'history'; query?; client?; boardProcessView? }` | `PmBoardTask[]`（**全体俯瞰**：`active`＝完了以外、`history`＝完了のみ。`boardProcessView` は **`history` 時のみ有効**（`solidworks` / `cadmac` / `both` で工程を切替。`active` 時は無視されセッションの `processView` を使用）。担当者でのサーバ側絞り込みなし。`query`・`client` は一覧取得後のメモリフィルタ。呼び出し時に生産ボードから SolidWorks/CADMAC の既定タスクを同期） |
-| `process-mgmt:task:listMy` | 🔒 | `undefined` | `PmBoardTask[]`（ログイン名が担当かつ未完了。同期のうえ `PmBoardTask` 表示用に enrich） |
+| `process-mgmt:task:listBoard` | 🔒 | `{ mode: 'active' \| 'history'; query?; client?; boardProcessView? }` | `PmBoardTask[]`（**全体俯瞰**：`active`＝完了以外、`history`＝完了のみ。`boardProcessView` は `solidworks` / `cadmac` / `both`。**`both` を明示した場合は `active` でも全工程を返す**（ダッシュボード用）。それ以外の `active` はセッションの `processView` を使用。`history` 時は未指定ならセッションの `processView`）。担当者でのサーバ側絞り込みなし。`query`・`client` は一覧取得後のメモリフィルタ。呼び出し時に生産ボードから SolidWorks/CADMAC の既定タスクを同期） |
+| `process-mgmt:task:listMy` | 🔒 | `undefined` | `PmBoardTask[]`（ログイン名が担当かつ未完了。同期のうえ enrich。**SW 主担当行**に `supportProgressList[]`（補助の進捗・メモ・閲覧用）を含む） |
 | `process-mgmt:task:updateProgressNote` | 🔒 | `{ id; progressNote; progressPercent }`（0〜100 の整数） | `PmTask`（`progress_note` と `progress_percent`。**担当者または管理者のみ**更新可） |
 | `process-mgmt:task:start` | ✏️ | `{ id }` | `PmTask`（工程管理では**閲覧者含む**ログインユーザーが操作可。他アプリの ✏️ 定義とは別） |
 | `process-mgmt:task:complete` | ✏️ | `{ id }` | `PmTask`（同上） |
 | `process-mgmt:task:undoComplete` | 🔒 | `{ id; reason }` | `PmTask`（**管理者のみ**。完了→作業中。`reason` は取り消し報告として DB に保存。完了時は直前の取り消しメタをクリア） |
-| `process-mgmt:notify:listPending` | 🔒 | `undefined` | `PmTaskCompletionNotification[]`（ログイン管理者向けの**未確認**タスク完了通知。`acknowledged_at` が付いた行は含まない） |
+| `process-mgmt:notify:listPending` | 🔒 | `undefined` | `PmTaskCompletionNotification[]`（自分宛の**未確認**インナー通知。完了・引渡し・ガント変更。`acknowledged_at` が付いた行は含まない） |
 | `process-mgmt:notify:acknowledge` | 🔒 | `{ id }`（通知行の ID） | `{ acknowledged: true }`（自分宛の未確認通知のみ `acknowledged_at` をセット。他人宛・既に確認済みはエラー） |
+| `process-mgmt:project:setWorkMode` | ✏️ | `{ seisanProjectId; workMode: 'sequential' \| 'parallel'; note? }` | `{ seisanProjectId; workMode }`（**SW 主担当** または admin） |
+| `process-mgmt:task:handoffToCadmac` | ✏️ | `{ taskId; note }`（**メモ必須**） | `PmHandoffEvent`（`batch_no` 自動採番） |
+| `process-mgmt:handoff:listByProject` | 🔒 | `{ seisanProjectId }` | `PmHandoffEvent[]` |
+| `process-mgmt:task:pause` | ✏️ | `{ id }` | `PmTask`（CADMAC・並行・SW 未完了時） |
+| `process-mgmt:task:resume` | ✏️ | `{ id }` | `PmTask`（CADMAC 主担当または admin） |
+| `process-mgmt:support:listUserCandidates` | ✏️ | `undefined` | `{ userNameId; name }[]`（`m_user_names` 有効ユーザー。補助登録候補） |
+| `process-mgmt:task:setSupportAssignees` | ✏️ | `{ taskId; userNameIds: number[] }` | `PmSupportAssignee[]`（**SW 主担当** または admin。主担当は除外） |
+| `process-mgmt:gantt:getTemplateMapping` | 🔒 | `undefined` | `PmGanttTemplateMapping`（未設定時は既定テンプレ名） |
+| `process-mgmt:gantt:setTemplateMapping` | 👑 | `{ swTemplateName; cadmacTemplateName }` | `PmGanttTemplateMapping`（工程管理 admin） |
+| `process-mgmt:gantt:syncDurations` | 🔒 | `{ acknowledge?: boolean }` | `PmGanttSyncResult`（`changes[]`。`acknowledge: true` でキャッシュ更新） |
+| `process-mgmt:dashboard:groupContext` | 🔒 | `undefined` | `{ groupNameId; groupName; members: { userNameId; userName }[] } \| null`（ログインユーザーの所属グループ。未所属は `null`） |
+| `process-mgmt:dashboard:analytics` | 🔒 | `{ staleDays?: number }` | `PmDashboardAnalytics`（放置タスク・月次実績・工程別分析。読み取り専用。`shared/processMgmtDashboard.ts`） |
 
-型は `shared/processMgmt.ts` の `PmProject` / `PmTask`（`completionUndoReason` ほか） / `PmBoardTask` / `PmTaskCompletionNotification` を参照。
+型は `shared/processMgmt.ts` / `shared/processMgmtParallel.ts` / `shared/processMgmtDashboard.ts` の `PmProject` / `PmTask`（`activeBatchNo` ほか） / `PmBoardTask` / `PmHandoffEvent` / `PmGanttSyncResult` / `PmTaskCompletionNotification` / `PmDashboardAnalytics` を参照。
 
 **工程表示**: `task:listBoard` の **アクティブ**、`task:listMy`、`task:listByProject`、各タスク操作はセッションの `processView` で絞り込む。**履歴**のボード一覧だけはリクエストの `boardProcessView` で SW / CADMAC / 両方を切り替え可能。Flask 原型の「SolidWorks 一覧／CADMAC 一覧」の出し分けに相当（デスクトップは単一テーブル＋ SQL 条件）。
 

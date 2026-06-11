@@ -73,6 +73,40 @@ export function loadGroupRoleForUser(userNameId: number): GroupRole | null {
   return row?.roleInGroup ?? null;
 }
 
+export function loadGroupMembershipForUser(
+  userNameId: number
+): { groupNameId: number; groupName: string } | null {
+  const row = getDb()
+    .prepare(
+      `
+      SELECT m.groupNameId, g.name AS groupName
+        FROM m_user_group_memberships m
+        JOIN m_group_names g ON g.id = m.groupNameId
+       WHERE m.userNameId = ?
+       LIMIT 1
+      `
+    )
+    .get(userNameId) as { groupNameId: number; groupName: string } | undefined;
+  if (!row) return null;
+  return { groupNameId: row.groupNameId, groupName: row.groupName };
+}
+
+export function listGroupMembers(
+  groupNameId: number
+): Array<{ userNameId: number; userName: string }> {
+  return getDb()
+    .prepare(
+      `
+      SELECT u.id AS userNameId, u.name AS userName
+        FROM m_user_group_memberships m
+        JOIN m_user_names u ON u.id = m.userNameId
+       WHERE m.groupNameId = ? AND u.isActive = 1
+       ORDER BY u.name COLLATE NOCASE ASC, u.id ASC
+      `
+    )
+    .all(groupNameId) as Array<{ userNameId: number; userName: string }>;
+}
+
 /** 生産案件のグループ名（文字列）に紐づくグループ管理者のログイン名 */
 export function listGroupAdminUsernamesForGroupName(groupName: string): string[] {
   const trimmed = groupName.trim();

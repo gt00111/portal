@@ -1,5 +1,6 @@
 import { getProcessMgmtDb } from "@main/db/processMgmtConnection.js";
 import type { PmBoardTask, PmTaskCompletionNotification, PmTaskCompletionNotifySummary } from "@shared/processMgmt.js";
+import type { PmNotificationKind } from "@shared/processMgmtParallel.js";
 
 type DbNotifyRow = {
   id: number;
@@ -10,6 +11,7 @@ type DbNotifyRow = {
   task_completed_at: string;
   created_at: string;
   acknowledged_at: string | null;
+  notification_kind?: string;
 };
 
 function mapRow(row: DbNotifyRow): PmTaskCompletionNotification {
@@ -38,8 +40,9 @@ function mapRow(row: DbNotifyRow): PmTaskCompletionNotification {
   };
 }
 
-function buildSummary(task: PmBoardTask): PmTaskCompletionNotifySummary {
+function buildSummary(task: PmBoardTask, extras?: Partial<PmTaskCompletionNotifySummary>): PmTaskCompletionNotifySummary {
   return {
+    kind: "task_complete",
     projectName: task.projectName,
     title: task.title,
     processType: task.processType,
@@ -48,7 +51,36 @@ function buildSummary(task: PmBoardTask): PmTaskCompletionNotifySummary {
     revision: task.revision,
     assignee: task.assignee,
     seisanProjectNo: task.seisanProjectNo,
+    ...extras,
   };
+}
+
+export function insertInnerNotifications(
+  recipients: string[],
+  taskId: number,
+  kind: PmNotificationKind,
+  summary: PmTaskCompletionNotifySummary,
+  actor: string,
+  eventAt: string
+): void {
+  const unique = [...new Set(recipients.map((u) => u.trim()).filter(Boolean))];
+  if (unique.length === 0) return;
+  const db = getProcessMgmtDb();
+  const now = new Date().toISOString();
+  const summaryJson = JSON.stringify({ ...summary, kind });
+  const inserter = db.prepare(
+    `
+      INSERT INTO pm_task_completion_notifications (
+        recipient_username, task_id, summary_json, completed_by, task_completed_at, created_at, notification_kind
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `
+  );
+  const tx = db.transaction(() => {
+    for (const recipient of unique) {
+      inserter.run(recipient, taskId, summaryJson, actor.trim(), eventAt, now, kind);
+    }
+  });
+  tx();
 }
 
 export function insertCompletionNotifications(
@@ -65,8 +97,8 @@ export function insertCompletionNotifications(
   const inserter = db.prepare(
     `
       INSERT INTO pm_task_completion_notifications (
-        recipient_username, task_id, summary_json, completed_by, task_completed_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        recipient_username, task_id, summary_json, completed_by, task_completed_at, created_at, notification_kind
+      ) VALUES (?, ?, ?, ?, ?, ?, 'task_complete')
     `
   );
   const tx = db.transaction(() => {

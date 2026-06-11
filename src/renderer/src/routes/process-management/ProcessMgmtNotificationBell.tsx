@@ -113,7 +113,7 @@ export function ProcessMgmtNotificationBell({ username, enabled }: Props): JSX.E
         <div className="absolute right-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] max-h-[min(28rem,85vh)] overflow-hidden rounded-xl border border-border-subtle bg-bg-surface shadow-lg">
           <div className="flex items-start gap-2 border-b border-border-subtle px-3 py-2">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-fg-primary">タスク完了の通知</p>
+              <p className="text-sm font-semibold text-fg-primary">工程管理の通知</p>
               <p className="text-xs text-fg-subtle">
                 未確認の間、ここに残ります。内容を確認したら「確認」で消えます。自動更新は約{" "}
                 {Math.round(POLL_MS / 1000)} 秒ごとなどのため、最新をすぐ見るときは「更新」。
@@ -148,18 +148,30 @@ export function ProcessMgmtNotificationBell({ username, enabled }: Props): JSX.E
                   className="rounded-lg border border-border-subtle bg-bg-elevated/50 p-3 text-sm text-fg-primary"
                 >
                   <div className="mb-2 space-y-1 text-xs leading-snug text-fg-muted">
-                    <p>
-                      <span className="font-medium text-fg-primary">{n.summary.title}</span>
-                      <span className="text-fg-subtle"> · {n.summary.processType}</span>
-                    </p>
+                    {n.summary.message ? (
+                      <p className="font-medium text-fg-primary">{n.summary.message}</p>
+                    ) : (
+                      <p>
+                        <span className="font-medium text-fg-primary">{n.summary.title}</span>
+                        <span className="text-fg-subtle"> · {n.summary.processType}</span>
+                      </p>
+                    )}
                     <p>{n.summary.projectName}</p>
                     <p>
                       {n.summary.client} / {n.summary.drawingNumber} Rev {n.summary.revision}
                     </p>
-                    <p>ユーザー: {n.summary.assignee || "—"}</p>
-                    <p>
-                      完了: {n.completedBy} · {formatCompletedAt(n.taskCompletedAt)}
-                    </p>
+                    {n.summary.kind === "task_complete" || !n.summary.kind ? (
+                      <>
+                        <p>ユーザー: {n.summary.assignee || "—"}</p>
+                        <p>
+                          完了: {n.completedBy} · {formatCompletedAt(n.taskCompletedAt)}
+                        </p>
+                      </>
+                    ) : (
+                      <p>
+                        通知: {n.completedBy} · {formatCompletedAt(n.taskCompletedAt)}
+                      </p>
+                    )}
                   </div>
                   <Button
                     type="button"

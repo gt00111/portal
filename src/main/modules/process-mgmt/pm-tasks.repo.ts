@@ -20,6 +20,7 @@ type DbTaskRow = {
   completion_undo_reason: string | null;
   completion_undo_at: string | null;
   completion_undo_by: string | null;
+  active_batch_no: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -75,6 +76,7 @@ const TASK_STATUS_VALUES = [
   "done",
   "未開始",
   "作業中",
+  "一時中断",
   "完了",
 ] as const;
 const TASK_PROCESS_TYPES = ["general", "solidworks", "cadmac"] as const;
@@ -82,7 +84,8 @@ const TASK_PROCESS_TYPES = ["general", "solidworks", "cadmac"] as const;
 const TASK_SELECT = `
   t.id, t.project_id, t.seisan_project_id, t.title, t.description, t.process_type, t.status,
   t.assignee, t.assignee_user_name_id, t.progress_percent, t.progress_note, t.started_at, t.completed_at,
-  t.completion_undo_reason, t.completion_undo_at, t.completion_undo_by, t.created_at, t.updated_at
+  t.completion_undo_reason, t.completion_undo_at, t.completion_undo_by,
+  t.active_batch_no, t.created_at, t.updated_at
 `;
 
 function validateProcessType(processType: string): void {
@@ -167,6 +170,7 @@ function mapDbToPmTask(row: DbTaskRow): PmTask {
     completionUndoReason: row.completion_undo_reason ?? "",
     completionUndoAt: row.completion_undo_at ?? null,
     completionUndoBy: row.completion_undo_by ?? "",
+    activeBatchNo: row.active_batch_no ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -218,6 +222,7 @@ export function displayPmTask(task: PmTask): PmBoardTask {
     completion_undo_reason: task.completionUndoReason,
     completion_undo_at: task.completionUndoAt,
     completion_undo_by: task.completionUndoBy,
+    active_batch_no: task.activeBatchNo,
     created_at: task.createdAt,
     updated_at: task.updatedAt,
     legacy_name: null,
@@ -252,10 +257,22 @@ function boardProcessViewSql(processView: ProcessView): string {
 function cadmacGateSql(): string {
   return `(
     t.process_type != 'cadmac' OR (
-      (t.seisan_project_id IS NOT NULL AND EXISTS (
-        SELECT 1 FROM tasks sw
-        WHERE sw.seisan_project_id = t.seisan_project_id
-          AND sw.process_type = 'solidworks' AND sw.status = '完了'
+      (t.seisan_project_id IS NOT NULL AND (
+        EXISTS (
+          SELECT 1 FROM tasks sw
+          WHERE sw.seisan_project_id = t.seisan_project_id
+            AND sw.process_type = 'solidworks' AND sw.status = '完了'
+        )
+        OR (
+          COALESCE(
+            (SELECT work_mode FROM pm_seisan_project_meta m WHERE m.seisan_project_id = t.seisan_project_id),
+            'sequential'
+          ) = 'parallel'
+          AND EXISTS (
+            SELECT 1 FROM pm_handoff_events h
+            WHERE h.seisan_project_id = t.seisan_project_id
+          )
+        )
       ))
       OR
       (t.seisan_project_id IS NULL AND EXISTS (
@@ -265,6 +282,41 @@ function cadmacGateSql(): string {
       ))
     )
   )`;
+}
+
+export function assertCadmacCanStart(task: PmTask): void {
+  if (task.processType !== "cadmac" || !task.seisanProjectId) return;
+  const db = getProcessMgmtDb();
+  const sid = task.seisanProjectId;
+  const sw = db
+    .prepare(
+      `SELECT status FROM tasks WHERE seisan_project_id = ? AND process_type = 'solidworks' LIMIT 1`
+    )
+    .get(sid) as { status: string } | undefined;
+  if (sw?.status === "完了") return;
+  const modeRow = db
+    .prepare(`SELECT work_mode FROM pm_seisan_project_meta WHERE seisan_project_id = ?`)
+    .get(sid) as { work_mode: string } | undefined;
+  const mode = modeRow?.work_mode === "parallel" ? "parallel" : "sequential";
+  if (mode !== "parallel") {
+    throw new Error("SolidWorks 工程が完了するまで CADMAC を開始できません。");
+  }
+  const handoffCount = db
+    .prepare(`SELECT COUNT(*) AS n FROM pm_handoff_events WHERE seisan_project_id = ?`)
+    .get(sid) as { n: number };
+  if (handoffCount.n < 1) {
+    throw new Error("並行モードでは CADMAC へ引渡し後に開始できます。");
+  }
+}
+
+function getSwTaskStatus(seisanProjectId: string): string | null {
+  const db = getProcessMgmtDb();
+  const row = db
+    .prepare(
+      `SELECT status FROM tasks WHERE seisan_project_id = ? AND process_type = 'solidworks' LIMIT 1`
+    )
+    .get(seisanProjectId) as { status: string } | undefined;
+  return row?.status ?? null;
 }
 
 export function assertTaskMatchesProcessView(task: PmTask, processView: ProcessView): void {
@@ -303,7 +355,7 @@ export function listTasksByProject(projectId: number, processView: ProcessView):
                assignee_user_name_id,
                progress_percent, progress_note, started_at, completed_at,
                completion_undo_reason, completion_undo_at, completion_undo_by,
-               created_at, updated_at
+               active_batch_no, created_at, updated_at
         FROM tasks
         WHERE project_id = ? AND seisan_project_id IS NULL AND ${viewSql}
         ORDER BY id DESC
@@ -324,7 +376,7 @@ export function listMyTasks(username: string, processView: ProcessView): PmTask[
                assignee_user_name_id,
                progress_percent, progress_note, started_at, completed_at,
                completion_undo_reason, completion_undo_at, completion_undo_by,
-               created_at, updated_at
+               active_batch_no, created_at, updated_at
         FROM tasks
         WHERE assignee = ? AND status != '完了' AND ${viewSql}
         ORDER BY updated_at DESC, id DESC
@@ -406,7 +458,7 @@ export function getTaskDetail(id: number): PmTask {
                assignee_user_name_id,
                progress_percent, progress_note, started_at, completed_at,
                completion_undo_reason, completion_undo_at, completion_undo_by,
-               created_at, updated_at
+               active_batch_no, created_at, updated_at
         FROM tasks WHERE id = ?
       `
     )
@@ -501,19 +553,45 @@ export function startTask(id: number, username: string, userNameId: number | nul
   if (task.status === "完了") {
     throw new Error("完了済みのタスクは開始できません。");
   }
+  assertCadmacCanStart(task);
   const db = getProcessMgmtDb();
   const now = new Date().toISOString();
+  let activeBatch: number | null = task.activeBatchNo;
+  if (task.processType === "cadmac" && task.seisanProjectId) {
+    const latest = db
+      .prepare(
+        `
+          SELECT batch_no FROM pm_handoff_events
+          WHERE seisan_project_id = ?
+          ORDER BY batch_no DESC LIMIT 1
+        `
+      )
+      .get(task.seisanProjectId) as { batch_no: number } | undefined;
+    if (latest) activeBatch = latest.batch_no;
+  }
   db.prepare(
     `
       UPDATE tasks
-      SET status = '作業中', assignee = ?, assignee_user_name_id = ?, started_at = ?, updated_at = ?
+      SET status = '作業中', assignee = ?, assignee_user_name_id = ?, started_at = ?,
+          active_batch_no = COALESCE(?, active_batch_no), updated_at = ?
       WHERE id = ?
     `
-  ).run(username.trim(), userNameId, now, now, id);
+  ).run(username.trim(), userNameId, now, activeBatch, now, id);
   return getTaskDetail(id);
 }
 
 export function completeTask(id: number): PmTask {
+  const task = getTaskDetail(id);
+  if (task.processType === "cadmac" && task.seisanProjectId) {
+    const swStatus = getSwTaskStatus(task.seisanProjectId);
+    const db = getProcessMgmtDb();
+    const modeRow = db
+      .prepare(`SELECT work_mode FROM pm_seisan_project_meta WHERE seisan_project_id = ?`)
+      .get(task.seisanProjectId) as { work_mode: string } | undefined;
+    if (modeRow?.work_mode === "parallel" && swStatus !== "完了") {
+      throw new Error("並行モードで SolidWorks が未完了のときは「一時中断」を使ってください。");
+    }
+  }
   const db = getProcessMgmtDb();
   const now = new Date().toISOString();
   db.prepare(
@@ -529,6 +607,72 @@ export function completeTask(id: number): PmTask {
       WHERE id = ?
     `
   ).run(now, now, id);
+  return getTaskDetail(id);
+}
+
+/** 引渡し直後: CADMAC を一時中断＋バッチ番号をセット（未開始・作業中から遷移可） */
+export function applyCadHandoffPause(cadTaskId: number, batchNo: number): PmTask {
+  const task = getTaskDetail(cadTaskId);
+  if (task.processType !== "cadmac") {
+    throw new Error("CADMAC 工程タスクのみ引渡しで更新できます。");
+  }
+  if (task.status === "完了") {
+    throw new Error("完了済みの CADMAC 工程には引渡しできません。");
+  }
+  const db = getProcessMgmtDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+      UPDATE tasks
+      SET status = '一時中断', active_batch_no = ?, updated_at = ?
+      WHERE id = ?
+    `
+  ).run(batchNo, now, cadTaskId);
+  return getTaskDetail(cadTaskId);
+}
+
+export function pauseTask(id: number, batchNo: number | null): PmTask {
+  const task = getTaskDetail(id);
+  if (task.processType !== "cadmac") {
+    throw new Error("一時中断は CADMAC 工程のみ可能です。");
+  }
+  if (task.status !== "作業中") {
+    throw new Error("作業中のタスクのみ一時中断できます。");
+  }
+  if (!task.seisanProjectId) {
+    throw new Error("生産ボード案件と紐づいていないため一時中断できません。");
+  }
+  const swStatus = getSwTaskStatus(task.seisanProjectId);
+  const db = getProcessMgmtDb();
+  const modeRow = db
+    .prepare(`SELECT work_mode FROM pm_seisan_project_meta WHERE seisan_project_id = ?`)
+    .get(task.seisanProjectId) as { work_mode: string } | undefined;
+  if (modeRow?.work_mode !== "parallel" || swStatus === "完了") {
+    throw new Error("並行モードで SolidWorks が未完了のときのみ一時中断できます。");
+  }
+  const now = new Date().toISOString();
+  const activeBatch = batchNo ?? task.activeBatchNo;
+  db.prepare(
+    `
+      UPDATE tasks
+      SET status = '一時中断', active_batch_no = ?, updated_at = ?
+      WHERE id = ?
+    `
+  ).run(activeBatch, now, id);
+  return getTaskDetail(id);
+}
+
+export function resumeTask(id: number): PmTask {
+  const task = getTaskDetail(id);
+  if (task.processType !== "cadmac") {
+    throw new Error("再開は CADMAC 工程のみ可能です。");
+  }
+  if (task.status !== "一時中断") {
+    throw new Error("一時中断中のタスクのみ再開できます。");
+  }
+  const db = getProcessMgmtDb();
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE tasks SET status = '作業中', updated_at = ? WHERE id = ?`).run(now, id);
   return getTaskDetail(id);
 }
 
@@ -573,7 +717,11 @@ export function undoComplete(id: number, reason: string, adminUsername: string):
 export function listBoardTasks(payload: ListPmBoardPayload, sessionProcessView: ProcessView): PmBoardTask[] {
   const mode = payload.mode;
   const processView: ProcessView =
-    mode === "history" ? (payload.boardProcessView ?? sessionProcessView) : sessionProcessView;
+    payload.boardProcessView === "both"
+      ? "both"
+      : mode === "history"
+        ? (payload.boardProcessView ?? sessionProcessView)
+        : sessionProcessView;
   const db = getProcessMgmtDb();
   const where: string[] = [];
   where.push(boardProcessViewSql(processView));

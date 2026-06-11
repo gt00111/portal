@@ -1,3 +1,11 @@
+import type {
+  PmMyTaskRole,
+  PmNotificationKind,
+  PmSupportAssignee,
+  PmSupportProgressEntry,
+  PmWorkMode,
+} from "./processMgmtParallel.js";
+
 /** @deprecated 案件の正は生産ボード。後方互換の IPC のみ */
 export interface PmProject {
   id: number;
@@ -36,6 +44,8 @@ export interface PmTask {
   completionUndoReason: string;
   completionUndoAt: string | null;
   completionUndoBy: string;
+  /** CADMAC 並行作業で扱っている引渡しバッチ番号 */
+  activeBatchNo: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,10 +59,30 @@ export interface PmBoardTask extends PmTask {
   note: string;
   /** 生産ボードの製番（検索・表示用） */
   seisanProjectNo: string | null;
+  /** §8.6: 案件の作業モード */
+  workMode?: PmWorkMode;
+  latestBatchNo?: number | null;
+  latestBatchNote?: string | null;
+  handoffCount?: number;
+  parallelRecommend?: boolean;
+  supportAssignees?: PmSupportAssignee[];
+  supportAssigneeSummary?: string;
+  /** SW 主担当マイタスク: 補助担当ごとの進捗・メモ（閲覧のみ） */
+  supportProgressList?: PmSupportProgressEntry[];
+  /** マイタスク: 主担当 or 補助 */
+  myTaskRole?: PmMyTaskRole;
+  /** マイタスク補助: 自分の進捗（主担当進捗とは別） */
+  mySupportProgressPercent?: number;
+  mySupportProgressNote?: string;
+  /** 同一案件の SW 工程ステータス（CAD 行の表示用） */
+  swStatus?: string | null;
 }
 
-/** 完了通知に保存する表示用スナップショット */
+/** インナー通知に保存する表示用スナップショット */
 export interface PmTaskCompletionNotifySummary {
+  kind?: PmNotificationKind;
+  /** handoff / gantt_duration 用の本文 */
+  message?: string;
   projectName: string;
   title: string;
   processType: string;
@@ -61,6 +91,7 @@ export interface PmTaskCompletionNotifySummary {
   revision: string;
   assignee: string;
   seisanProjectNo: string | null;
+  batchNo?: number;
 }
 
 /** 未確認のインナー通知（確認するまで一覧に残す） */

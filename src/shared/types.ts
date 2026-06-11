@@ -17,6 +17,10 @@ export interface SessionUser {
   appGrants: Partial<Record<GrantableAppId, AppRole>>;
   /** 所属グループ内の役割（未所属なら null） */
   groupRole: GroupRole | null;
+  /** 所属グループ ID（未所属なら null） */
+  groupNameId: number | null;
+  /** 所属グループ名（未所属なら null） */
+  groupName: string | null;
   mustChangePassword: boolean;
 }
 

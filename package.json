@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "社内アプリ統合ポータル（Electron + React + TypeScript）",
   "private": true,
+  "volta": {
+    "node": "20.18.0"
+  },
   "type": "module",
   "main": "./out/main/index.js",
   "author": "internal",

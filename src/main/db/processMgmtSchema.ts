@@ -86,8 +86,65 @@ export function initProcessMgmtSchema(db: Database.Database): void {
   ensureColumn(db, "tasks", "completion_undo_at", "TEXT");
   ensureColumn(db, "tasks", "completion_undo_by", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "tasks", "assignee_user_name_id", "INTEGER");
+  ensureColumn(db, "tasks", "active_batch_no", "INTEGER");
   ensureProcessMgmtMetaTable(db);
   ensurePmTaskCompletionNotificationsTable(db);
+  ensurePmParallelTables(db);
+}
+
+function ensurePmParallelTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pm_seisan_project_meta (
+      seisan_project_id TEXT PRIMARY KEY,
+      work_mode TEXT NOT NULL DEFAULT 'sequential' CHECK (work_mode IN ('sequential', 'parallel')),
+      work_mode_note TEXT NOT NULL DEFAULT '',
+      work_mode_changed_at TEXT,
+      work_mode_changed_by_username TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS pm_handoff_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seisan_project_id TEXT NOT NULL,
+      sw_task_id INTEGER NOT NULL,
+      batch_no INTEGER NOT NULL,
+      handoff_at TEXT NOT NULL,
+      handoff_by_username TEXT NOT NULL,
+      note TEXT NOT NULL,
+      UNIQUE (seisan_project_id, batch_no)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pm_handoff_project ON pm_handoff_events(seisan_project_id);
+
+    CREATE TABLE IF NOT EXISTS task_support_assignees (
+      task_id INTEGER NOT NULL,
+      user_name_id INTEGER NOT NULL,
+      username TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (task_id, user_name_id),
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS task_support_progress (
+      task_id INTEGER NOT NULL,
+      user_name_id INTEGER NOT NULL,
+      progress_percent INTEGER NOT NULL DEFAULT 0,
+      progress_note TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (task_id, user_name_id),
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS pm_gantt_duration_cache (
+      seisan_project_id TEXT PRIMARY KEY,
+      sw_days INTEGER,
+      cadmac_days INTEGER,
+      notified_sw_days INTEGER,
+      notified_cadmac_days INTEGER,
+      synced_at TEXT NOT NULL
+    );
+  `);
+  ensureColumn(db, "pm_gantt_duration_cache", "notified_sw_days", "INTEGER");
+  ensureColumn(db, "pm_gantt_duration_cache", "notified_cadmac_days", "INTEGER");
+  ensureColumn(db, "pm_task_completion_notifications", "notification_kind", "TEXT NOT NULL DEFAULT 'task_complete'");
 }
 
 /** 工程タスク完了のインナー通知（メールなし。確認まで一覧に残す） */

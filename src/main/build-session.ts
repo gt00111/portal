@@ -4,6 +4,7 @@ import type { SessionUser } from "@shared/types.js";
 import {
   getMasterUserDisplayName,
   loadAppGrantsForUser,
+  loadGroupMembershipForUser,
   loadGroupRoleForUser,
   loadProcessViewForUser,
 } from "@main/db/userAccessQueries.js";
@@ -17,6 +18,7 @@ export function buildSessionFromOperator(record: OperatorRecord): SessionUser {
   }
   const userNameId = record.userNameId;
   const fallbackPv = parseProcessView(record.processView);
+  const groupMembership = loadGroupMembershipForUser(userNameId);
   return {
     id: record.id,
     username: record.username,
@@ -26,6 +28,8 @@ export function buildSessionFromOperator(record: OperatorRecord): SessionUser {
     processView: loadProcessViewForUser(userNameId, fallbackPv),
     appGrants: loadAppGrantsForUser(userNameId),
     groupRole: loadGroupRoleForUser(userNameId),
+    groupNameId: groupMembership?.groupNameId ?? null,
+    groupName: groupMembership?.groupName ?? null,
     mustChangePassword: record.mustChangePassword === 1,
   };
 }

@@ -195,7 +195,7 @@ function AppRoutes(): JSX.Element {
             <Route
               path="/apps/process-management"
               element={
-                <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base">
+                <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base text-fg-primary">
                   <ProcessManagementApp session={session} />
                 </div>
               }

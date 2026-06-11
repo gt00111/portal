@@ -7,6 +7,10 @@ import { appendAuditEntry } from "@main/audit/audit.repo.js";
 import { buildSessionFromOperator } from "@main/build-session.js";
 import { assertLoggedIn } from "@main/auth-guard.js";
 import { isOpen } from "@main/db/connection.js";
+import {
+  loadGroupMembershipForUser,
+  loadGroupRoleForUser,
+} from "@main/db/userAccessQueries.js";
 import { hashPassword, verifyPassword } from "@main/password.js";
 import { clearSession, getSession, setSession, updateSession } from "@main/session.js";
 
@@ -19,7 +23,22 @@ import {
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle("auth:session", async () => {
     try {
-      return ok<SessionUser | null>(getSession());
+      const session = getSession();
+      if (!session) {
+        return ok<SessionUser | null>(null);
+      }
+      if (!isOpen()) {
+        return ok<SessionUser>(session);
+      }
+      const membership = loadGroupMembershipForUser(session.userNameId);
+      const patched: SessionUser = {
+        ...session,
+        groupRole: loadGroupRoleForUser(session.userNameId),
+        groupNameId: membership?.groupNameId ?? null,
+        groupName: membership?.groupName ?? null,
+      };
+      setSession(patched);
+      return ok<SessionUser>(patched);
     } catch (err) {
       return fail(err);
     }

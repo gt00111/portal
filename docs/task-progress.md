@@ -438,6 +438,69 @@
 - カスケードの担当「（未割当）」は内部値 `__unassigned__`（未入力 `assignee` を一致判定）。
 - `filterBoardTasks`（メイン）は空クエリで実質バイパス; 以降はクライアント処理が正。
 
+#### 3-C-2. 並行作業・補助担当（§8.6・**実装済み 2026-05-25**）
+
+**要件**: [requirements.md §8.6](./requirements.md)
+
+- [x] **並行モード決定者**: **SW 工程の主担当**（＋admin）
+- [x] **作業モード**: `sequential` / `parallel`。ボードにバッジ・モーダル切替
+- [x] **CADMAC へ引渡し**: **バッチ連番**＋**メモ必須**（`pm_handoff_events`）。ゲート緩和・CAD へ通知
+- [x] **補助担当（SW）**: DB + マイタスク別カード + ボード「補助」モーダル（複数選択）
+- [x] **主担当マイタスク**: 補助担当ごとの進捗％・メモを同一カード内で閲覧（`supportProgressList`）
+- [x] **ガント連携**: 並行推奨バッジ・変更バナー・`gantt:syncDurations`・インナー通知
+- [x] **一時中断／再開**: CAD 主担当操作
+- [x] **IPC**: `ipc-channels.md` 追記済み
+- [x] **補助担当の登録 UI**（`setSupportAssignees`・ボード SW 行「補助」）
+- [x] **ガント工程名マッピング**（§8.6.9・管理者「ガント工程名」・`process_mgmt_meta` 保存）
+
+#### 3-C-3. 工程管理 UI/UX 改善（§8.7・**実装済み 2026-05-25**）
+
+**要件**: [requirements.md §8.7](./requirements.md)
+
+| Phase | 内容 | 状態 |
+|-------|------|------|
+| **1** | ボード列整理（6 列）/ 状態色バッジ統一 / マイタスク折りたたみ / マイタスクフィルタ | [x] |
+| **2** | 案件詳細右サイドパネル / 操作 ▼ メニュー統合 | [x] |
+| **3** | ダッシュボードタブ / 用語ラベル整理（通常作業・並行作業・CADへ受渡し） | [x] |
+
+**制約**: DB・既存 IPC は極力変更なし。UI のみ。
+
+**主な変更ファイル**: `ProcessManagementApp.tsx`、`process-management/ProcessMgmtDashboard.tsx`、`ProcessMgmtSidePanel.tsx`、`ProcessMgmtMyTaskCard.tsx`、`ProcessMgmtActionMenu.tsx`、`processMgmtLabels.ts`、`processMgmtStatusBadge.tsx`、`processMgmtBoardUtils.ts`
+
+**既知ギャップ → §8.8**: ボード操作が editor/admin で意図どおり動かない可能性、ダッシュボードにグループ別作業状況なし。
+
+#### 3-C-4. 工程管理：ボード操作権限・グループ別ダッシュボード（§8.8・**実装済み 2026-05-25**）
+
+**要件**: [requirements.md §8.8](./requirements.md)
+
+| Phase | 内容 | 状態 |
+|-------|------|------|
+| **A** | ボード操作権限（viewer=閲覧のみ、editor/admin=操作 ▼）・IPC 整合 | [x] |
+| **A'** | 作業ライフサイクルは主担当限定・editor は並行/補助/引渡しのみ（§8.8.2 見直し） | [x] |
+| **B** | ログインセッションに `groupName` / `groupNameId` 付与 | [x] |
+| **C** | ダッシュボード「自グループの作業状況」・全体切替・未所属はダッシュボード制限 | [x] |
+| **D** | マスタユーザー一覧の所属グループ列 | [x]（既存 `UserAccessPage`） |
+
+**主な変更**: `auth-guard.ts`（`assertCanWriteProcessMgmtTasks`）、`process-mgmt.handler.ts`、`build-session.ts`、`processMgmtDashboard.ts`（shared）、`ProcessMgmtDashboard.tsx`、`ProcessManagementApp.tsx`
+
+**2026-05-25 権限見直し（§8.8.2）**: `shared/processMgmtPermissions.ts` 追加。開始・完了・中断・再開は主担当（着手者）のみ（admin 代理可）。editor は並行設定・補助・引渡しのみ担当外代理可。`ProcessMgmtActionMenu.tsx` / `process-mgmt.handler.ts` を更新。
+
+#### 3-C-5. 工程管理：ダッシュボード分析・異常検知（§8.9・**完了 2026-05-25**）
+
+**要件**: [requirements.md §8.9](./requirements.md)
+
+| 改修 | 内容 | 状態 |
+|------|------|------|
+| **1** | 放置タスク検知（7日・カード＋モーダル） | [x] |
+| **2** | 月次実績サマリー（完了・平均日数・引渡し・並行率） | [x] |
+| **3** | 工程別ボトルネック分析 | [x] |
+| **4** | グループ負荷状況（順位禁止） | [x] |
+| **5** | 情報密度・3段レイアウト | [x] |
+
+**設計思想**: 人ではなく工程・案件の滞留を発見する。個人ランキング・人事評価用途は禁止。
+
+**主な変更**: `shared/processMgmtDashboard.ts`（集計ロジック）、`pm-dashboard-analytics.repo.ts`、`process-mgmt:dashboard:analytics` IPC、`pm-handoff.repo.ts`（月次 COUNT）、`ProcessMgmtDashboard.tsx`（3段レイアウト・放置モーダル・工程別分析）、`ProcessManagementApp.tsx`（`boardProcessView: both` + analytics 取得）、`docs/ipc-channels.md`
+
 ### ~~3-D. PDF_scope_vault（子プロセス起動）~~ **撤去済み（2026-05-09）**
 - PDF Scope Vault（OCR アプリ）は**ポータル統合から外し**、単体デスクトップアプリとして別管理。`launcher:openApp` / 同梱 `resources/tools/pdf-scope-vault` / 設定 IPC は削除。
 - **PixoConverter** は当面コード上は子プロセス起動だが、**内蔵化が最終方針**（詳細は 3-E）。

@@ -1,7 +1,7 @@
 import {
   ClipboardPenLine,
-  ExternalLink,
   HelpCircle,
+  LayoutDashboard,
   LayoutGrid,
   User,
 } from "lucide-react";
@@ -9,11 +9,17 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 
 import type { AppRole } from "@shared/auth.js";
 import {
+  canAppWrite,
   canOperateProcessMgmtApp,
   getAppRole,
-  isGroupAdmin,
 } from "@shared/auth.js";
-import type { PmBoardTask } from "@shared/processMgmt.js";
+import type { PmDashboardAnalytics, PmDashboardGroupContext } from "@shared/processMgmtDashboard.js";
+import type { PmBoardTask, PmTaskCompletionNotification } from "@shared/processMgmt.js";
+import type {
+  PmGanttDurationChange,
+  PmGanttTemplateMapping,
+  PmWorkMode,
+} from "@shared/processMgmtParallel.js";
 import { PROCESS_VIEW_LABELS, type ProcessView } from "@shared/processView.js";
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
 import type { ProjectWithRelations } from "@shared/seisan/project.js";
@@ -31,6 +37,8 @@ import {
   BOARD_HELP_OVERVIEW,
   BOARD_HELP_PROGRESS,
   BOARD_HELP_UNDO_ADMIN,
+  BOARD_HELP_LIFECYCLE,
+  BOARD_HELP_PARALLEL,
   BOARD_HELP_UNDO_VIEWER,
   BOARD_HELP_VIEW_ACTIVE_TEMPLATE,
   BOARD_PAGE_TAGLINE,
@@ -42,6 +50,25 @@ import {
   MY_TASKS_PAGE_TAGLINE,
 } from "@renderer/routes/process-management/processManagementHelpCopy.js";
 import { ProcessMgmtNotificationBell } from "@renderer/routes/process-management/ProcessMgmtNotificationBell.js";
+import { ProcessMgmtActionMenu } from "@renderer/routes/process-management/ProcessMgmtActionMenu.js";
+import { ProcessMgmtDashboard } from "@renderer/routes/process-management/ProcessMgmtDashboard.js";
+import { ProcessMgmtMyTaskCard } from "@renderer/routes/process-management/ProcessMgmtMyTaskCard.js";
+import {
+  GanttChangeBanner,
+  GanttTemplateMappingModal,
+  HandoffModal,
+  ParallelMetaBadges,
+  SupportAssigneesModal,
+  WorkModeModal,
+} from "@renderer/routes/process-management/ProcessMgmtParallelPanel.js";
+import { ProcessMgmtSidePanel } from "@renderer/routes/process-management/ProcessMgmtSidePanel.js";
+import {
+  boardRowProjectKey,
+  formatBoardDateTime,
+  tasksForProject,
+} from "@renderer/routes/process-management/processMgmtBoardUtils.js";
+import { processTypeLabel } from "@renderer/routes/process-management/processMgmtLabels.js";
+import { PmTaskStatusBadge } from "@renderer/routes/process-management/processMgmtStatusBadge.js";
 
 const ROLE_LABELS: Record<AppRole, string> = {
   admin: "管理者",
@@ -49,7 +76,6 @@ const ROLE_LABELS: Record<AppRole, string> = {
   viewer: "閲覧者",
 };
 
-const PROGRESS_NOTE_MAX_LENGTH = 2000;
 const COMPLETION_UNDO_REASON_MAX_LENGTH = 2000;
 
 const BOARD_HISTORY_VIEWS = ["solidworks", "cadmac", "both"] as const;
@@ -68,10 +94,6 @@ type BoardSortKey =
   | "completedAt"
   | "progressPercent"
   | "progressNote";
-
-function boardRowProjectKey(t: PmBoardTask): string {
-  return `${t.seisanProjectId ?? ""}\t${t.projectName}\t${t.drawingNumber}\t${t.revision}`;
-}
 
 function boardRowProjectLabel(t: PmBoardTask): string {
   const sn = t.seisanProjectNo ? `${t.seisanProjectNo} · ` : "";
@@ -221,28 +243,6 @@ function BoardSortHeader({
   );
 }
 
-function formatBoardDateTime(iso: string | null): string {
-  if (!iso?.trim()) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
-}
-
-/** ボード「状態」列のみ — タスクの意味が一目で分かるようバッジ色分け */
-function boardTaskStatusBadgeClass(status: string): string {
-  const s = status.trim();
-  if (s === "完了" || s === "done") {
-    return "border-state-success/50 bg-state-success/12 text-state-success";
-  }
-  if (s === "作業中" || s === "in_progress") {
-    return "border-accent-primary/45 bg-accent-primary/12 text-accent-primary";
-  }
-  if (s === "blocked") {
-    return "border-state-warning/55 bg-state-warning/15 text-state-warning";
-  }
-  return "border-border-subtle bg-bg-elevated text-fg-muted";
-}
-
 function formatSeisanDeadline(raw: string): string {
   if (!raw?.trim() || raw === "9999-12-31") return "—";
   const d = new Date(raw.includes("T") ? raw : `${raw}T00:00:00`);
@@ -253,67 +253,6 @@ function formatSeisanDeadline(raw: string): string {
 function dashIfEmpty(s: string | null | undefined): string {
   const t = (s ?? "").trim();
   return t.length > 0 ? t : "—";
-}
-
-/** 一覧セルに表示するプレビュー文字数（クリックでモーダル全文） */
-const BOARD_PROGRESS_NOTE_PREVIEW_CHARS = 15;
-
-function boardProgressNotePreviewLabel(text: string): { preview: string; truncated: boolean } {
-  const max = BOARD_PROGRESS_NOTE_PREVIEW_CHARS;
-  if (text.length <= max) return { preview: text, truncated: false };
-  return { preview: `${text.slice(0, max)}…`, truncated: true };
-}
-
-function BoardProgressCell({ task }: { task: PmBoardTask }): JSX.Element {
-  const [noteModalOpen, setNoteModalOpen] = useState(false);
-  const text = task.progressNote.trim();
-
-  if (text.length > 0) {
-    const { preview, truncated } = boardProgressNotePreviewLabel(text);
-
-    return (
-      <>
-        <button
-          type="button"
-          onClick={() => setNoteModalOpen(true)}
-          className={cn(
-            "min-w-0 max-w-[14rem] rounded-lg border border-accent-secondary/45 bg-accent-secondary/10 px-2.5 py-2 text-left text-sm leading-snug text-fg-primary shadow-sm transition-colors",
-            "hover:border-accent-secondary/70 hover:bg-accent-secondary/16 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary/50",
-            "[box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.04)]"
-          )}
-          title="クリックで全文を表示"
-        >
-          <span className="block break-all">{preview}</span>
-          {truncated ? (
-            <span className="mt-1.5 block text-[0.7rem] font-semibold text-accent-secondary">クリックで全文</span>
-          ) : null}
-        </button>
-        <Modal
-          open={noteModalOpen}
-          title="進捗メモ（共有）"
-          onClose={() => setNoteModalOpen(false)}
-          width="lg"
-        >
-          <div className="max-h-[min(70vh,32rem)] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed text-fg-primary">
-            {text}
-          </div>
-          <p className="mt-4 border-t border-border-subtle pt-3 text-xs text-fg-muted">
-            担当者がマイタスクで申告した進捗メモです（全員が閲覧可能）。
-          </p>
-        </Modal>
-      </>
-    );
-  }
-
-  return (
-    <div
-      className="min-w-[11rem] max-w-[24rem] rounded-lg border border-dashed border-fg-muted/35 bg-bg-elevated/40 px-3 py-2 text-center text-xs leading-relaxed text-fg-muted"
-      title="進捗メモの未入力（マイタスクから担当者が入力）"
-    >
-      <span className="font-medium text-fg-subtle">未申告</span>
-      <span className="mt-1 block text-[0.7rem] font-normal text-fg-muted/90">共有されておりません</span>
-    </div>
-  );
 }
 
 function SeisanDetailRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
@@ -485,179 +424,34 @@ function UndoCompleteDialog({
   );
 }
 
-type TabId = "board" | "mytasks";
+type TabId = "dashboard" | "board" | "mytasks";
+type MyTaskFilter = "all" | "primary" | "support";
 
 interface Props {
   session: SessionUser;
 }
 
-function canEditTaskProgressNote(session: SessionUser, task: PmBoardTask): boolean {
-  return (
-    getAppRole(session, "process-management") === "admin" ||
-    task.assignee.trim() === session.username.trim()
-  );
-}
-
-function MyTaskCard({
-  task,
-  session,
-  writable,
-  onRefresh,
-  onError,
-  onOpenCaseDetail,
-}: {
-  task: PmBoardTask;
-  session: SessionUser;
-  writable: boolean;
-  onRefresh: () => Promise<void>;
-  onError: (msg: string | null) => void;
-  onOpenCaseDetail: (seisanProjectId: string | null) => void;
-}): JSX.Element {
-  const [note, setNote] = useState(task.progressNote);
-  const [percent, setPercent] = useState(task.progressPercent);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setNote(task.progressNote);
-    setPercent(task.progressPercent);
-  }, [task.id, task.progressNote, task.progressPercent]);
-
-  const canEditNote = canEditTaskProgressNote(session, task);
-  const showActions = writable && task.status !== "完了";
-
-  async function handleSaveNote(): Promise<void> {
-    try {
-      setSaving(true);
-      onError(null);
-      await invoke("process-mgmt:task:updateProgressNote", {
-        id: task.id,
-        progressNote: note,
-        progressPercent: percent,
-      });
-      await onRefresh();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleStart(): Promise<void> {
-    try {
-      onError(null);
-      await invoke("process-mgmt:task:start", { id: task.id });
-      await onRefresh();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function handleComplete(): Promise<void> {
-    try {
-      onError(null);
-      await invoke("process-mgmt:task:complete", { id: task.id });
-      setPercent(100);
-      await onRefresh();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  return (
-    <li className="space-y-3 rounded-lg border border-border-subtle bg-bg-surface p-4 text-sm">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="font-medium text-fg-primary">{task.title}</div>
-          <div className="mt-1 text-xs text-fg-muted">
-            {task.projectName}
-            {task.seisanProjectNo ? `（製番 ${task.seisanProjectNo}）` : ""}
-          </div>
-          <div className="mt-0.5 text-xs text-fg-muted">
-            {task.client} / {task.drawingNumber} Rev {task.revision}
-          </div>
-          <div className="mt-1 text-xs text-fg-subtle">
-            {task.processType} · {task.status}
-            {task.assignee ? ` · 担当 ${task.assignee}` : ""}
-          </div>
-          {task.seisanProjectId ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="mt-1.5 h-7 px-2 text-xs text-accent-secondary hover:text-accent-secondary"
-              onClick={() => onOpenCaseDetail(task.seisanProjectId)}
-            >
-              案件内容（閲覧）
-            </Button>
-          ) : null}
-        </div>
-        {showActions && (
-          <div className="flex shrink-0 flex-nowrap gap-2">
-            {task.status !== "作業中" && (
-              <Button type="button" size="sm" className="whitespace-nowrap" onClick={() => void handleStart()}>
-                開始
-              </Button>
-            )}
-            {task.status === "作業中" && (
-              <Button type="button" size="sm" className="whitespace-nowrap" onClick={() => void handleComplete()}>
-                完了
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs font-medium text-fg-subtle">進捗（0〜100％）</label>
-        <div className="flex min-w-0 items-center gap-3">
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={percent}
-            onChange={(e) => setPercent(Number(e.target.value))}
-            disabled={!canEditNote}
-            className={cn("h-2 min-w-0 flex-1 cursor-pointer accent-accent-primary", !canEditNote && "cursor-not-allowed opacity-60")}
-          />
-          <span className="shrink-0 tabular-nums text-sm font-semibold text-fg-primary">{percent}%</span>
-        </div>
-        {!canEditNote && (
-          <p className="mt-1 text-[0.7rem] text-fg-muted">スライダーは担当者または管理者のみ変更できます。</p>
-        )}
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs font-medium text-fg-subtle">進捗メモ（テキスト）</label>
-        <textarea
-          className={cn(
-            "min-h-[5rem] w-full resize-y rounded-md border border-border-subtle bg-bg-elevated px-3 py-2 text-sm text-fg-primary",
-            !canEditNote && "cursor-not-allowed opacity-80"
-          )}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          disabled={!canEditNote}
-          maxLength={PROGRESS_NOTE_MAX_LENGTH}
-          placeholder={canEditNote ? "進捗や状況をメモできます（担当者または管理者）" : "担当者または管理者のみ編集できます"}
-        />
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-fg-subtle">
-          <span>
-            {note.length} / {PROGRESS_NOTE_MAX_LENGTH}
-          </span>
-          {canEditNote && (
-            <Button type="button" variant="secondary" size="sm" disabled={saving} onClick={() => void handleSaveNote()}>
-              {saving ? "保存中…" : "進捗（％・メモ）を保存"}
-            </Button>
-          )}
-        </div>
-      </div>
-    </li>
-  );
+function hasProcessMgmtGroup(
+  groupNameId: number | null | undefined,
+  groupName: string | null | undefined
+): boolean {
+  return groupNameId != null && (groupName?.trim() ?? "").length > 0;
 }
 
 export function ProcessManagementApp({ session }: Props): JSX.Element {
-  const canOperatePmTasks = canOperateProcessMgmtApp(session);
-  const [tab, setTab] = useState<TabId>("board");
+  const [groupNameId, setGroupNameId] = useState(session.groupNameId);
+  const [groupName, setGroupName] = useState(session.groupName);
+  const hasPmGroup = hasProcessMgmtGroup(groupNameId, groupName);
+  const canWritePmTasks = canAppWrite(session, "process-management");
+  const [tab, setTab] = useState<TabId>(() =>
+    hasProcessMgmtGroup(session.groupNameId, session.groupName) ? "dashboard" : "mytasks"
+  );
+  const [groupContext, setGroupContext] = useState<PmDashboardGroupContext | null>(null);
+  const [dashboardAnalytics, setDashboardAnalytics] = useState<PmDashboardAnalytics | null>(null);
+  const [sidePanelTask, setSidePanelTask] = useState<PmBoardTask | null>(null);
+  const [myTaskFilter, setMyTaskFilter] = useState<MyTaskFilter>("primary");
+  const [dashNotifications, setDashNotifications] = useState<PmTaskCompletionNotification[]>([]);
+  const [dashNotifyLoading, setDashNotifyLoading] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -675,6 +469,19 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
   const [boardPage, setBoardPage] = useState(1);
   const [boardPageSize, setBoardPageSize] = useState<BoardPageSize>(BOARD_PAGE_SIZES[0]);
   const [boardTasks, setBoardTasks] = useState<PmBoardTask[]>([]);
+  const [ganttChanges, setGanttChanges] = useState<PmGanttDurationChange[]>([]);
+  const [ganttAckSubmitting, setGanttAckSubmitting] = useState(false);
+  const [handoffTarget, setHandoffTarget] = useState<PmBoardTask | null>(null);
+  const [handoffSubmitting, setHandoffSubmitting] = useState(false);
+  const [workModeTarget, setWorkModeTarget] = useState<PmBoardTask | null>(null);
+  const [workModeSubmitting, setWorkModeSubmitting] = useState(false);
+  const [supportTarget, setSupportTarget] = useState<PmBoardTask | null>(null);
+  const [supportCandidates, setSupportCandidates] = useState<Array<{ userNameId: number; name: string }>>([]);
+  const [supportCandidatesLoading, setSupportCandidatesLoading] = useState(false);
+  const [supportSubmitting, setSupportSubmitting] = useState(false);
+  const [ganttMappingOpen, setGanttMappingOpen] = useState(false);
+  const [ganttMapping, setGanttMapping] = useState<PmGanttTemplateMapping | null>(null);
+  const [ganttMappingSubmitting, setGanttMappingSubmitting] = useState(false);
 
   const [myTasks, setMyTasks] = useState<PmBoardTask[]>([]);
 
@@ -688,6 +495,17 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
   const [undoSubmitting, setUndoSubmitting] = useState(false);
   const [undoError, setUndoError] = useState<string | null>(null);
 
+  const syncGanttDurations = useCallback(async (acknowledge: boolean) => {
+    const result = await invoke<{ changes: PmGanttDurationChange[] }>("process-mgmt:gantt:syncDurations", {
+      acknowledge,
+    });
+    if (!acknowledge) {
+      setGanttChanges(result.changes ?? []);
+    } else {
+      setGanttChanges([]);
+    }
+  }, []);
+
   const refreshBoard = useCallback(async () => {
     const data = await invoke<PmBoardTask[]>("process-mgmt:task:listBoard", {
       mode: boardMode,
@@ -696,7 +514,12 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
       ...(boardMode === "history" ? { boardProcessView: boardHistoryProcessView } : {}),
     });
     setBoardTasks(data);
-  }, [boardMode, boardHistoryProcessView]);
+    if (boardMode === "active") {
+      await syncGanttDurations(false);
+    } else {
+      setGanttChanges([]);
+    }
+  }, [boardMode, boardHistoryProcessView, syncGanttDurations]);
 
   const boardCascadeMeta = useMemo(() => {
     const clientOptions = [
@@ -913,12 +736,71 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
     })();
   }, [tab, refreshMyTasks]);
 
+  const refreshDashNotifications = useCallback(async () => {
+    setDashNotifyLoading(true);
+    try {
+      const list = await invoke<PmTaskCompletionNotification[]>("process-mgmt:notify:listPending", undefined);
+      setDashNotifications(Array.isArray(list) ? list : []);
+    } catch {
+      setDashNotifications([]);
+    } finally {
+      setDashNotifyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void invoke<SessionUser>("auth:syncSession")
+      .then((s) => {
+        setGroupNameId(s.groupNameId);
+        setGroupName(s.groupName);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (tab !== "dashboard" || !hasPmGroup) return;
+    void (async () => {
+      try {
+        setMessage(null);
+        const [data, ctx, analytics] = await Promise.all([
+          invoke<PmBoardTask[]>("process-mgmt:task:listBoard", {
+            mode: "active",
+            query: "",
+            client: "",
+            boardProcessView: "both",
+          }),
+          invoke<PmDashboardGroupContext | null>("process-mgmt:dashboard:groupContext", undefined),
+          invoke<PmDashboardAnalytics>("process-mgmt:dashboard:analytics", { staleDays: 7 }),
+        ]);
+        setBoardTasks(data);
+        setGroupContext(ctx);
+        setDashboardAnalytics(analytics);
+        await refreshMyTasks();
+        await refreshDashNotifications();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, [tab, hasPmGroup, refreshDashNotifications, refreshMyTasks]);
+
+  const filteredMyTasks = useMemo(() => {
+    if (myTaskFilter === "all") return myTasks;
+    if (myTaskFilter === "support") return myTasks.filter((t) => t.myTaskRole === "support");
+    return myTasks.filter((t) => t.myTaskRole !== "support");
+  }, [myTasks, myTaskFilter]);
+
+  const sidePanelProjectTasks = useMemo(() => {
+    if (!sidePanelTask?.seisanProjectId) return [];
+    return tasksForProject(boardTasks, sidePanelTask.seisanProjectId);
+  }, [boardTasks, sidePanelTask?.seisanProjectId]);
+
   async function handleStartTask(id: number): Promise<void> {
     try {
       setMessage(null);
       await invoke<PmBoardTask>("process-mgmt:task:start", { id });
       await refreshBoard();
-      if (tab === "mytasks") await refreshMyTasks();
+      if (tab === "mytasks" || tab === "dashboard") await refreshMyTasks();
+      if (tab === "dashboard") await refreshDashNotifications();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     }
@@ -929,9 +811,143 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
       setMessage(null);
       await invoke<PmBoardTask>("process-mgmt:task:complete", { id });
       await refreshBoard();
-      if (tab === "mytasks") await refreshMyTasks();
+      if (tab === "mytasks" || tab === "dashboard") await refreshMyTasks();
+      if (tab === "dashboard") await refreshDashNotifications();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handlePauseTask(id: number): Promise<void> {
+    try {
+      setMessage(null);
+      await invoke("process-mgmt:task:pause", { id });
+      await refreshBoard();
+      if (tab === "mytasks" || tab === "dashboard") await refreshMyTasks();
+      if (tab === "dashboard") await refreshDashNotifications();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleResumeTask(id: number): Promise<void> {
+    try {
+      setMessage(null);
+      await invoke("process-mgmt:task:resume", { id });
+      await refreshBoard();
+      if (tab === "mytasks" || tab === "dashboard") await refreshMyTasks();
+      if (tab === "dashboard") await refreshDashNotifications();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function submitHandoff(note: string): Promise<void> {
+    if (!handoffTarget) return;
+    setHandoffSubmitting(true);
+    try {
+      setMessage(null);
+      await invoke("process-mgmt:task:handoffToCadmac", { taskId: handoffTarget.id, note });
+      setHandoffTarget(null);
+      await refreshBoard();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHandoffSubmitting(false);
+    }
+  }
+
+  const openSupportModal = useCallback(async (task: PmBoardTask): Promise<void> => {
+    setSupportTarget(task);
+    setSupportCandidatesLoading(true);
+    try {
+      const list = await invoke<Array<{ userNameId: number; name: string }>>(
+        "process-mgmt:support:listUserCandidates"
+      );
+      setSupportCandidates(list);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+      setSupportTarget(null);
+    } finally {
+      setSupportCandidatesLoading(false);
+    }
+  }, []);
+
+  async function submitSupportAssignees(userNameIds: number[]): Promise<void> {
+    if (!supportTarget) return;
+    setSupportSubmitting(true);
+    try {
+      setMessage(null);
+      await invoke("process-mgmt:task:setSupportAssignees", {
+        taskId: supportTarget.id,
+        userNameIds,
+      });
+      setSupportTarget(null);
+      await refreshBoard();
+      if (tab === "mytasks" || tab === "dashboard") await refreshMyTasks();
+      if (tab === "dashboard") await refreshDashNotifications();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSupportSubmitting(false);
+    }
+  }
+
+  const openGanttMappingModal = useCallback(async (): Promise<void> => {
+    setGanttMappingOpen(true);
+    try {
+      const mapping = await invoke<PmGanttTemplateMapping>("process-mgmt:gantt:getTemplateMapping");
+      setGanttMapping(mapping);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+      setGanttMappingOpen(false);
+    }
+  }, []);
+
+  async function submitGanttMapping(input: PmGanttTemplateMapping): Promise<void> {
+    setGanttMappingSubmitting(true);
+    try {
+      setMessage(null);
+      const mapping = await invoke<PmGanttTemplateMapping>("process-mgmt:gantt:setTemplateMapping", input);
+      setGanttMapping(mapping);
+      setGanttMappingOpen(false);
+      if (boardMode === "active") {
+        await syncGanttDurations(false);
+      }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGanttMappingSubmitting(false);
+    }
+  }
+
+  async function submitWorkMode(mode: PmWorkMode, note: string): Promise<void> {
+    if (!workModeTarget?.seisanProjectId) return;
+    setWorkModeSubmitting(true);
+    try {
+      setMessage(null);
+      await invoke("process-mgmt:project:setWorkMode", {
+        seisanProjectId: workModeTarget.seisanProjectId,
+        workMode: mode,
+        note,
+      });
+      setWorkModeTarget(null);
+      await refreshBoard();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setWorkModeSubmitting(false);
+    }
+  }
+
+  async function acknowledgeGanttChanges(): Promise<void> {
+    setGanttAckSubmitting(true);
+    try {
+      await syncGanttDurations(true);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGanttAckSubmitting(false);
     }
   }
 
@@ -964,9 +980,23 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
   }
 
   const pmAdmin = getAppRole(session, "process-management") === "admin";
-  const showNotifyBell = isGroupAdmin(session) && canOperateProcessMgmtApp(session);
-  const showBoardOpsCol = canOperatePmTasks || (pmAdmin && boardMode === "history");
-  const boardColCount = showBoardOpsCol ? 11 : 10;
+  const showNotifyBell = canOperateProcessMgmtApp(session) || getAppRole(session, "process-management") != null;
+  const showBoardOpsCol = canWritePmTasks || (pmAdmin && boardMode === "history");
+
+  const headerTabs = [
+    ["dashboard", "ダッシュボード", LayoutDashboard] as const,
+    ["mytasks", "マイタスク", ClipboardPenLine] as const,
+    ["board", "ボード", LayoutGrid] as const,
+  ] as const;
+
+  function filterBoardByAssignee(assignee: string): void {
+    setBoardCascadeAssignee(assignee.trim());
+    setBoardPage(1);
+    setTab("board");
+  }
+  const showBoardHistoryDateCols = boardMode === "history";
+  const boardColCount =
+    5 + (showBoardHistoryDateCols ? 2 : 0) + (showBoardOpsCol ? 1 : 0);
 
   const boardRangeStart = boardTotal === 0 ? 0 : (boardPage - 1) * boardPageSize + 1;
   const boardRangeEnd = boardTotal === 0 ? 0 : Math.min(boardPage * boardPageSize, boardTotal);
@@ -980,12 +1010,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
             className="h-8 w-auto max-h-9 max-w-[min(200px,50vw)] shrink-0 object-contain sm:h-9 sm:max-w-[min(200px,28vw)]"
           />
           <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-0.5 sm:gap-2 sm:pb-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {(
-              [
-                ["board", "ボード", LayoutGrid] as const,
-                ["mytasks", "マイタスク", ClipboardPenLine] as const,
-              ] as const
-            ).map(([id, label, Icon]) => (
+            {headerTabs.map(([id, label, Icon]) => (
               <button
                 key={id}
                 type="button"
@@ -1024,9 +1049,66 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
             </div>
           )}
 
+          {tab === "dashboard" && !hasPmGroup && (
+            <section className="mx-auto max-w-lg rounded-lg border border-border-subtle bg-bg-surface p-8 text-center">
+              <LayoutDashboard className="mx-auto h-10 w-10 text-fg-muted" aria-hidden />
+              <h2 className="mt-4 text-base font-semibold text-fg-primary">ダッシュボードは利用できません</h2>
+              <p className="mt-3 text-sm leading-relaxed text-fg-muted">
+                グループに所属していないため、チームの作業状況を表示できません。ポータル管理者に
+                <strong className="text-fg-primary">所属グループ</strong>
+                の設定を依頼してください。
+              </p>
+              <p className="mt-2 text-xs text-fg-subtle">
+                設定後は一度ログアウトして再ログインすると反映されます。ボード・マイタスクは通常どおり利用できます。
+              </p>
+              <div className="mt-6 flex flex-wrap justify-center gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={() => setTab("mytasks")}>
+                  マイタスクへ
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setTab("board")}>
+                  ボードへ
+                </Button>
+              </div>
+            </section>
+          )}
+
+          {tab === "dashboard" && hasPmGroup && (
+            <ProcessMgmtDashboard
+              session={session}
+              boardTasks={boardTasks}
+              myTasks={myTasks}
+              notifications={dashNotifications}
+              notificationsLoading={dashNotifyLoading}
+              analytics={dashboardAnalytics}
+              groupContext={groupContext}
+              onRefreshNotifications={() => void refreshDashNotifications()}
+              onGoBoard={() => setTab("board")}
+              onGoMyTasks={() => setTab("mytasks")}
+              onFilterBoardByAssignee={filterBoardByAssignee}
+            />
+          )}
+
+          {tab === "board" && boardMode === "active" && (
+            <GanttChangeBanner
+              changes={ganttChanges}
+              onAcknowledge={() => void acknowledgeGanttChanges()}
+              acknowledging={ganttAckSubmitting}
+            />
+          )}
+
           {tab === "board" && (
             <section className="space-y-3">
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                {pmAdmin ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void openGanttMappingModal()}
+                  >
+                    ガント工程名
+                  </Button>
+                ) : null}
                 <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
                   <HelpCircle size={16} aria-hidden />
                   ヘルプ
@@ -1052,7 +1134,12 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                         "rounded px-3 py-1.5 text-xs font-medium",
                         boardMode === "history" ? "bg-accent-primary text-bg-base" : "text-fg-muted"
                       )}
-                      onClick={() => setBoardMode("history")}
+                      onClick={() => {
+                        setBoardMode("history");
+                        setBoardSortKey("completedAt");
+                        setBoardSortDir("desc");
+                        setBoardPage(1);
+                      }}
                     >
                       履歴
                     </button>
@@ -1176,13 +1263,6 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                         onSort={handleBoardSort}
                       />
                       <BoardSortHeader
-                        label="タスク"
-                        sortKey="title"
-                        activeKey={boardSortKey}
-                        dir={boardSortDir}
-                        onSort={handleBoardSort}
-                      />
-                      <BoardSortHeader
                         label="工程"
                         sortKey="processType"
                         activeKey={boardSortKey}
@@ -1205,47 +1285,34 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                         className="min-w-[4.5rem] whitespace-nowrap"
                       />
                       <BoardSortHeader
-                        label="更新"
-                        sortKey="updatedAt"
-                        activeKey={boardSortKey}
-                        dir={boardSortDir}
-                        onSort={handleBoardSort}
-                        className="min-w-[7rem] whitespace-nowrap"
-                      />
-                      <BoardSortHeader
-                        label="着手"
-                        sortKey="startedAt"
-                        activeKey={boardSortKey}
-                        dir={boardSortDir}
-                        onSort={handleBoardSort}
-                        className="min-w-[7rem] whitespace-nowrap"
-                      />
-                      <BoardSortHeader
-                        label="完了"
-                        sortKey="completedAt"
-                        activeKey={boardSortKey}
-                        dir={boardSortDir}
-                        onSort={handleBoardSort}
-                        className="min-w-[7rem] whitespace-nowrap"
-                      />
-                      <BoardSortHeader
                         label="進捗"
                         sortKey="progressPercent"
                         activeKey={boardSortKey}
                         dir={boardSortDir}
                         onSort={handleBoardSort}
                         align="right"
-                        className="w-24 tabular-nums"
+                        className="w-20 tabular-nums"
                       />
-                      <BoardSortHeader
-                        label="進捗（共有）"
-                        subLabel="自己申告 · 全員が閲覧"
-                        sortKey="progressNote"
-                        activeKey={boardSortKey}
-                        dir={boardSortDir}
-                        onSort={handleBoardSort}
-                        className="min-w-[12rem]"
-                      />
+                      {showBoardHistoryDateCols && (
+                        <>
+                          <BoardSortHeader
+                            label="着手"
+                            sortKey="startedAt"
+                            activeKey={boardSortKey}
+                            dir={boardSortDir}
+                            onSort={handleBoardSort}
+                            className="min-w-[7.5rem] whitespace-nowrap"
+                          />
+                          <BoardSortHeader
+                            label="完了"
+                            sortKey="completedAt"
+                            activeKey={boardSortKey}
+                            dir={boardSortDir}
+                            onSort={handleBoardSort}
+                            className="min-w-[7.5rem] whitespace-nowrap"
+                          />
+                        </>
+                      )}
                       {showBoardOpsCol && (
                         <th className="whitespace-nowrap px-3 py-2 text-left align-middle text-fg-subtle">
                           操作
@@ -1262,103 +1329,78 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
                       </tr>
                     )}
                     {pageRows.map((t) => (
-                      <tr key={t.id} className="bg-bg-surface">
+                      <tr
+                        key={t.id}
+                        className={cn(
+                          "bg-bg-surface",
+                          sidePanelTask?.id === t.id && "bg-accent-primary/5"
+                        )}
+                      >
                         <td className="align-middle px-3 py-2">
-                          <div className="font-medium">{t.projectName}</div>
-                          <div className="text-xs text-fg-muted">
-                            {t.seisanProjectNo ? `製番 ${t.seisanProjectNo} · ` : ""}
-                            {t.client} / {t.drawingNumber} Rev {t.revision}
-                          </div>
-                          {t.seisanProjectId ? (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="sm"
-                              title="生産ボードの案件詳細を閲覧（表示のみ）"
-                              className={cn(
-                                "mt-1.5 h-8 gap-1.5 whitespace-nowrap border border-accent-secondary/45 bg-accent-secondary/12 px-3 text-xs font-semibold text-accent-secondary shadow-sm",
-                                "hover:border-accent-secondary/75 hover:bg-accent-secondary/22 hover:text-accent-secondary"
-                              )}
-                              onClick={() => void openCaseDetailReadOnly(t.seisanProjectId)}
-                            >
-                              <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                              案件内容
-                            </Button>
+                          <button
+                            type="button"
+                            className="w-full text-left rounded-md px-1 py-0.5 hover:bg-bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
+                            onClick={() => setSidePanelTask(t)}
+                          >
+                            <div className="font-medium text-fg-primary">{t.projectName}</div>
+                            <div className="text-xs text-fg-muted">
+                              {t.seisanProjectNo ? `製番 ${t.seisanProjectNo}` : t.title}
+                            </div>
+                          </button>
+                          <ParallelMetaBadges task={t} />
+                        </td>
+                        <td className="align-middle px-3 py-2 text-fg-muted">
+                          {processTypeLabel(t.processType)}
+                        </td>
+                        <td className="align-middle px-3 py-2 text-fg-muted">
+                          {t.assignee || "—"}
+                          {t.supportAssigneeSummary ? (
+                            <div className="text-[10px] text-fg-subtle">補: {t.supportAssigneeSummary}</div>
                           ) : null}
                         </td>
-                        <td className="align-middle px-3 py-2">{t.title}</td>
-                        <td className="align-middle px-3 py-2 text-fg-muted">{t.processType}</td>
-                        <td className="align-middle px-3 py-2 text-fg-muted">{t.assignee || "—"}</td>
                         <td className="align-middle whitespace-nowrap px-3 py-2">
-                          <span
-                            className={cn(
-                              "inline-flex max-w-full rounded-md border px-2 py-0.5 text-xs font-semibold",
-                              boardTaskStatusBadgeClass(t.status)
-                            )}
-                          >
-                            {t.status}
-                          </span>
-                        </td>
-                        <td className="align-middle whitespace-nowrap px-3 py-2 text-xs text-fg-muted tabular-nums">
-                          {formatBoardDateTime(t.updatedAt)}
-                        </td>
-                        <td className="align-middle whitespace-nowrap px-3 py-2 text-xs text-fg-muted tabular-nums">
-                          {formatBoardDateTime(t.startedAt)}
-                        </td>
-                        <td className="align-middle whitespace-nowrap px-3 py-2 text-xs text-fg-muted tabular-nums">
-                          {formatBoardDateTime(t.completedAt)}
+                          <PmTaskStatusBadge status={t.status} />
                         </td>
                         <td
                           className="align-middle px-3 py-2 text-right tabular-nums"
                           title="マイタスクのスライダーで入力した進捗（％）"
                         >
-                          <span className="inline-block min-w-[2.75rem] text-lg font-semibold text-fg-primary">
-                            {t.progressPercent}
-                          </span>
-                          <span className="text-sm font-medium text-fg-muted">％</span>
+                          <span className="font-semibold text-fg-primary">{t.progressPercent}</span>
+                          <span className="text-xs text-fg-muted">％</span>
                         </td>
-                        <td className="align-middle px-3 py-2">
-                          <BoardProgressCell task={t} />
-                        </td>
+                        {showBoardHistoryDateCols && (
+                          <>
+                            <td className="align-middle whitespace-nowrap px-3 py-2 text-xs text-fg-muted">
+                              {formatBoardDateTime(t.startedAt)}
+                            </td>
+                            <td className="align-middle whitespace-nowrap px-3 py-2 text-xs text-fg-muted">
+                              {formatBoardDateTime(t.completedAt)}
+                            </td>
+                          </>
+                        )}
                         {showBoardOpsCol && (
                           <td className="align-middle whitespace-nowrap px-3 py-2">
-                            <div className="inline-flex flex-nowrap items-center gap-2">
-                              {canOperatePmTasks && boardMode === "active" && t.status !== "作業中" && t.status !== "完了" && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="whitespace-nowrap"
-                                  onClick={() => void handleStartTask(t.id)}
-                                >
-                                  開始
-                                </Button>
-                              )}
-                              {canOperatePmTasks && boardMode === "active" && t.status === "作業中" && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="whitespace-nowrap"
-                                  onClick={() => void handleCompleteTask(t.id)}
-                                >
-                                  完了
-                                </Button>
-                              )}
-                              {pmAdmin && boardMode === "history" && (
-                                <Button
-                                  type="button"
-                                  variant="danger"
-                                  size="sm"
-                                  className="whitespace-nowrap"
-                                  onClick={() => {
-                                    setUndoTarget(t);
-                                    setUndoReason("");
-                                    setUndoError(null);
-                                  }}
-                                >
-                                  完了取り消し
-                                </Button>
-                              )}
-                            </div>
+                            <ProcessMgmtActionMenu
+                              task={t}
+                              session={session}
+                              boardMode={boardMode}
+                              canOperate={canWritePmTasks}
+                              pmAdmin={pmAdmin}
+                              handlers={{
+                                onStart: handleStartTask,
+                                onComplete: handleCompleteTask,
+                                onPause: handlePauseTask,
+                                onResume: handleResumeTask,
+                                onWorkMode: setWorkModeTarget,
+                                onSupport: (task) => void openSupportModal(task),
+                                onHandoff: setHandoffTarget,
+                                onUndoComplete: (task) => {
+                                  setUndoTarget(task);
+                                  setUndoReason("");
+                                  setUndoError(null);
+                                },
+                              }}
+                            />
                           </td>
                         )}
                       </tr>
@@ -1422,38 +1464,61 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
 
           {tab === "mytasks" && (
             <section className="space-y-3">
-              <div className="flex justify-end">
-                <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
-                  <HelpCircle size={16} aria-hidden />
-                  ヘルプ
-                </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    void refreshMyTasks().catch((err) =>
-                      setMessage(err instanceof Error ? err.message : String(err))
-                    );
-                  }}
-                >
-                  再読込
-                </Button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex rounded-md border border-border-subtle bg-bg-surface p-0.5">
+                  {(
+                    [
+                      ["primary", "主担当"],
+                      ["support", "補助"],
+                      ["all", "すべて"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={cn(
+                        "rounded px-3 py-1.5 text-xs font-medium",
+                        myTaskFilter === id ? "bg-accent-primary text-bg-base" : "text-fg-muted"
+                      )}
+                      onClick={() => setMyTaskFilter(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      void refreshMyTasks().catch((err) =>
+                        setMessage(err instanceof Error ? err.message : String(err))
+                      );
+                    }}
+                  >
+                    再読込
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+                    <HelpCircle size={16} aria-hidden />
+                    ヘルプ
+                  </Button>
+                </div>
               </div>
               <ul className="space-y-3">
-                {myTasks.length === 0 && (
+                {filteredMyTasks.length === 0 && (
                   <li className="rounded-lg border border-border-subtle bg-bg-surface p-8 text-center text-sm text-fg-muted">
-                    未完了の担当タスクはありません。
+                    {myTasks.length === 0
+                      ? "未完了の担当タスクはありません。"
+                      : "選択した条件に該当するタスクはありません。"}
                   </li>
                 )}
-                {myTasks.map((t) => (
-                  <MyTaskCard
+                {filteredMyTasks.map((t) => (
+                  <ProcessMgmtMyTaskCard
                     key={t.id}
                     task={t}
                     session={session}
-                    writable={canOperatePmTasks}
+                    writable={canWritePmTasks}
                     onRefresh={refreshMyTasks}
                     onError={(msg) => setMessage(msg)}
                     onOpenCaseDetail={(id) => void openCaseDetailReadOnly(id)}
@@ -1464,15 +1529,38 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
           )}
         </div>
       </main>
+      {sidePanelTask ? (
+        <div
+          className="fixed inset-0 z-40 bg-black/20 sm:top-14"
+          role="presentation"
+          onClick={() => setSidePanelTask(null)}
+        />
+      ) : null}
+      <ProcessMgmtSidePanel
+        task={sidePanelTask}
+        projectTasks={sidePanelProjectTasks}
+        onClose={() => setSidePanelTask(null)}
+        onOpenSeisanDetail={(id) => void openCaseDetailReadOnly(id)}
+      />
       <Modal
         open={helpOpen}
-        title={tab === "board" ? "工程管理（ボード）のヘルプ" : "工程管理（マイタスク）のヘルプ"}
+        title={
+          tab === "board"
+            ? "工程管理（ボード）のヘルプ"
+            : tab === "mytasks"
+              ? "工程管理（マイタスク）のヘルプ"
+              : "工程管理（ダッシュボード）のヘルプ"
+        }
         onClose={() => setHelpOpen(false)}
         width="lg"
       >
         <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
           <p className="font-medium text-fg-primary">
-            {tab === "board" ? BOARD_PAGE_TAGLINE : MY_TASKS_PAGE_TAGLINE}
+            {tab === "board"
+              ? BOARD_PAGE_TAGLINE
+              : tab === "mytasks"
+                ? MY_TASKS_PAGE_TAGLINE
+                : "工程の概要と未確認通知を確認できます。詳細操作はボードまたはマイタスクから行ってください。"}
           </p>
           <p className="text-fg-muted">{HELP_DB_STORAGE_NOTE}</p>
           {tab === "board" ? (
@@ -1482,6 +1570,8 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
               <p>{BOARD_HELP_VIEW_ACTIVE_TEMPLATE(PROCESS_VIEW_LABELS[session.processView])}</p>
               <p>{BOARD_HELP_HISTORY}</p>
               <p className="text-xs text-fg-muted">{BOARD_HELP_ACTIVE_HISTORY_HINT}</p>
+              <p className="text-xs text-fg-muted">{BOARD_HELP_PARALLEL}</p>
+              <p className="text-xs text-fg-muted">{BOARD_HELP_LIFECYCLE}</p>
               <p className="text-xs text-fg-muted">{pmAdmin ? BOARD_HELP_UNDO_ADMIN : BOARD_HELP_UNDO_VIEWER}</p>
             </>
           ) : (
@@ -1509,6 +1599,37 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
         loading={caseDetailLoading}
         error={caseDetailError}
         project={caseDetailProject}
+      />
+      <HandoffModal
+        open={handoffTarget != null}
+        task={handoffTarget}
+        nextBatchNo={(handoffTarget?.handoffCount ?? 0) + 1}
+        onClose={() => setHandoffTarget(null)}
+        onSubmit={(note) => void submitHandoff(note)}
+        submitting={handoffSubmitting}
+      />
+      <WorkModeModal
+        open={workModeTarget != null}
+        task={workModeTarget}
+        onClose={() => setWorkModeTarget(null)}
+        onSubmit={(mode, note) => void submitWorkMode(mode, note)}
+        submitting={workModeSubmitting}
+      />
+      <SupportAssigneesModal
+        open={supportTarget != null}
+        task={supportTarget}
+        candidates={supportCandidates}
+        loadingCandidates={supportCandidatesLoading}
+        onClose={() => setSupportTarget(null)}
+        onSubmit={(ids) => void submitSupportAssignees(ids)}
+        submitting={supportSubmitting}
+      />
+      <GanttTemplateMappingModal
+        open={ganttMappingOpen}
+        mapping={ganttMapping}
+        onClose={() => setGanttMappingOpen(false)}
+        onSubmit={(input) => void submitGanttMapping(input)}
+        submitting={ganttMappingSubmitting}
       />
     </div>
   );
