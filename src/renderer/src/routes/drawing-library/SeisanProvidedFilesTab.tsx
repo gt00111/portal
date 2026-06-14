@@ -350,13 +350,13 @@ export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
-            <HelpCircle size={16} aria-hidden />
-            ヘルプ
-          </Button>
           <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
             更新
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+            <HelpCircle size={16} aria-hidden />
+            ヘルプ
           </Button>
       </div>
 

@@ -1,4 +1,4 @@
-import { Download, FileText, HelpCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Download, FileText, HelpCircle, PencilLine, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
@@ -124,6 +124,7 @@ function WorkDrawingCard({
   writable,
   categoryLabel,
   onOpen,
+  onEdit,
   onDelete,
   onToggleObsolete,
 }: {
@@ -131,6 +132,7 @@ function WorkDrawingCard({
   writable: boolean;
   categoryLabel: string | null;
   onOpen: (r: LibDrawingRow) => void;
+  onEdit: (r: LibDrawingRow) => void;
   onDelete: (r: LibDrawingRow) => void;
   onToggleObsolete: (r: LibDrawingRow, next: boolean) => void;
 }): JSX.Element {
@@ -139,11 +141,18 @@ function WorkDrawingCard({
   const isPdf = Boolean(row.file_path?.trim().toLowerCase().endsWith(".pdf"));
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(row)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(row);
+        }
+      }}
       className={cn(
-        "group relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-left text-fg-primary shadow-sm transition hover:border-accent-primary/40 hover:shadow-md"
+        "group relative flex h-full min-h-0 w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-left text-fg-primary shadow-sm transition hover:border-accent-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
       )}
     >
       <ObsoleteOverlay show={obsolete} />
@@ -187,25 +196,37 @@ function WorkDrawingCard({
             />
             <span className="truncate">旧図面</span>
           </label>
-          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+          <div className="flex shrink-0 gap-0.5" onClick={(e) => e.stopPropagation()}>
             {writable ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => void onDelete(row)}
-                className="h-8 w-8 !p-0 text-state-danger"
-                aria-label="削除"
-              >
-                <Trash2 size={14} />
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onEdit(row)}
+                  className="h-8 w-8 !p-0 text-fg-muted hover:text-fg-primary"
+                  aria-label="編集"
+                >
+                  <PencilLine size={14} />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void onDelete(row)}
+                  className="h-8 w-8 !p-0 text-state-danger"
+                  aria-label="削除"
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </>
             ) : (
               <span className="inline-block h-8 w-8 shrink-0" aria-hidden />
             )}
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -248,6 +269,19 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
   const [newCategory, setNewCategory] = useState("");
   const [newFilePath, setNewFilePath] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editSkuId, setEditSkuId] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editCustomer, setEditCustomer] = useState("");
+  const [editModel, setEditModel] = useState("");
+  const [editProductName, setEditProductName] = useState("");
+  const [editDrawingNumber, setEditDrawingNumber] = useState("");
+  const [editRevision, setEditRevision] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editFilePath, setEditFilePath] = useState<string | null>(null);
+  const [editSkuListLoading, setEditSkuListLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -354,6 +388,54 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
       }
     })();
   }, [createOpen]);
+
+  useEffect(() => {
+    if (!editOpen) return;
+    setEditSkuListLoading(true);
+    setEditSkuId("");
+    void (async () => {
+      try {
+        const rows = await invoke<SkuRow[]>("sku:list", {});
+        setSkus(rows.filter((r) => r.isActive));
+      } catch (err) {
+        toast.push("error", err instanceof Error ? err.message : String(err));
+        setSkus([]);
+      } finally {
+        setEditSkuListLoading(false);
+      }
+    })();
+  }, [editOpen, toast]);
+
+  function applyEditSkuById(id: string): void {
+    if (!id) return;
+    const sku = skus.find((s) => String(s.id) === id);
+    if (!sku) return;
+    setEditCustomer(sku.customerName ?? "");
+    setEditTitle(sku.componentNameName || sku.partNumberName || "");
+    setEditModel(sku.modelName ?? "");
+    setEditProductName(sku.partNumberName ?? "");
+    setEditDrawingNumber((sku.drawingNumber ?? sku.partNumberCode ?? "").trim() || sku.partNumberName || "");
+    setEditRevision(sku.revision ?? "");
+  }
+
+  function openEditModal(row: LibDrawingRow): void {
+    setEditingId(row.id);
+    setEditTitle(row.title ?? "");
+    setEditCustomer(row.customer_name ?? "");
+    setEditModel(row.model ?? "");
+    setEditProductName(row.product_name ?? "");
+    setEditDrawingNumber(row.drawing_number ?? "");
+    setEditRevision(row.revision ?? "");
+    setEditCategory(row.category ?? "");
+    setEditFilePath(row.file_path);
+    setEditSkuId("");
+    setEditOpen(true);
+  }
+
+  function closeEditModal(): void {
+    setEditOpen(false);
+    setEditingId(null);
+  }
 
   function applySkuById(id: string): void {
     if (!id) return;
@@ -483,6 +565,23 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
     }
   }
 
+  async function handleEditPickPdf(): Promise<void> {
+    if (!editCustomer.trim()) {
+      toast.push("warning", "先に客先（保存フォルダ名）を入力してください。");
+      return;
+    }
+    try {
+      const r = await invoke<{ file_path: string }>("drawing:pickPdf", {
+        customerName: editCustomer.trim(),
+        drawingType: DRAWING_TYPE,
+      });
+      setEditFilePath(r.file_path);
+      toast.push("success", "PDF を取り込みました。");
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function handleCreateSubmit(): Promise<void> {
     if (!newTitle.trim()) {
       toast.push("warning", "名称を入力してください。");
@@ -508,6 +607,52 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
       toast.push("success", "登録しました。");
       setCreateOpen(false);
       await load();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleEditSubmit(): Promise<void> {
+    if (editingId == null) return;
+    if (!editTitle.trim()) {
+      toast.push("warning", "名称を入力してください。");
+      return;
+    }
+    if (!editFilePath) {
+      toast.push("warning", "PDF を選択してください。");
+      return;
+    }
+    const patch: Partial<DrawingUpsertInput> = {
+      title: editTitle.trim(),
+      customer_name: editCustomer.trim() || null,
+      model: editModel.trim() || null,
+      product_name: editProductName.trim() || null,
+      drawing_number: editDrawingNumber.trim() || null,
+      revision: editRevision.trim() || null,
+      category: editCategory.trim() || null,
+      file_path: editFilePath,
+    };
+    try {
+      const updated = await invoke<LibDrawingRow>("drawing:update", { id: editingId, patch });
+      toast.push("success", "更新しました。");
+      closeEditModal();
+      await load();
+      if (detail?.id === editingId) {
+        setDetail(updated);
+        setPdfDataUrl(null);
+        const fp = updated.file_path?.trim();
+        if (fp && fp.toLowerCase().endsWith(".pdf")) {
+          setPdfLoading(true);
+          try {
+            const { base64, mime } = await invoke<{ base64: string; mime: string }>("drawing:readFile", {
+              relativePath: fp,
+            });
+            setPdfDataUrl(`data:${mime};base64,${base64}`);
+          } finally {
+            setPdfLoading(false);
+          }
+        }
+      }
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
     }
@@ -574,20 +719,20 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
-            <HelpCircle size={16} aria-hidden />
-            ヘルプ
-          </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-            更新
-          </Button>
           {writable && (
             <Button type="button" variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
               <Plus size={16} />
               新規
             </Button>
           )}
+          <Button type="button" variant="secondary" size="sm" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            更新
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+            <HelpCircle size={16} aria-hidden />
+            ヘルプ
+          </Button>
       </div>
 
       <Modal open={helpOpen} title="図面ライブラリ（自社発行）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
@@ -726,6 +871,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
                   r.category ? categories.find((c) => c.code === r.category)?.name ?? r.category : null
                 }
                 onOpen={(row) => void openDetail(row)}
+                onEdit={(row) => openEditModal(row)}
                 onDelete={(row) => void handleDelete(row)}
                 onToggleObsolete={(row, next) => void toggleWorkObsolete(row, next)}
               />
@@ -875,6 +1021,12 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
                 </div>
               </dl>
               <div className="flex flex-col items-end gap-2 shrink-0">
+                {writable && (
+                  <Button type="button" variant="secondary" size="sm" onClick={() => openEditModal(detail)}>
+                    <PencilLine size={14} />
+                    編集
+                  </Button>
+                )}
                 {detail.file_path?.trim() && (
                   <Button type="button" variant="secondary" size="sm" onClick={() => void exportRegisteredPdf()}>
                     <Download size={14} />
@@ -969,6 +1121,64 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
           </div>
         </Modal>
       )}
+
+      <Modal open={editOpen} title="図面を編集（自社発行）" onClose={closeEditModal} width="lg">
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-fg-muted">
+            登録内容を修正できます。図面番号(品番)とリビジョンの組み合わせは他の図面と重複できません。PDF は差し替えも可能です。
+          </p>
+          {editSkuListLoading ? (
+            <p className="text-xs text-fg-muted">SKU 一覧を読み込み中…</p>
+          ) : (
+            <Select
+              label="SKU（任意・中央マスタの SKU 台帳）"
+              value={editSkuId}
+              options={skuSelectOptions}
+              onChange={(e) => {
+                const v = e.target.value;
+                setEditSkuId(v);
+                if (v) applyEditSkuById(v);
+              }}
+            />
+          )}
+          <TextField
+            label="客先（保存フォルダ名）"
+            value={editCustomer}
+            onChange={(e) => setEditCustomer(e.target.value)}
+          />
+          <TextField label="機種" value={editModel} onChange={(e) => setEditModel(e.target.value)} />
+          <TextField
+            label="図面番号(品番)"
+            value={editProductName}
+            onChange={(e) => setEditProductName(e.target.value)}
+          />
+          <TextField label="リビジョン" value={editRevision} onChange={(e) => setEditRevision(e.target.value)} />
+          <TextField label="名称" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          <Select
+            label="カテゴリ（任意・マスタ「カテゴリ」/ 自社発行）"
+            value={editCategory}
+            onChange={(e) => setEditCategory(e.target.value)}
+            options={[
+              { value: "", label: "— 選択しない —" },
+              ...categories.map((c) => ({ value: c.code, label: c.name })),
+            ]}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => void handleEditPickPdf()}>
+              PDF を選択して取り込み
+            </Button>
+            {editFilePath && <span className="truncate text-xs text-fg-muted">{editFilePath}</span>}
+          </div>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={closeEditModal}>
+              キャンセル
+            </Button>
+            <Button type="button" variant="primary" onClick={() => void handleEditSubmit()}>
+              保存
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -899,6 +899,15 @@ flowchart TB
 ### 図面ライブラリ（ヘルプ）
 - [x] 顧客図面／自社発行／PDF 比較タブの**説明文を削除**し、**ヘルプボタン＋モーダル**で文言を表示（`drawingLibraryHelpCopy.ts`、`SeisanProvidedFilesTab.tsx`、`DrawingDbTab.tsx`、`PdfCompareBonusTab.tsx`、`DrawingLibraryApp.tsx`）
 
+### 図面ライブラリ（UI/UX 改善・§8.4.5）
+
+要件: `docs/requirements.md` **§8.4.5**。部材管理スクショを参考に全幅表示・操作バー統一・自社発行の編集。
+
+- [x] **全タブ全幅表示** — `DrawingLibraryApp.tsx` の `max-w-6xl` / `mx-auto` を撤去し、`w-full px-3 py-4 sm:px-4` 等（部材管理 `PartsTrackerApp.tsx` 準拠）。対象: 顧客図面・自社発行・PDF 比較
+- [x] **更新・ヘルプの順序入れ替え** — 顧客図面・自社発行タブで **更新 → ヘルプ**（現状はヘルプ → 更新）。PDF 比較はヘルプのみのため対象外
+- [x] **自社発行 › 図面登録内容の編集** — 誤登録時に客先・機種・品番・Rev・名称・カテゴリ・PDF を修正。`drawing:update` + `drawing:pickPdf`（IPC 実装済み、UI 未接続）。編集モーダルは新規登録フォームと同等。editor 以上のみ
+- [x] ヘルプ文言に編集手順を追記（`drawingLibraryHelpCopy.ts`）
+
 ### 工程管理（ヘルプ・ボード UI）
 - [x] ボード／マイタスクの長い説明・DB パスを撤去し、**ヘルプモーダル**に集約（`processManagementHelpCopy.ts`、`ProcessManagementApp.tsx`）。画面上は短いタグラインのみ
 - [x] ボード「**案件内容**」を secondary＋`ExternalLink` で強調。**進捗（共有）**は先頭 **約15文字**表示し**クリックでモーダル全文**（一覧はアクティブ／履歴共通）
@@ -974,3 +983,5 @@ flowchart TB
 | 2026-05-25 | **部材管理 §8.5.22 必要着日の初期値（溶接開始日）要件追記（実装なし）**: 新規行の `required_date` デフォルトを生産ボードガント **溶接**（`pt05`）の `start_date` に。未取得時は案件納期→当日。CSV 取込・手動追加・BOM 展開のみ。コピー・再取込は既存日付維持。 |
 | 2026-05-25 | **部材管理 §8.5.22 追補（実装なし）**: 計画 `start_date` 確定。コピー時は **新案件の溶接開始日**（前回必要着日は複製しない）。§8.6.7 同型の工程マッピング。溶接日程変更時は override なし行のみ追随＋バナー「溶接の日程の変更がありました。」`required_date_user_override` 案。 |
 | 2026-05-25 | **部材管理 §8.5.21.1 / §8.5.22.7 実装**: 「完了を解除」ボタン（`parts-tracker:project:uncomplete`）。admin 向け「溶接工程」マッピングモーダル（§8.6.7 同型 UI）。 |
+| 2026-05-25 | **図面ライブラリ §8.4.5 要件追記（実装なし）**: 自社発行の登録内容編集（`drawing:update` UI 接続）、顧客図面・自社発行・PDF 比較の全幅表示、更新／ヘルプボタン順の入れ替え。`task-progress.md` に未実装チェックリスト追加。 |
+| 2026-05-25 | **図面ライブラリ §8.4.5 実装**: 全タブ全幅（`DrawingLibraryApp.tsx`）、更新→ヘルプ順（顧客・自社）、自社発行の編集モーダル（一覧鉛筆・詳細「編集」、`drawing:update`）。ヘルプ文言更新。 |

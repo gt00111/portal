@@ -78,7 +78,7 @@ export function DrawingLibraryApp({ session }: Props): JSX.Element {
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-        <div className="mx-auto max-w-6xl px-4 py-6">
+        <div className="w-full space-y-4 px-3 py-4 sm:px-4">
           {tab === "seisan" && <SeisanProvidedFilesTab writable={writable} />}
           {tab === "workDb" && <DrawingDbTab writable={writable} />}
           {tab === "pdfCompare" && <PdfCompareBonusTab />}
