@@ -143,6 +143,12 @@ export interface BomCsvPreviewResult {
   warningCount: number;
   detectedColumns: Partial<Record<BomCsvFieldKey, string>>;
   unmatchedSupplierNames: string[];
+  /** 再取込見込み（案件 ID 指定時のみ） */
+  mergeHints?: {
+    isReimport: boolean;
+    preservedProcurementCount: number;
+    orderMergeApplied: boolean;
+  };
 }
 
 export type ImportDuplicatePolicy = "appendOnly" | "updateOnRevision" | "replaceAll";
@@ -183,6 +189,8 @@ export interface BomCsvImportCommitResult {
   updatedCount: number;
   skippedCount: number;
   removedCount: number;
+  preservedProcurementCount: number;
+  orderMergeApplied: boolean;
 }
 
 export function buildBomCsvTemplate(): string {

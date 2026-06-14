@@ -18,6 +18,8 @@ const rendererAlias = {
   "@branding": resolve(__dirname, "resources/branding"),
   "@": resolve(__dirname, "src/renderer/src/apps/seisan-board"),
   shared: resolve(__dirname, "src/shared/seisan/index.ts"),
+  /** Vite commonjs 解決が es6 相対 import を誤解する環境向け（lib=CJS を明示） */
+  recharts: resolve(__dirname, "node_modules/recharts/lib/index.js"),
 };
 
 export default defineConfig({

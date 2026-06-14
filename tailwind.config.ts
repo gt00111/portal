@@ -5,6 +5,17 @@ const config: Config = {
   content: [
     "./src/renderer/index.html",
     "./src/renderer/src/**/*.{ts,tsx,js,jsx}",
+    "./src/shared/**/*.{ts,tsx,js,jsx}",
+  ],
+  safelist: [
+    "border-l-2",
+    "border-l-state-danger",
+    "bg-state-danger/[0.03]",
+    "border-l-lime-500",
+    "bg-lime-400/20",
+    "bg-state-success/[0.06]",
+    "bg-bg-elevated/50",
+    "text-fg-muted",
   ],
   darkMode: "class",
   theme: {

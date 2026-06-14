@@ -10,6 +10,8 @@ import {
   computePartLineRisk,
   isPartLineStatus,
   isPartSourceType,
+  resolveStatusAfterArrangedToggle,
+  showsArrangedCheckbox,
   showsProcurementLeadTime,
 } from "@shared/partsTracker.js";
 import type { ProcurementLeadTimeRow } from "@shared/procurementLeadTime.js";
@@ -17,6 +19,7 @@ import { pickBestLeadTime } from "@shared/procurementLeadTime.js";
 
 import { getDb } from "@main/db/connection.js";
 import { getPartsTrackerDb } from "@main/db/partsTrackerConnection.js";
+import * as seisanProjects from "@main/seisan/repos/projects.repo.js";
 
 export interface DbLineRow {
   id: number;
@@ -50,6 +53,7 @@ export interface DbLineRow {
   root_product_bom_id: number | null;
   source_product_bom_line_id: number | null;
   import_batch_id: number | null;
+  required_date_user_override: number;
   created_at: string;
   updated_at: string;
 }
@@ -124,6 +128,7 @@ export function mapLine(raw: DbLineRow): ProjectPartLine {
     rootProductBomId: raw.root_product_bom_id,
     sourceProductBomLineId: raw.source_product_bom_line_id,
     importBatchId: raw.import_batch_id,
+    requiredDateUserOverride: Boolean(raw.required_date_user_override),
     risk: computePartLineRisk({
       status,
       requiredDate: raw.required_date,
@@ -144,6 +149,7 @@ const LINE_SELECT = `
          is_hidden, hidden_at, hidden_by_username, hidden_reason,
          bom_level, assembly_path, parent_assembly_part_number,
          root_product_bom_id, source_product_bom_line_id, import_batch_id,
+         required_date_user_override,
          created_at, updated_at
   FROM project_part_lines
 `;
@@ -267,17 +273,21 @@ export function findById(id: number): ProjectPartLine | null {
   return row ? mapLine(row) : null;
 }
 
-export function create(input: ProjectPartLineUpsertInput): ProjectPartLine {
+export function create(
+  input: ProjectPartLineUpsertInput,
+  options?: { requiredDateUserOverride?: boolean }
+): ProjectPartLine {
   const projectId = (input.seisanProjectId ?? "").trim();
   if (!projectId) throw new Error("案件 ID が必要です。");
   const n = normalizeUpsert(input);
+  const userOverride = options?.requiredDateUserOverride ? 1 : 0;
   const info = getPartsTrackerDb()
     .prepare(
       `INSERT INTO project_part_lines (
         seisan_project_id, part_number, part_name, revision, quantity, source_type, supplier_id,
         lead_time_days, required_date, order_by_date, ordered_at, status, sku_id,
-        procurement_lead_time_id, note, sort_order
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        procurement_lead_time_id, note, sort_order, required_date_user_override
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       projectId,
@@ -295,14 +305,19 @@ export function create(input: ProjectPartLineUpsertInput): ProjectPartLine {
       n.skuId,
       n.procurementLeadTimeId,
       n.note,
-      n.sortOrder
+      n.sortOrder,
+      userOverride
     );
   const row = findById(Number(info.lastInsertRowid));
   if (!row) throw new Error("作成後の取得に失敗しました。");
   return row;
 }
 
-export function update(id: number, input: Partial<ProjectPartLineUpsertInput>): ProjectPartLine {
+export function update(
+  id: number,
+  input: Partial<ProjectPartLineUpsertInput>,
+  options?: { markRequiredDateUserOverride?: boolean }
+): ProjectPartLine {
   const existing = findById(id);
   if (!existing) throw new Error("部品行が見つかりません。");
   const merged: ProjectPartLineUpsertInput = {
@@ -322,12 +337,16 @@ export function update(id: number, input: Partial<ProjectPartLineUpsertInput>): 
     sortOrder: input.sortOrder ?? existing.sortOrder,
   };
   const n = normalizeUpsert(merged, existing);
+  const markOverride =
+    options?.markRequiredDateUserOverride || input.requiredDate !== undefined;
+  const userOverride = markOverride ? 1 : existing.requiredDateUserOverride ? 1 : 0;
   getPartsTrackerDb()
     .prepare(
       `UPDATE project_part_lines SET
         part_number = ?, part_name = ?, revision = ?, quantity = ?, source_type = ?, supplier_id = ?,
         lead_time_days = ?, required_date = ?, order_by_date = ?, ordered_at = ?, status = ?,
         sku_id = ?, procurement_lead_time_id = ?, note = ?, sort_order = ?,
+        required_date_user_override = ?,
         updated_at = datetime('now')
        WHERE id = ?`
     )
@@ -347,6 +366,7 @@ export function update(id: number, input: Partial<ProjectPartLineUpsertInput>): 
       n.procurementLeadTimeId,
       n.note,
       n.sortOrder,
+      userOverride,
       id
     );
   const row = findById(id);
@@ -425,27 +445,57 @@ export function setArranged(
 ): ProjectPartLine {
   const existing = findById(id);
   if (!existing) throw new Error("部品行が見つかりません。");
+  if (!showsArrangedCheckbox(existing.sourceType)) {
+    throw new Error("手配済は購入区分の行のみ設定できます。");
+  }
+  const nextStatus = resolveStatusAfterArrangedToggle(existing.status, arranged);
   const db = getPartsTrackerDb();
   if (arranged) {
-    db.prepare(
-      `UPDATE project_part_lines SET
-        is_arranged = 1,
-        arranged_at = datetime('now'),
-        arranged_by_user_name_id = ?,
-        arranged_by_username = ?,
-        updated_at = datetime('now')
-       WHERE id = ?`
-    ).run(userNameId, username, id);
+    if (nextStatus) {
+      db.prepare(
+        `UPDATE project_part_lines SET
+          is_arranged = 1,
+          arranged_at = datetime('now'),
+          arranged_by_user_name_id = ?,
+          arranged_by_username = ?,
+          status = ?,
+          updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(userNameId, username, nextStatus, id);
+    } else {
+      db.prepare(
+        `UPDATE project_part_lines SET
+          is_arranged = 1,
+          arranged_at = datetime('now'),
+          arranged_by_user_name_id = ?,
+          arranged_by_username = ?,
+          updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(userNameId, username, id);
+    }
   } else {
-    db.prepare(
-      `UPDATE project_part_lines SET
-        is_arranged = 0,
-        arranged_at = NULL,
-        arranged_by_user_name_id = NULL,
-        arranged_by_username = NULL,
-        updated_at = datetime('now')
-       WHERE id = ?`
-    ).run(id);
+    if (nextStatus) {
+      db.prepare(
+        `UPDATE project_part_lines SET
+          is_arranged = 0,
+          arranged_at = NULL,
+          arranged_by_user_name_id = NULL,
+          arranged_by_username = NULL,
+          status = ?,
+          updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(nextStatus, id);
+    } else {
+      db.prepare(
+        `UPDATE project_part_lines SET
+          is_arranged = 0,
+          arranged_at = NULL,
+          arranged_by_user_name_id = NULL,
+          arranged_by_username = NULL,
+          updated_at = datetime('now')
+         WHERE id = ?`
+      ).run(id);
+    }
   }
   db.prepare(
     `INSERT INTO project_part_line_arrangement_log (line_id, action, user_name_id, username)
@@ -495,6 +545,8 @@ export function setHidden(
 // -------- サマリ --------
 
 export function summarizeProject(seisanProjectId: string): ProjectPartSummary {
+  const project = seisanProjects.get(seisanProjectId);
+  const projectComplete = project?.status === "done";
   const all = listByProject(seisanProjectId, { includeHidden: true });
   const visible = all.filter((l) => !l.isHidden);
   let delayedCount = 0;
@@ -502,10 +554,12 @@ export function summarizeProject(seisanProjectId: string): ProjectPartSummary {
   let plannedCount = 0;
   let arrangedCount = 0;
   for (const line of visible) {
-    if (line.risk === "delayed") delayedCount++;
-    if (line.risk === "need_order") needOrderCount++;
+    if (!projectComplete) {
+      if (line.risk === "delayed") delayedCount++;
+      if (line.risk === "need_order") needOrderCount++;
+    }
     if (line.status === "planned") plannedCount++;
-    if (line.isArranged) arrangedCount++;
+    if (line.isArranged && showsArrangedCheckbox(line.sourceType)) arrangedCount++;
   }
   return {
     seisanProjectId,
@@ -516,6 +570,7 @@ export function summarizeProject(seisanProjectId: string): ProjectPartSummary {
     needOrderCount,
     plannedCount,
     arrangedCount,
+    projectComplete,
   };
 }
 

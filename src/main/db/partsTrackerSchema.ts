@@ -92,6 +92,11 @@ export function initPartsTrackerSchema(db: Database.Database): void {
       name: "source_product_bom_line_id",
       sql: "ALTER TABLE project_part_lines ADD COLUMN source_product_bom_line_id INTEGER",
     },
+    // §8.5.22: 手動変更した必要着日は溶接日追随から除外
+    {
+      name: "required_date_user_override",
+      sql: "ALTER TABLE project_part_lines ADD COLUMN required_date_user_override INTEGER NOT NULL DEFAULT 0",
+    },
   ];
   const existing = (
     db.prepare("PRAGMA table_info(project_part_lines)").all() as { name: string }[]
@@ -135,6 +140,18 @@ export function initPartsTrackerSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_part_arrangement_log_line
       ON project_part_line_arrangement_log(line_id);
+
+    CREATE TABLE IF NOT EXISTS parts_tracker_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS parts_tracker_welding_date_cache (
+      seisan_project_id TEXT PRIMARY KEY,
+      cached_welding_start TEXT,
+      acknowledged_welding_start TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   migrateSourceTypeUnset(db);

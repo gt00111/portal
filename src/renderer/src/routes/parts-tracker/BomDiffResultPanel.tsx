@@ -53,6 +53,9 @@ export function BomDiffResultPanel({ result, changesOnly = false }: Props): JSX.
         <p className="mt-1 text-fg-subtle">
           比較元（前回）: {result.aLabel} → 比較先（今回）: {result.bLabel}
         </p>
+        <p className="mt-1 text-xs text-fg-subtle">
+          並び順は比較元の BOM 構成（上から順）に基づきます。
+        </p>
       </div>
       <div className="overflow-x-auto rounded-md border border-border-subtle">
         <table className="w-full min-w-[52rem] border-collapse text-sm leading-tight">
@@ -74,7 +77,7 @@ export function BomDiffResultPanel({ result, changesOnly = false }: Props): JSX.
                 </td>
               </tr>
             ) : (
-              entries.map((e) => {
+              entries.map((e, idx) => {
                 const isParentRow = isBomParentAssemblyRow(
                   { partNumber: e.partNumber, assemblyPath: e.assemblyPath },
                   parentRowContext
@@ -82,7 +85,7 @@ export function BomDiffResultPanel({ result, changesOnly = false }: Props): JSX.
                 const diffBg = KIND_ROW_CLASS[e.kind];
                 return (
                 <tr
-                  key={e.matchKey}
+                  key={`${e.matchKey}-${idx}`}
                   className={cn("border-t border-border-subtle", diffBg)}
                 >
                   <td className={cn("text-center", BOM_TABLE_CELL)}>

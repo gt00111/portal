@@ -21,6 +21,7 @@ import {
   PART_SOURCE_TYPES,
   PART_SOURCE_TYPE_LABELS,
   showsProcurementLeadTime,
+  showsArrangedCheckbox,
   type PartLineStatus,
   type PartSourceType,
   type ProjectPartLine,
@@ -101,7 +102,10 @@ function levelTone(level: number): string {
   return "bg-bg-surface text-fg-subtle";
 }
 
-function riskBadge(risk: ProjectPartLine["risk"]): JSX.Element {
+function riskBadge(risk: ProjectPartLine["risk"], suppressRiskHighlight: boolean): JSX.Element {
+  if (suppressRiskHighlight) {
+    return <span className="text-sm text-fg-subtle">—</span>;
+  }
   if (risk === "delayed") {
     return (
       <span className="inline-flex rounded px-1.5 py-0 leading-tight text-sm font-medium text-state-danger bg-state-danger/15">
@@ -154,6 +158,8 @@ export interface PartsBomTreeTableProps {
   onToggleHidden: (line: ProjectPartLine) => void;
   onHideRequest: (line: ProjectPartLine) => void;
   onDelete: (line: ProjectPartLine) => void;
+  /** §8.5.21 案件完了時は遅延ハイライト・リスクバッジを抑制 */
+  suppressRiskHighlight?: boolean;
 }
 
 function resolveDraft(
@@ -180,6 +186,7 @@ export function PartsBomTreeTable({
   onToggleHidden,
   onHideRequest,
   onDelete,
+  suppressRiskHighlight = false,
 }: PartsBomTreeTableProps): JSX.Element {
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => new Set());
 
@@ -311,6 +318,7 @@ export function PartsBomTreeTable({
             const isParentRow = isBomParentAssemblyRow(line, parentRowContext);
             const isCollapsed = path.length > 0 && collapsedPaths.has(path);
             const indent = Math.min(line.bomLevel, 8) * 12;
+            const showArranged = showsArrangedCheckbox(line.sourceType);
 
             return (
               <tr
@@ -320,7 +328,9 @@ export function PartsBomTreeTable({
                   bomTreeRowSurfaceClass({
                     isHidden: line.isHidden,
                     isDelayed: line.risk === "delayed",
-                    isArranged: line.isArranged,
+                    isReceived: line.status === "received",
+                    isArranged: showArranged && line.isArranged,
+                    suppressRiskHighlight,
                   })
                 )}
               >
@@ -366,26 +376,30 @@ export function PartsBomTreeTable({
                   )}
                 </td>
                 <td className={BOM_TABLE_CELL}>
-                  <div className="flex items-center gap-1">
-                    {actions.canSetArranged ? (
-                      <input
-                        type="checkbox"
-                        checked={line.isArranged}
-                        onChange={(e) => onSetArranged(line, e.target.checked)}
-                        className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-state-success"
-                        aria-label={`${line.partNumber} を手配済にする`}
-                      />
-                    ) : (
-                      <CheckCircle2
-                        size={12}
-                        className={line.isArranged ? "text-state-success" : "text-fg-subtle"}
-                        aria-hidden
-                      />
-                    )}
-                    {arrangedMeta(line)}
-                  </div>
+                  {showArranged ? (
+                    <div className="flex items-center gap-1">
+                      {actions.canSetArranged ? (
+                        <input
+                          type="checkbox"
+                          checked={line.isArranged}
+                          onChange={(e) => onSetArranged(line, e.target.checked)}
+                          className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-state-success"
+                          aria-label={`${line.partNumber} を手配済にする`}
+                        />
+                      ) : (
+                        <CheckCircle2
+                          size={12}
+                          className={line.isArranged ? "text-state-success" : "text-fg-subtle"}
+                          aria-hidden
+                        />
+                      )}
+                      {arrangedMeta(line)}
+                    </div>
+                  ) : (
+                    <span className="text-fg-subtle">—</span>
+                  )}
                 </td>
-                <td className={BOM_TABLE_CELL}>{riskBadge(line.risk)}</td>
+                <td className={BOM_TABLE_CELL}>{riskBadge(line.risk, suppressRiskHighlight)}</td>
                 <td className={BOM_TABLE_PART_NUMBER_CELL}>
                   <div
                     style={{ paddingLeft: `${indent}px` }}
@@ -487,7 +501,8 @@ export function PartsBomTreeTable({
                   )}
                 </td>
                 <td className={cn(BOM_TABLE_CELL, editMode && actions.canBulkEdit && "min-w-[9rem]")}>
-                  {editMode && actions.canBulkEdit && onDraftChange && line.isArranged ? (
+                  {editMode && actions.canBulkEdit && onDraftChange &&
+                  (!showsArrangedCheckbox(line.sourceType) || line.isArranged) ? (
                     <select
                       className={INLINE_SELECT_STATUS}
                       value={resolveDraft(line, drafts).status}

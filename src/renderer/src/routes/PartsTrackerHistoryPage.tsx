@@ -72,6 +72,7 @@ export function PartsTrackerHistoryPage({ session }: Props): JSX.Element {
         deadline: e.deadline,
         partNumber: e.partNumber,
         lineCount: e.visibleLines,
+        status: "",
       })),
     [entries]
   );
@@ -86,6 +87,7 @@ export function PartsTrackerHistoryPage({ session }: Props): JSX.Element {
         deadline: e.deadline,
         partNumber: e.partNumber,
         lineCount: e.visibleLines,
+        status: "",
       })),
       search
     ).map((p) => entries.find((e) => e.projectId === p.id)!);
@@ -227,6 +229,7 @@ export function PartsTrackerHistoryPage({ session }: Props): JSX.Element {
       deadline: selected.deadline,
       partNumber: selected.partNumber,
       lineCount: selected.visibleLines,
+      status: "",
     });
   }, [selected]);
 

@@ -394,6 +394,10 @@ ORDER BY p.name COLLATE NOCASE;
 
 サテライト: `project_part_import_batches`（取込履歴。`source` = `solidworks_bom_csv` 等）。
 
+| `required_date_user_override` | INTEGER NOT NULL DEFAULT 0 | `1` = ユーザーが必要着日を明示保存（§8.5.22 溶接日自動追随の対象外） |
+
+サテライト: `parts_tracker_meta`（工程マッピング等）、`parts_tracker_welding_date_cache`（溶接 `start_date` の確認済みキャッシュ §8.5.22）。
+
 **SolidWorks BOM CSV（標準8列・2026-05-25 要件・未実装）**
 
 | 取込元列 | 保存先 |

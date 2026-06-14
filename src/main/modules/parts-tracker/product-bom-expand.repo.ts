@@ -14,6 +14,7 @@ import { getDb } from "@main/db/connection.js";
 import { getPartsTrackerDb } from "@main/db/partsTrackerConnection.js";
 
 import { listBomLinesByBom, findBom } from "../master/product-bom.repo.js";
+import { resolveWeldingStartDate } from "./welding-start-date.repo.js";
 
 const ASSEMBLY_SEP = "/";
 
@@ -202,7 +203,6 @@ export function commitExpansion(
   }
   const multiplier = Math.max(1, Number(input.multiplier ?? 1));
   const duplicatePolicy: ExpandDuplicatePolicy = input.duplicatePolicy ?? "skip";
-  const requiredDate = input.requiredDate ?? null;
 
   const preview = previewExpansion(productBomId, multiplier);
   if (preview.cycleDetected) {
@@ -261,11 +261,7 @@ export function commitExpansion(
      WHERE lt.source_type = ? AND lt.isActive = 1`
   );
 
-  const today = (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  })();
-  const baseRequired = requiredDate ?? today;
+  const baseRequired = input.requiredDate?.trim() || resolveWeldingStartDate(seisanProjectId).date;
 
   let insertedCount = 0;
   let updatedCount = 0;

@@ -2,6 +2,7 @@
 
 import type {
   BomDiffCurrentVsPrevInput,
+  BomDiffLineInput,
   BomDiffProductRevInput,
   BomDiffProjectInput,
   BomDiffResult,
@@ -13,22 +14,17 @@ import { getPartsTrackerDb } from "@main/db/partsTrackerConnection.js";
 
 import { previewExpansion } from "./product-bom-expand.repo.js";
 
-interface BomLineSnapshot {
-  partNumber: string;
-  partName: string;
-  quantity: number;
-  revision: string | null;
-  assemblyPath: string | null;
-}
-
-function loadProductBomSnapshot(productBomId: number): BomLineSnapshot[] {
+function loadProductBomSnapshot(productBomId: number): BomDiffLineInput[] {
   const preview = previewExpansion(productBomId, 1);
-  return preview.items.map((it) => ({
+  return preview.items.map((it, index) => ({
     partNumber: it.partNumber,
     partName: it.partName,
     quantity: it.quantity,
-    revision: null, // 製品 BOM 行は revision を持たない
+    revision: null,
     assemblyPath: it.assemblyPath,
+    bomLevel: it.bomLevel,
+    parentAssemblyPartNumber: it.parentAssemblyPartNumber,
+    sortOrder: it.sourceProductBomLineId ?? index * 10,
   }));
 }
 
@@ -51,9 +47,7 @@ export function diffProductRev(input: BomDiffProductRevInput): BomDiffResult {
   if (!Number.isFinite(a) || !Number.isFinite(b)) throw new Error("BOM ID が不正です。");
   const linesA = loadProductBomSnapshot(a);
   const linesB = loadProductBomSnapshot(b);
-  const { summary, entries } = computeBomDiff(linesA, linesB, {
-    matchByAssemblyPath: input.matchByAssemblyPath ?? false,
-  });
+  const { summary, entries, matchAlgorithm } = computeBomDiff(linesA, linesB);
   const aLabel = bomLabel(a);
   const bLabel = bomLabel(b);
   return {
@@ -63,15 +57,18 @@ export function diffProductRev(input: BomDiffProductRevInput): BomDiffResult {
     summary,
     entries,
     summaryText: buildDiffSummaryText(aLabel, bLabel, summary),
+    matchAlgorithm,
   };
 }
 
-function loadProjectSnapshot(seisanProjectId: string): BomLineSnapshot[] {
+function loadProjectSnapshot(seisanProjectId: string): BomDiffLineInput[] {
   const rows = getPartsTrackerDb()
     .prepare(
-      `SELECT part_number, part_name, quantity, revision, assembly_path
+      `SELECT part_number, part_name, quantity, revision, assembly_path,
+              bom_level, parent_assembly_part_number, sort_order
        FROM project_part_lines
-       WHERE seisan_project_id = ? AND is_hidden = 0`
+       WHERE seisan_project_id = ? AND is_hidden = 0
+       ORDER BY sort_order ASC, id ASC`
     )
     .all(seisanProjectId) as Array<{
     part_number: string;
@@ -79,6 +76,9 @@ function loadProjectSnapshot(seisanProjectId: string): BomLineSnapshot[] {
     quantity: number;
     revision: string | null;
     assembly_path: string | null;
+    bom_level: number;
+    parent_assembly_part_number: string | null;
+    sort_order: number;
   }>;
   return rows.map((r) => ({
     partNumber: r.part_number,
@@ -86,6 +86,9 @@ function loadProjectSnapshot(seisanProjectId: string): BomLineSnapshot[] {
     quantity: r.quantity,
     revision: r.revision,
     assemblyPath: r.assembly_path,
+    bomLevel: r.bom_level ?? 0,
+    parentAssemblyPartNumber: r.parent_assembly_part_number,
+    sortOrder: r.sort_order,
   }));
 }
 
@@ -103,9 +106,7 @@ export function diffProjects(input: BomDiffProjectInput): BomDiffResult {
   if (!a || !b) throw new Error("案件 ID が必要です。");
   const linesA = loadProjectSnapshot(a);
   const linesB = loadProjectSnapshot(b);
-  const { summary, entries } = computeBomDiff(linesA, linesB, {
-    matchByAssemblyPath: input.matchByAssemblyPath ?? false,
-  });
+  const { summary, entries, matchAlgorithm } = computeBomDiff(linesA, linesB);
   const aLabel = projectLabel(a);
   const bLabel = projectLabel(b);
   return {
@@ -115,6 +116,7 @@ export function diffProjects(input: BomDiffProjectInput): BomDiffResult {
     summary,
     entries,
     summaryText: buildDiffSummaryText(aLabel, bLabel, summary),
+    matchAlgorithm,
   };
 }
 
@@ -123,8 +125,6 @@ export function diffCurrentVsLatest(input: BomDiffCurrentVsPrevInput): BomDiffRe
   const projectId = (input.seisanProjectId ?? "").trim();
   if (!projectId) throw new Error("案件 ID が必要です。");
 
-  // seisan-board.db に persistence 中の `product_bom_id` を読みに行く（同一プロセス内別接続）
-  // ここでは `parts-tracker.db` の `project_part_lines.root_product_bom_id` から最頻値を採用
   const ptDb = getPartsTrackerDb();
   const row = ptDb
     .prepare(
@@ -139,7 +139,6 @@ export function diffCurrentVsLatest(input: BomDiffCurrentVsPrevInput): BomDiffRe
   if (!row || row.bomId == null) return null;
   const currentBomId = row.bomId;
 
-  // この BOM の `product_id` から最新の Rev を取得
   const latest = getDb()
     .prepare(
       `SELECT b2.id AS id, b2.revision AS revision
@@ -154,7 +153,7 @@ export function diffCurrentVsLatest(input: BomDiffCurrentVsPrevInput): BomDiffRe
 
   const linesA = loadProductBomSnapshot(currentBomId);
   const linesB = loadProductBomSnapshot(latest.id);
-  const { summary, entries } = computeBomDiff(linesA, linesB);
+  const { summary, entries, matchAlgorithm } = computeBomDiff(linesA, linesB);
   const aLabel = bomLabel(currentBomId);
   const bLabel = bomLabel(latest.id);
   return {
@@ -164,5 +163,6 @@ export function diffCurrentVsLatest(input: BomDiffCurrentVsPrevInput): BomDiffRe
     summary,
     entries,
     summaryText: buildDiffSummaryText(aLabel, bLabel, summary),
+    matchAlgorithm,
   };
 }

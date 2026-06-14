@@ -10,6 +10,8 @@ import { fail, ok } from "@shared/ipcResponse.js";
 import type {
   CloneBomFromInput,
   CloneBomFromResult,
+  CompleteProjectInput,
+  CompleteProjectResult,
   LineInlineBatchUpdateInput,
   PartSourceType,
   PartsTrackerHistoryEntry,
@@ -22,12 +24,15 @@ import type {
   SetHiddenInput,
   SuggestRepeatSourcesInput,
   SuggestRepeatSourcesResult,
+  SyncRequiredDatesFromWeldingResult,
+  WeldingStartDateInfo,
 } from "@shared/partsTracker.js";
 import { isPartLineStatus, isPartSourceType } from "@shared/partsTracker.js";
 import type {
   BomCsvImportBatchRow,
   BomCsvImportCommitInput,
   BomCsvImportCommitResult,
+  ImportDuplicatePolicy,
 } from "@shared/partsTrackerCsvFormat.js";
 import { buildBomCsvTemplate, previewBomCsv } from "@shared/partsTrackerCsvFormat.js";
 import type {
@@ -55,6 +60,12 @@ import { ensurePartsTracker } from "@main/parts-tracker-guard.js";
 import { ensureSeisanSatellite } from "@main/seisan-guard.js";
 import * as seisanProjects from "@main/seisan/repos/projects.repo.js";
 import { getSession } from "@main/session.js";
+import {
+  PROJECT_STATUS_LABELS,
+  resolveProjectStatusAfterUncomplete,
+  resolveProjectStatusesToComplete,
+} from "@shared/seisan/status.js";
+import type { Project, ProjectStatus } from "@shared/seisan/project.js";
 
 import * as csvImport from "./bom-csv-import.repo.js";
 import * as bomDiff from "./bom-diff.repo.js";
@@ -62,6 +73,7 @@ import * as history from "./parts-tracker-history.repo.js";
 import * as projectClone from "./project-bom-clone.repo.js";
 import * as expand from "./product-bom-expand.repo.js";
 import * as repo from "./parts-tracker.repo.js";
+import * as weldingDate from "./welding-start-date.repo.js";
 
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle("parts-tracker:status", async () => {
@@ -95,6 +107,7 @@ export function register(ipcMain: IpcMain): void {
         deadline: p.deadline,
         partNumber: p.part_number ?? null,
         lineCount: lineCounts.get(p.id) ?? 0,
+        status: p.status,
       }));
       return ok(items);
     } catch (err) {
@@ -124,7 +137,15 @@ export function register(ipcMain: IpcMain): void {
       try {
         assertAppRoleAtLeast("parts-tracker", "admin");
         ensurePartsTracker();
-        const line = repo.create(data);
+        ensureSeisanSatellite();
+        const projectId = (data.seisanProjectId ?? "").trim();
+        if (!projectId) throw new Error("案件 ID が必要です。");
+        const requiredDate =
+          (data.requiredDate ?? "").trim() || weldingDate.resolveWeldingStartDate(projectId).date;
+        const line = repo.create(
+          { ...data, requiredDate },
+          { requiredDateUserOverride: true }
+        );
         return ok<ProjectPartLine>(line);
       } catch (err) {
         return fail(err);
@@ -150,7 +171,9 @@ export function register(ipcMain: IpcMain): void {
         } else if (role !== "admin") {
           throw new Error("権限が不足しています。");
         }
-        const line = repo.update(id, patch);
+        const line = repo.update(id, patch, {
+          markRequiredDateUserOverride: patch.requiredDate !== undefined,
+        });
         return ok<ProjectPartLine>(line);
       } catch (err) {
         return fail(err);
@@ -244,8 +267,62 @@ export function register(ipcMain: IpcMain): void {
       try {
         assertCanViewApp("parts-tracker");
         ensurePartsTracker();
+        ensureSeisanSatellite();
         const summary = repo.summarizeProject(data?.seisanProjectId ?? "");
         return ok<ProjectPartSummary>(summary);
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  /** §8.5.21 案件完了（生産ボード `projects.status = done` と連動） */
+  ipcMain.handle(
+    "parts-tracker:project:complete",
+    async (_event, data: CompleteProjectInput) => {
+      try {
+        assertAppRoleAtLeast("parts-tracker", "editor");
+        ensureSeisanSatellite();
+        const id = data?.seisanProjectId?.trim();
+        if (!id) throw new Error("案件 ID が必要です。");
+        const existing = seisanProjects.get(id);
+        if (!existing) throw new Error("案件が見つかりません。");
+        const steps = resolveProjectStatusesToComplete(existing.status);
+        if (steps.length === 0) {
+          const label =
+            PROJECT_STATUS_LABELS[existing.status as ProjectStatus] ?? existing.status;
+          throw new Error(`現在のステータス（${label}）から完了にできません。`);
+        }
+        let row: Project = existing;
+        for (const nextStatus of steps) {
+          row = seisanProjects.updateStatus(id, nextStatus);
+        }
+        return ok<CompleteProjectResult>({ id: row.id, status: row.status });
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  /** §8.5.21.1 案件完了の解除（`done` → `in_progress`） */
+  ipcMain.handle(
+    "parts-tracker:project:uncomplete",
+    async (_event, data: CompleteProjectInput) => {
+      try {
+        assertAppRoleAtLeast("parts-tracker", "editor");
+        ensureSeisanSatellite();
+        const id = data?.seisanProjectId?.trim();
+        if (!id) throw new Error("案件 ID が必要です。");
+        const existing = seisanProjects.get(id);
+        if (!existing) throw new Error("案件が見つかりません。");
+        const nextStatus = resolveProjectStatusAfterUncomplete(existing.status);
+        if (!nextStatus) {
+          const label =
+            PROJECT_STATUS_LABELS[existing.status as ProjectStatus] ?? existing.status;
+          throw new Error(`現在のステータス（${label}）から完了を解除できません。`);
+        }
+        const row = seisanProjects.updateStatus(id, nextStatus);
+        return ok<CompleteProjectResult>({ id: row.id, status: row.status });
       } catch (err) {
         return fail(err);
       }
@@ -312,6 +389,7 @@ export function register(ipcMain: IpcMain): void {
     try {
       assertCanWriteApp("parts-tracker");
       ensurePartsTracker();
+      ensureSeisanSatellite();
       const session = getSession();
       return ok<ProductBomExpandResult>(expand.commitExpansion(data, session?.username ?? null));
     } catch (err) {
@@ -323,7 +401,14 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle(
     "parts-tracker:import:preview",
-    async (_event, data: { csvText?: string }) => {
+    async (
+      _event,
+      data: {
+        csvText?: string;
+        seisanProjectId?: string;
+        duplicatePolicy?: ImportDuplicatePolicy;
+      }
+    ) => {
       try {
         assertAppRoleAtLeast("parts-tracker", "admin");
         const text = (data?.csvText ?? "").toString();
@@ -331,7 +416,28 @@ export function register(ipcMain: IpcMain): void {
         const suppliers = getDb()
           .prepare(`SELECT id, name FROM m_suppliers WHERE isActive = 1`)
           .all() as Array<{ id: number; name: string }>;
-        return ok(previewBomCsv({ text, knownSuppliers: suppliers }));
+        const preview = previewBomCsv({ text, knownSuppliers: suppliers });
+
+        const projectId = (data?.seisanProjectId ?? "").trim();
+        if (!projectId) return ok(preview);
+
+        const policy: ImportDuplicatePolicy = data.duplicatePolicy ?? "updateOnRevision";
+        const csvRows = preview.rows
+          .filter((r) => r.issues.every((i) => i.level !== "error"))
+          .map((r, i) => ({
+            partNumber: r.partNumber,
+            partName: r.partName,
+            quantity: r.quantity,
+            revision: r.revision,
+            assemblyLevel: r.assemblyLevel,
+            parentAssemblyPartNumber: r.parentAssemblyPartNumber,
+            assemblyPath: r.assemblyPath,
+            note: r.note,
+            csvSortOrder: r.csvSortOrder ?? i,
+          }));
+
+        const mergeHints = csvImport.estimateImportMergeForProject(projectId, csvRows, policy);
+        return ok({ ...preview, mergeHints });
       } catch (err) {
         return fail(err);
       }
@@ -344,6 +450,7 @@ export function register(ipcMain: IpcMain): void {
       try {
         assertAppRoleAtLeast("parts-tracker", "admin");
         ensurePartsTracker();
+        ensureSeisanSatellite();
         const session = getSession();
         return ok<BomCsvImportCommitResult>(
           csvImport.commitCsvImport(data, session?.username ?? null)
@@ -423,6 +530,7 @@ export function register(ipcMain: IpcMain): void {
       try {
         assertAppRoleAtLeast("parts-tracker", "admin");
         ensurePartsTracker();
+        ensureSeisanSatellite();
         const target = (data?.targetProjectId ?? "").trim();
         const source = (data?.sourceProjectId ?? "").trim();
         if (!target || !source) throw new Error("コピー元・先の案件 ID が必要です。");
@@ -433,6 +541,89 @@ export function register(ipcMain: IpcMain): void {
           replaceExisting: data?.replaceExisting,
         });
         return ok<CloneBomFromResult>(res);
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  /** §8.5.22.7 溶接工程マッピング */
+  ipcMain.handle("parts-tracker:welding:getProcessTemplateMapping", async () => {
+    try {
+      assertAppRoleAtLeast("parts-tracker", "admin");
+      ensurePartsTracker();
+      ensureSeisanSatellite();
+      return ok(weldingDate.getWeldingProcessTemplateMapping());
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle(
+    "parts-tracker:welding:setProcessTemplateMapping",
+    async (_event, data: { processTemplateName?: string; processTemplateId?: string }) => {
+      try {
+        assertAppRoleAtLeast("parts-tracker", "admin");
+        ensurePartsTracker();
+        ensureSeisanSatellite();
+        return ok(
+          weldingDate.setWeldingProcessTemplateMapping({
+            processTemplateName: data?.processTemplateName,
+            processTemplateId: data?.processTemplateId,
+          })
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  /** §8.5.22 溶接開始日 */
+  ipcMain.handle(
+    "parts-tracker:project:weldingStartDate",
+    async (_event, data: { seisanProjectId?: string }) => {
+      try {
+        assertCanViewApp("parts-tracker");
+        ensurePartsTracker();
+        ensureSeisanSatellite();
+        const id = (data?.seisanProjectId ?? "").trim();
+        if (!id) throw new Error("案件 ID が必要です。");
+        return ok<WeldingStartDateInfo>(weldingDate.getWeldingStartDateInfo(id));
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "parts-tracker:project:syncRequiredDatesFromWelding",
+    async (_event, data: { seisanProjectId?: string }) => {
+      try {
+        assertAppRoleAtLeast("parts-tracker", "editor");
+        ensurePartsTracker();
+        ensureSeisanSatellite();
+        const id = (data?.seisanProjectId ?? "").trim();
+        if (!id) throw new Error("案件 ID が必要です。");
+        return ok<SyncRequiredDatesFromWeldingResult>(
+          weldingDate.syncRequiredDatesFromWelding(id)
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "parts-tracker:project:ackWeldingDateChange",
+    async (_event, data: { seisanProjectId?: string }) => {
+      try {
+        assertAppRoleAtLeast("parts-tracker", "editor");
+        ensurePartsTracker();
+        ensureSeisanSatellite();
+        const id = (data?.seisanProjectId ?? "").trim();
+        if (!id) throw new Error("案件 ID が必要です。");
+        weldingDate.ackWeldingDateChange(id);
+        return ok<null>(null);
       } catch (err) {
         return fail(err);
       }

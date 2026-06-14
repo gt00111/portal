@@ -13,12 +13,15 @@ import {
   HELP_HISTORY,
   HELP_INLINE_EDIT,
   HELP_MASTER,
+  HELP_PROJECT_COMPLETE,
   HELP_PROJECT_SELECT,
   HELP_REVISION,
   HELP_RISK,
+  HELP_ROW_COLORS,
   HELP_ROLES_ADMIN,
   HELP_ROLES_EDITOR,
   HELP_ROLES_VIEWER,
+  HELP_WELDING_MAPPING,
   PARTS_TRACKER_COMPARE_PAGE_TAGLINE,
   PARTS_TRACKER_HISTORY_PAGE_TAGLINE,
   PARTS_TRACKER_PAGE_TAGLINE,
@@ -56,6 +59,9 @@ export function PartsTrackerHelpContent({ variant, appRole }: Props): JSX.Elemen
           <p>{HELP_INLINE_EDIT}</p>
           <p>{HELP_RISK}</p>
           <p>{HELP_ARRANGED}</p>
+          <p>{HELP_ROW_COLORS}</p>
+          <p>{HELP_PROJECT_COMPLETE}</p>
+          {appRole === "admin" && <p>{HELP_WELDING_MAPPING}</p>}
           <p>{HELP_REVISION}</p>
           <p>{HELP_HIDDEN}</p>
           <p>{HELP_CSV_IMPORT}</p>

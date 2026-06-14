@@ -1,4 +1,4 @@
-import { Diff, History, Package, User } from "lucide-react";
+import { Diff, History, User } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { getAppRole, type AppRole } from "@shared/auth.js";
@@ -36,10 +36,6 @@ export function PartsTrackerLayout({ session }: Props): JSX.Element {
             appId="parts-tracker"
             className="h-8 w-auto max-h-9 max-w-[min(200px,50vw)] shrink-0 object-contain sm:h-9 sm:max-w-[min(200px,28vw)]"
           />
-          <div className="flex min-w-0 items-center gap-2">
-            <Package className="h-5 w-5 shrink-0 text-accent-primary sm:hidden" aria-hidden />
-            <h1 className="truncate text-sm font-semibold text-fg-primary">部材管理</h1>
-          </div>
           <nav className="flex items-center gap-1 border-l border-border-subtle pl-3">
             <NavLink to="/apps/parts-tracker" end className={navClass}>
               部品一覧

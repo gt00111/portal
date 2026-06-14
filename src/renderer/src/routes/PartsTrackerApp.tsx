@@ -9,6 +9,8 @@ import {
   Plus,
   RefreshCw,
   Search,
+  CheckCircle2,
+  Undo2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
@@ -20,12 +22,14 @@ import {
 import type { MasterRow } from "@shared/master.js";
 import {
   canPartsTrackerBulkEdit,
+  canPartsTrackerCompleteProject,
   canPartsTrackerDeleteLine,
   canPartsTrackerEditBomIdentity,
   canPartsTrackerImport,
   canPartsTrackerModalEdit,
   canPartsTrackerSetArranged,
   canPartsTrackerSetHidden,
+  canPartsTrackerWeldingMapping,
   filterEditorLineUpdateInput,
   getPartsTrackerAppRole,
 } from "@shared/partsTrackerAuth.js";
@@ -42,8 +46,13 @@ import {
   type RepeatSourceCandidate,
   type SourceTabFilter,
   type SuggestRepeatSourcesResult,
+  type SyncRequiredDatesFromWeldingResult,
+  type WeldingStartDateInfo,
+  showsArrangedCheckbox,
   showsProcurementLeadTime,
 } from "@shared/partsTracker.js";
+import { WELDING_START_DATE_SOURCE_LABELS } from "@shared/partsTrackerWeldingDate.js";
+import type { WeldingProcessTemplateMapping } from "@shared/partsTrackerWeldingDate.js";
 import {
   buildBomExportFromLines,
   suggestBomExportFileName,
@@ -66,6 +75,7 @@ import { projectCascadeLabel } from "@renderer/routes/parts-tracker/projectCasca
 import { openBomPrintWindow } from "@renderer/routes/parts-tracker/partsBomPrint.js";
 import { cn } from "@renderer/lib/cn.js";
 import { PartsTrackerHelpContent } from "@renderer/routes/parts-tracker/PartsTrackerHelpContent.js";
+import { WeldingProcessMappingModal } from "@renderer/routes/parts-tracker/WeldingProcessMappingModal.js";
 import {
   countBySourceTab,
   draftFromLine,
@@ -105,6 +115,9 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const canDeleteLine = canPartsTrackerDeleteLine(session);
   const canSetHidden = canPartsTrackerSetHidden(session);
   const canSetArranged = canPartsTrackerSetArranged(session);
+  const canCompleteProject = canPartsTrackerCompleteProject(session);
+  const canWeldingMapping = canPartsTrackerWeldingMapping(session);
+  const canWeldingSync = appRole === "admin" || appRole === "editor";
   const isViewer = appRole === "viewer";
 
   const tableActions = useMemo(
@@ -124,6 +137,8 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const [projectQuery, setProjectQuery] = useState("");
   const [lines, setLines] = useState<ProjectPartLine[]>([]);
   const [summary, setSummary] = useState<ProjectPartSummary | null>(null);
+  const [weldingInfo, setWeldingInfo] = useState<WeldingStartDateInfo | null>(null);
+  const [weldingSyncBusy, setWeldingSyncBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ProjectPartLine | null>(null);
   const [creating, setCreating] = useState(false);
@@ -144,6 +159,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [csvOpen, setCsvOpen] = useState(false);
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const [csvText, setCsvText] = useState<string | null>(null);
   const [csvPreview, setCsvPreview] = useState<BomCsvPreviewResult | null>(null);
   const [csvPolicy, setCsvPolicy] = useState<ImportDuplicatePolicy>("updateOnRevision");
   const [csvBusy, setCsvBusy] = useState(false);
@@ -159,6 +175,10 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const [cloneIncludeHidden, setCloneIncludeHidden] = useState(true);
   const [cloneBusy, setCloneBusy] = useState(false);
   const [cloneTargetPartNumber, setCloneTargetPartNumber] = useState<string | null>(null);
+
+  const [weldingMappingOpen, setWeldingMappingOpen] = useState(false);
+  const [weldingMapping, setWeldingMapping] = useState<WeldingProcessTemplateMapping | null>(null);
+  const [weldingMappingSubmitting, setWeldingMappingSubmitting] = useState(false);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -197,20 +217,25 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
       if (!projectId) {
         setLines([]);
         setSummary(null);
+        setWeldingInfo(null);
         setLoading(false);
         return;
       }
       if (!opts?.silent) setLoading(true);
       try {
-        const [lineList, sum] = await Promise.all([
+        const [lineList, sum, welding] = await Promise.all([
           invoke<ProjectPartLine[]>("parts-tracker:line:list", {
             seisanProjectId: projectId,
             includeHidden: true,
           }),
           invoke<ProjectPartSummary>("parts-tracker:summary", { seisanProjectId: projectId }),
+          invoke<WeldingStartDateInfo>("parts-tracker:project:weldingStartDate", {
+            seisanProjectId: projectId,
+          }),
         ]);
         setLines(lineList);
         setSummary(sum);
+        setWeldingInfo(welding);
       } catch (err) {
         toast.push("error", err instanceof Error ? err.message : String(err));
       } finally {
@@ -239,14 +264,26 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     [projects, projectId]
   );
 
+  const isProjectComplete = selectedProject?.status === "done";
+  const showCompleteProjectButton =
+    canCompleteProject && selectedProject != null && !isProjectComplete;
+  const showUncompleteProjectButton =
+    canCompleteProject && selectedProject != null && isProjectComplete;
+
+  const suppressRiskHighlight = isProjectComplete || (summary?.projectComplete ?? false);
+
   const linesBeforeSourceTab = useMemo(() => {
     const q = lineSearch.trim().toLowerCase();
     let list = lines;
     if (!showHidden) {
       list = list.filter((l) => !l.isHidden);
     }
-    if (arrangedFilter === "unarranged") list = list.filter((l) => !l.isArranged);
-    if (arrangedFilter === "arranged") list = list.filter((l) => l.isArranged);
+    if (arrangedFilter === "unarranged") {
+      list = list.filter((l) => !showsArrangedCheckbox(l.sourceType) || !l.isArranged);
+    }
+    if (arrangedFilter === "arranged") {
+      list = list.filter((l) => showsArrangedCheckbox(l.sourceType) && l.isArranged);
+    }
     if (riskFilter !== "all") {
       list = list.filter((l) => l.risk === riskFilter);
     }
@@ -344,7 +381,8 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
         id: line.id,
         sourceType: d.sourceType,
         supplierId: d.sourceType === "purchase" ? d.supplierId : null,
-        status: line.isArranged ? d.status : line.status,
+        status:
+          !showsArrangedCheckbox(line.sourceType) || line.isArranged ? d.status : line.status,
       });
     }
     if (updates.length === 0) {
@@ -406,10 +444,10 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   }
 
   function openCreate(): void {
-    const deadline = selectedProject?.deadline ?? "";
+    const initialRequired = weldingInfo?.date ?? selectedProject?.deadline ?? "";
     setCreating(true);
     setEditing(null);
-    setForm(emptyLineForm(projectId, deadline));
+    setForm(emptyLineForm(projectId, initialRequired));
   }
 
   async function handleDelete(line: ProjectPartLine): Promise<void> {
@@ -448,6 +486,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   }
 
   async function handleSetArranged(line: ProjectPartLine, next: boolean): Promise<void> {
+    if (!showsArrangedCheckbox(line.sourceType)) return;
     try {
       const updated = await invoke<ProjectPartLine>("parts-tracker:line:setArranged", {
         id: line.id,
@@ -470,6 +509,85 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
       await refreshSummary();
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleCompleteProject(): Promise<void> {
+    if (!projectId || !summary) return;
+    const unarrangedPurchase = lines.filter(
+      (l) => !l.isHidden && showsArrangedCheckbox(l.sourceType) && !l.isArranged
+    ).length;
+    const msg = [
+      "この案件を完了にしますか？",
+      "",
+      `遅延: ${summary.delayedCount} 件`,
+      `要発注: ${summary.needOrderCount} 件`,
+      `未手配（購入）: ${unarrangedPurchase} 件`,
+      "",
+      "残っていても完了できます。完了後はリスク表示（赤行・遅延件数）が抑制されます。",
+    ].join("\n");
+    if (!window.confirm(msg)) return;
+    try {
+      await invoke("parts-tracker:project:complete", { seisanProjectId: projectId });
+      toast.push("success", "案件を完了にしました。");
+      await loadProjects();
+      await loadLines();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleUncompleteProject(): Promise<void> {
+    if (!projectId) return;
+    const msg = [
+      "案件の完了を解除しますか？",
+      "",
+      "案件を製作中に戻します。遅延・要発注の表示が再び有効になります。",
+    ].join("\n");
+    if (!window.confirm(msg)) return;
+    try {
+      await invoke("parts-tracker:project:uncomplete", { seisanProjectId: projectId });
+      toast.push("success", "案件の完了を解除しました。");
+      await loadProjects();
+      await loadLines();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const openWeldingMappingModal = useCallback(async (): Promise<void> => {
+    setWeldingMappingOpen(true);
+    try {
+      const mapping = await invoke<WeldingProcessTemplateMapping>(
+        "parts-tracker:welding:getProcessTemplateMapping"
+      );
+      setWeldingMapping(mapping);
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+      setWeldingMappingOpen(false);
+    }
+  }, [toast]);
+
+  async function submitWeldingMapping(input: { processTemplateName: string }): Promise<void> {
+    setWeldingMappingSubmitting(true);
+    try {
+      const mapping = await invoke<WeldingProcessTemplateMapping>(
+        "parts-tracker:welding:setProcessTemplateMapping",
+        input
+      );
+      setWeldingMapping(mapping);
+      setWeldingMappingOpen(false);
+      toast.push("success", "溶接工程マッピングを保存しました。");
+      if (projectId) {
+        const welding = await invoke<WeldingStartDateInfo>("parts-tracker:project:weldingStartDate", {
+          seisanProjectId: projectId,
+        });
+        setWeldingInfo(welding);
+      }
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setWeldingMappingSubmitting(false);
     }
   }
 
@@ -508,18 +626,31 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     }
   }
 
+  const loadCsvPreview = useCallback(
+    async (text: string) => {
+      try {
+        const preview = await invoke<BomCsvPreviewResult>("parts-tracker:import:preview", {
+          csvText: text,
+          seisanProjectId: projectId || undefined,
+          duplicatePolicy: csvPolicy,
+        });
+        setCsvPreview(preview);
+      } catch (err) {
+        toast.push("error", err instanceof Error ? err.message : String(err));
+        setCsvPreview(null);
+      }
+    },
+    [projectId, csvPolicy, toast]
+  );
+
+  useEffect(() => {
+    if (csvText) void loadCsvPreview(csvText);
+  }, [csvText, loadCsvPreview]);
+
   async function handleCsvFile(file: File): Promise<void> {
     setCsvFileName(file.name);
     const text = await file.text();
-    try {
-      const preview = await invoke<BomCsvPreviewResult>("parts-tracker:import:preview", {
-        csvText: text,
-      });
-      setCsvPreview(preview);
-    } catch (err) {
-      toast.push("error", err instanceof Error ? err.message : String(err));
-      setCsvPreview(null);
-    }
+    setCsvText(text);
   }
 
   async function handleCsvCommit(): Promise<void> {
@@ -549,16 +680,19 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
         seisanProjectId: projectId,
         fileName: csvFileName,
         duplicatePolicy: csvPolicy,
-        requiredDate: selectedProject?.deadline ?? null,
         rows,
       });
       toast.push(
         "success",
-        `取込: 追加 ${res.insertedCount} / 更新 ${res.updatedCount} / スキップ ${res.skippedCount}`
+        `取込: 追加 ${res.insertedCount} / 更新 ${res.updatedCount} / スキップ ${res.skippedCount}` +
+          (res.preservedProcurementCount > 0
+            ? `（調達入力維持 ${res.preservedProcurementCount} 件）`
+            : "")
       );
       setCsvOpen(false);
       setCsvPreview(null);
       setCsvFileName(null);
+      setCsvText(null);
       if (csvInputRef.current) csvInputRef.current.value = "";
       await loadLines();
     } catch (err) {
@@ -646,6 +780,43 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     }
   }
 
+  async function handleSyncWeldingDates(): Promise<void> {
+    if (!projectId) return;
+    setWeldingSyncBusy(true);
+    try {
+      const res = await invoke<SyncRequiredDatesFromWeldingResult>(
+        "parts-tracker:project:syncRequiredDatesFromWelding",
+        { seisanProjectId: projectId }
+      );
+      toast.push(
+        "success",
+        `必要着日を更新しました（${res.updatedCount} 件 / ${res.appliedDate}）`
+      );
+      await loadLines();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setWeldingSyncBusy(false);
+    }
+  }
+
+  async function handleAckWeldingChange(): Promise<void> {
+    if (!projectId) return;
+    setWeldingSyncBusy(true);
+    try {
+      await invoke("parts-tracker:project:ackWeldingDateChange", { seisanProjectId: projectId });
+      const welding = await invoke<WeldingStartDateInfo>("parts-tracker:project:weldingStartDate", {
+        seisanProjectId: projectId,
+      });
+      setWeldingInfo(welding);
+      toast.push("info", "溶接日程の変更を確認しました。");
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setWeldingSyncBusy(false);
+    }
+  }
+
   async function handleCloneCommit(): Promise<void> {
     if (!projectId || !cloneSourceId) {
       toast.push("info", "コピー元案件を選択してください。");
@@ -683,7 +854,14 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   }
 
   const modalOpen = creating || editing !== null;
-  const defaultRequired = selectedProject?.deadline ?? "";
+  const defaultRequired = weldingInfo?.date ?? selectedProject?.deadline ?? "";
+  const weldingStartLabel = weldingInfo?.weldingTaskStartDate
+    ? weldingInfo.weldingTaskStartDate
+    : defaultRequired
+      ? `${defaultRequired}（${WELDING_START_DATE_SOURCE_LABELS[weldingInfo?.source ?? "deadline"]}）`
+      : "—";
+  const showWeldingChangeBanner =
+    Boolean(weldingInfo?.changed) && !suppressRiskHighlight && Boolean(weldingInfo?.weldingTaskStartDate);
 
   const cloneSourcePreview = cloneSources.find((c) => c.id === cloneSourceId);
 
@@ -691,7 +869,17 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     <>
     <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <div className="w-full space-y-4 px-3 py-4 sm:px-4">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {canWeldingMapping && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void openWeldingMappingModal()}
+              >
+                溶接工程
+              </Button>
+            )}
             <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
               <HelpCircle size={16} aria-hidden />
               ヘルプ
@@ -718,6 +906,23 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                   <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden />
                   更新
                 </Button>
+                {showCompleteProjectButton && (
+                  <Button type="button" size="sm" onClick={() => void handleCompleteProject()}>
+                    <CheckCircle2 size={16} aria-hidden />
+                    案件完了
+                  </Button>
+                )}
+                {showUncompleteProjectButton && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void handleUncompleteProject()}
+                  >
+                    <Undo2 size={16} aria-hidden />
+                    完了を解除
+                  </Button>
+                )}
                 {canImport && projectId && (
                   <Button type="button" size="sm" onClick={openCreate}>
                     <Plus size={16} aria-hidden />
@@ -790,6 +995,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
             {selectedProject && (
               <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-4">
                 <StatChip label="案件納期" value={selectedProject.deadline} />
+                <StatChip label="溶接開始日" value={weldingStartLabel} />
                 <StatChip
                   label="部品行"
                   value={`${summary?.visibleLines ?? 0} 件 / 全 ${summary?.totalLines ?? 0}`}
@@ -805,17 +1011,74 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                 />
                 <StatChip
                   label="遅延"
-                  value={`${summary?.delayedCount ?? 0} 件`}
-                  tone={(summary?.delayedCount ?? 0) > 0 ? "danger" : "neutral"}
+                  value={
+                    suppressRiskHighlight
+                      ? "—"
+                      : `${summary?.delayedCount ?? 0} 件`
+                  }
+                  title={suppressRiskHighlight ? "案件完了のため非表示" : undefined}
+                  tone={
+                    suppressRiskHighlight
+                      ? "neutral"
+                      : (summary?.delayedCount ?? 0) > 0
+                        ? "danger"
+                        : "neutral"
+                  }
                 />
                 <StatChip
                   label="要発注"
-                  value={`${summary?.needOrderCount ?? 0} 件`}
-                  tone={(summary?.needOrderCount ?? 0) > 0 ? "warning" : "neutral"}
+                  value={
+                    suppressRiskHighlight
+                      ? "—"
+                      : `${summary?.needOrderCount ?? 0} 件`
+                  }
+                  title={suppressRiskHighlight ? "案件完了のため非表示" : undefined}
+                  tone={
+                    suppressRiskHighlight
+                      ? "neutral"
+                      : (summary?.needOrderCount ?? 0) > 0
+                        ? "warning"
+                        : "neutral"
+                  }
                 />
                 <StatChip label="未着手" value={`${summary?.plannedCount ?? 0} 件`} />
+                {isProjectComplete && (
+                  <StatChip label="案件" value="完了" tone="neutral" />
+                )}
                 {(summary?.hiddenLines ?? 0) > 0 && (
                   <StatChip label="非表示" value={`${summary?.hiddenLines ?? 0} 件`} />
+                )}
+              </div>
+            )}
+
+            {showWeldingChangeBanner && weldingInfo && (
+              <div className="rounded-lg border border-state-warning/40 bg-state-warning/10 px-4 py-3 text-sm text-state-warning">
+                <p>
+                  溶接の日程の変更がありました。
+                  {weldingInfo.previousCachedDate && weldingInfo.weldingTaskStartDate
+                    ? `（${weldingInfo.previousCachedDate} → ${weldingInfo.weldingTaskStartDate}）`
+                    : null}
+                </p>
+                {canWeldingSync && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={weldingSyncBusy}
+                      onClick={() => void handleSyncWeldingDates()}
+                    >
+                      {weldingSyncBusy ? "処理中..." : "必要着日を一括更新"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={weldingSyncBusy}
+                      onClick={() => void handleAckWeldingChange()}
+                    >
+                      確認のみ
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
@@ -1047,6 +1310,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                   setHideReason("");
                 }}
                 onDelete={(line) => void handleDelete(line)}
+                suppressRiskHighlight={suppressRiskHighlight}
               />
               <div className="shrink-0 border-t border-border-subtle px-4 py-2 text-sm text-fg-muted">
                 全 {filteredLines.length} 件を表示（BOM ツリー・ページ分割なし）
@@ -1074,7 +1338,11 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           <div className="rounded-md border border-border-subtle bg-bg-elevated/40 p-3 text-sm text-fg-muted">
             <p>
               標準8列（符号・品番・名称・Rev・個数・材質・親品番・レベル）を認識します。空欄は
-              「-」にします。調達区分・商社は取込後に手入力です。重複ポリシーを選んで取り込んでください。
+              「-」にします。調達区分・商社は取込後に手入力です。
+            </p>
+            <p className="mt-2">
+              <strong>再取込時</strong>は、区分・商社・状態・手配済などの調達入力を維持し、一覧の並びは
+              <strong>既存データを基準</strong>にマージします（CSV の行順だけが変わっても並びを安定させます）。
             </p>
             <Button
               type="button"
@@ -1126,6 +1394,12 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                 {csvPreview.unmatchedSupplierNames.length > 0 && (
                   <span className="text-sm text-fg-muted">
                     未マッチ商社: {csvPreview.unmatchedSupplierNames.join(", ")}
+                  </span>
+                )}
+                {csvPreview.mergeHints?.isReimport && (
+                  <span className="text-sm text-fg-muted">
+                    調達入力を維持・復元できる見込み: {csvPreview.mergeHints.preservedProcurementCount} 件
+                    {csvPreview.mergeHints.orderMergeApplied ? "／並びは既存基準でマージ" : ""}
                   </span>
                 )}
               </div>
@@ -1359,7 +1633,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           />
           {defaultRequired && !editing && canEditBomIdentity && (
             <p className="text-sm text-fg-muted sm:col-span-2">
-              案件納期（{defaultRequired}）を初期値にしています。部品ごとに調整してください。
+              溶接開始日（{defaultRequired}）を初期値にしています。未取得時は案件納期です。部品ごとに調整してください。
             </p>
           )}
           <div className="sm:col-span-2">
@@ -1420,6 +1694,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                   label: projectCascadeLabel({
                     ...c,
                     partNumber: cloneTargetPartNumber,
+                    status: "",
                   }),
                 })),
               ]}
@@ -1427,6 +1702,11 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
             {cloneSourcePreview && (
               <p className="text-fg-subtle">
                 コピー元: {cloneSourcePreview.lineCount} 行（表示行ベース）
+              </p>
+            )}
+            {defaultRequired && (
+              <p className="text-sm text-fg-muted">
+                必要着日は新案件の溶接開始日（{defaultRequired}）を全行に設定します。前回案件の必要着日は複製しません。
               </p>
             )}
             <label className="flex items-center gap-2 text-fg-muted">
@@ -1458,6 +1738,14 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           </div>
         )}
       </Modal>
+
+      <WeldingProcessMappingModal
+        open={weldingMappingOpen}
+        mapping={weldingMapping}
+        onClose={() => setWeldingMappingOpen(false)}
+        onSubmit={(input) => void submitWeldingMapping(input)}
+        submitting={weldingMappingSubmitting}
+      />
     </>
   );
 }
@@ -1466,13 +1754,16 @@ function StatChip({
   label,
   value,
   tone = "neutral",
+  title,
 }: {
   label: string;
   value: string;
   tone?: "neutral" | "danger" | "warning";
+  title?: string;
 }): JSX.Element {
   return (
     <div
+      title={title}
       className={cn(
         "rounded-lg border px-3 py-1.5 text-sm",
         tone === "danger" && "border-state-danger/30 bg-state-danger/5 text-state-danger",

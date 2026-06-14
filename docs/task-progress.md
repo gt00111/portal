@@ -281,7 +281,11 @@
 - [ ] 案件 **`quantity_units`** 表示倍率（BOM 1 台分 × 台数）
 - [ ] SW 実機で **Rev 列** がエクスポートできるか確認
 - [x] **§8.5.16** 一覧インライン編集（編集モード＋一括保存）+ **区分タブ**
-- [ ] **§8.5.6.3.1** 手配済 ↔ `status` / サマリ未着手の連動
+- [x] **§8.5.6.3.1** 手配済 ↔ `status` / サマリ未着手の連動
+- [x] **§8.5.6.3.2** 手配済チェックは **購入行のみ**（社内製作・未設定は非表示）
+- [x] **§8.5.19.4** 行背景 — 手配済=薄緑、入荷済=蛍光緑、案件完了時のリスク抑制
+- [x] **§8.5.21** 部材管理「案件完了」ボタン（`projects.status = done` 連動）
+- [x] **§8.5.22** 必要着日の初期値を生産ボード **溶接開始日** に（未取得時は案件納期）
 - [x] **§8.5.17.1** リピート案件：前回 BOM コピー（手配・状態初期化）
 - [x] **§8.5.17.2** 案件間 BOM 差分 **専用ページ**（`bomDiff:project` UI）
 - [x] **§8.5.17.3** カスケード式案件選択（客先 → 親番 → 案件）
@@ -322,6 +326,56 @@
 - [x] admin / editor / viewer の UI 分岐（取込・非表示・BOM 同一性・一括編集）
 - [x] 一括編集プルダウン幅の拡大
 - [x] ヘルプ文言更新
+
+**実装チェックリスト（§8.5.6.3.2・手配済表示対象）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — `requirements.md` §8.5.6.3.2（2026-05-25）
+- [x] `PartsBomTreeTable` — 購入行のみ手配済チェック表示
+- [x] 社内製作・未設定・支給品行は `—` または空欄
+- [x] 手配フィルタの集計対象を購入行に限定（非購入は対象外）
+
+**実装チェックリスト（§8.5.19.4・調達進捗の行背景色）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — `requirements.md` §8.5.19.4（2026-05-25）
+- [x] `bomTreeRowSurfaceClass` — 入荷済=蛍光緑、購入+手配済=薄緑、優先順位整理
+- [x] 遅延行で手配済 ON 時の視認性（案件未完了時は遅延優先・完了後は抑制）
+- [x] 案件完了時の遅延赤ハイライト抑制（§8.5.21 と連動）
+
+**実装チェックリスト（§8.5.21・案件完了）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — `requirements.md` §8.5.21（2026-05-25）
+- [x] 部材管理ヘッダーに「案件完了」ボタン（editor 以上）
+- [x] 確認ダイアログ（遅延・未手配件数の警告）
+- [x] `projects.status = done` 更新（`parts-tracker:project:complete`）
+- [x] 完了後のリスク行色・サマリ遅延チップの抑制
+- [x] 生産ボード側で完了にした案件でも部材管理で同じ抑制（`projectList.status` 参照）
+
+**実装チェックリスト（§8.5.21.1・案件完了の解除）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — `requirements.md` §8.5.21.1（2026-05-25 追記）
+- [x] 部材管理ヘッダーに「完了を解除」ボタン（`status = done` 時のみ・editor 以上）
+- [x] 確認ダイアログ
+- [x] `projects.status = in_progress` 更新（`parts-tracker:project:uncomplete`）
+- [x] 解除後の遅延ハイライト・サマリ件数の再表示
+
+**実装チェックリスト（§8.5.22・必要着日＝溶接開始日）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — `requirements.md` §8.5.22（2026-05-25、追補 同日）
+- [x] `resolveWeldingStartDate` + 工程マッピング設定（既定 `pt05`、§8.6.7 同型）
+- [x] BOM CSV 取込・手動行追加・製品 BOM 展開の INSERT で適用
+- [x] 前回案件コピー: **新案件の溶接開始日** を全行に設定（前回 `required_date` は複製しない）
+- [x] `required_date_user_override` 列 + 手動保存時に `1`
+- [x] 溶接 `start_date` 変更検知・バナー「溶接の日程の変更がありました。」
+- [x] `syncRequiredDatesFromWelding`（override=0 のみ追随）
+- [x] 再取込は既存 `required_date` を維持（§8.5.13.4.1）
+
+**実装チェックリスト（§8.5.22.7・溶接工程マッピング UI）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — `requirements.md` §8.5.22.7（工程管理 §8.6.7 同型 UI）
+- [x] admin 向け「溶接工程」設定ボタン（部材管理ヘッダー）
+- [x] 「溶接工程マッピング」モーダル（`GanttTemplateMappingModal` 準拠）
+- [x] `parts-tracker:welding:getProcessTemplateMapping` / `setProcessTemplateMapping`
+- [x] 保存後の溶接開始日表示の再取得
 
 **実装チェックリスト（部品一覧スクロール改善）【実装完了】**
 
@@ -371,6 +425,18 @@
 - [x] テンプレ DL を 標準8列形式 と同型 8 列に差し替え
 - [x] 変更元（取込バッチ）の一覧表示 — §8.5.18.4 変更履歴ページ（CSV 取込履歴。行単位の変更元バッジは未実装）
 
+**実装チェックリスト（5-B.2・再取込時の調達入力保持・基準マージ並び）【実装完了 2026-05-25】**
+
+- [x] 要件定義 — `requirements.md` §8.5.13.4.1（区分・商社・状態・手配済等の保持／全置換時スナップショット復元）
+- [x] 要件定義 — `requirements.md` §8.5.13.4.2（既存データ基準のツリーマージ並び／§8.5.15.3 同型ロジック）
+- [x] `shared/bomImportMerge.ts`: 基準ツリー DFS マージ計画（`buildBomDiffTree` / `findBestChildMatch` 再利用）
+- [x] `bom-csv-import.repo.ts`: `updateOnRevision` で調達列を UPDATE から除外
+- [x] `bom-csv-import.repo.ts`: `replaceAll` で DELETE 前スナップショット → INSERT 後キー一致行へマージ復元
+- [x] `bom-csv-import.repo.ts`: 再取込時 `sort_order` 基準マージ再採番
+- [x] `appendOnly` は既存行スキップ（調達・並びとも不変）、新規のみ末尾付近に INSERT
+- [x] 取込プレビュー／確定 UI に調達入力維持・並び基準マージの説明（`mergeHints`）
+- [x] `docs/ipc-channels.md` 追随（`import:preview` に案件 ID・ポリシー任意）
+
 **実装チェックリスト（5-E・製品中心 BOM 管理）【実装完了 2026-05-25】**
 
 - [x] 要件定義 — **2026-05-25 追記**（`requirements.md` §8.5.14）
@@ -392,7 +458,8 @@
 
 - [x] 要件定義 — **2026-05-25 追記**（`requirements.md` §8.5.15）
 - [x] IPC: `parts-tracker:bomDiff:productRev` / `bomDiff:project` / `bomDiff:currentVsLatest`
-- [x] 共通ロジック: `part_number`（+任意 `assembly_path`）をキーに **追加・削除・数量変更・部品 Rev 上がり** を判定（`shared/bomDiff.ts` の `computeBomDiff`）
+- [x] 共通ロジック: **基準ツリー走査＋品番優先マッチ** で **追加・削除・数量変更・部品 Rev 上がり** を判定（`shared/bomDiff.ts` の `computeTreeBomDiff` / `computeBomDiff`）
+- [x] **§8.5.15.3**: 前回生産案件を基準に BOM 構成順で差分表示（CSV 行順のゆれ・Excel 削除に強い）
 - [x] 差分ビュー UI: 色分け（追加=緑 / 削除=赤 / 数量変更=黄 / Rev 上がり=青）。部材管理アプリ + マスタ DB の両方に搭載
 - [x] 差分要約テキスト（「追加 N / 削除 N / 数量変更 N / 部品 Rev 上がり N」）の生成
 - [~] 案件部品一覧の **「前 Rev からの変更」バッジ**：**案件間比較** ページで確認可能（自動バッジ表示は将来 UX 改善）
@@ -897,4 +964,13 @@ flowchart TB
 | 2026-05-25 | **部材管理 BOM テンプレ列順・並び注意**: 登録用 CSV を **符号・品番・名称・Rev・個数・材質** の6列順に確定（§8.5.13.5）。品番昇順ソートとインデント階層の両立不可について §8.5.13.5.1 を追記。**実装なし**。 |
 | 2026-05-25 | **部材管理 5-B.1 要件確定（実装なし）**: `ダミー生データ.csv` に基づく SW インデント BOM の列マッピング・親行表示・員数積算なし・UTF-8・区分/LT/商社は手入力・インデント UI・再取込（品番+Rev 更新/全置換）・理想列テンプレ・Rev 追跡を `requirements.md` §8.5.13 に集約。`db-schema.md` §10.2 / `task-progress.md` 3-A-2 に 5-B.1 チェックリスト追加。 |
 | 2026-05-25 | **部材管理 §8.5.18 追補**: **コピー（印刷用）**・**印刷**（`partsBomPrint.ts`、部品一覧・変更履歴）。変更履歴スナップショット区分の日本語表記。`requirements.md` / `task-progress.md` の完了チェックを更新。 |
+| 2026-05-25 | **部材管理 §8.5.13.4.1 / 4.2 再取込マージ実装**: `shared/bomImportMerge.ts` + `bom-csv-import.repo.ts` で調達入力保持・基準ツリー並びマージ。プレビュー `mergeHints`・UI 説明追加。 |
+| 2026-05-25 | **部材管理 §8.5.13.4.2 再取込の基準マージ並び**: CSV 行順が変わっても既存 `project_part_lines` を基準ツリーにし §8.5.15.3 同型の品番優先マッチでマージ。`sort_order` はマージ後 DFS 再採番。**実装は未着手**。 |
+| 2026-05-25 | **部材管理 §8.5.13.4.1 再取込時の調達入力保持**: CSV 再読み込みで区分・商社・状態・手配済等がリセットされる問題への対策要件。3 ポリシー（品番+Rev 更新／新規のみ／全置換）すべてで保持。全置換は DELETE 前スナップショット→同一キー行へ復元。**実装は未着手**。 |
+| 2026-05-25 | **部材管理 §8.5.15.3 ツリー走査 BOM 差分**: 前回生産案件を基準に `computeTreeBomDiff`（基準ツリー DFS・品番優先マッチ）を実装。案件間比較・製品 Rev・案件 vs 最新 Rev で共通利用。`requirements.md` §8.5.15.3 確定・未確定 24 クローズ。 |
 | 2026-05-25 | **部材管理 5-A-1 / 5-B / 5-E / 5-F 一括実装完了**: ① 中央 DB schema **v6**: `m_products` / `m_product_boms` / `m_product_bom_lines` 追加 + migrate。② `seisan-board.db / projects` に `product_id` / `product_bom_id` / `quantity_units` 列を追加。③ `parts-tracker.db / project_part_lines` に `is_arranged` / `arranged_at` / `arranged_by_user_name_id` / `arranged_by_username` / `revision` / `is_hidden` / `hidden_at` / `hidden_by_username` / `hidden_reason` / `import_batch_id` / `bom_level` / `assembly_path` / `parent_assembly_part_number` / `root_product_bom_id` / `source_product_bom_line_id` 列を一気に追加。`project_part_import_batches` / `project_part_line_arrangement_log` も新設。④ 共有型: `shared/partsTracker.ts` 拡張、`shared/productBom.ts` / `shared/partsTrackerCsvFormat.ts` / `shared/bomDiff.ts` を新規追加（CSV パーサ・列ヘッダ自動認識・テンプレ生成・BOM 差分の純粋関数を含む）。⑤ IPC: `master:productBom:*`（14 系統）、`parts-tracker:line:setArranged` / `setHidden`、`parts-tracker:productBom:match` / `previewExpand` / `expand`、`parts-tracker:import:preview` / `commit` / `downloadTemplate` / `batches`、`parts-tracker:bomDiff:productRev` / `project` / `currentVsLatest`。⑥ UI: 部材管理アプリに「手配済」列（誰がいつチェックしたか表示）・Rev 列・非表示トグル・「非表示行も表示」フィルタ・「手配済 / 未手配 / 全て」フィルタ・BOM CSV 取込モーダル（プレビュー＋テンプレ DL）・製品 BOM テンプレートカード（親番一致 Rev 一覧 + 展開ボタン）・展開モーダル（多階層プレビュー＋ 3 重複ポリシー）・「最新 Rev と比較」差分モーダル・非表示理由ダイアログ。マスタ DB に「製品 BOM」タブ（製品 CRUD + Rev CRUD + リリース + コピー + BOM 行 CRUD + Rev 差分ダイアログ）を追加。⑦ ヘルプ文言・`ipc-channels.md` §6e / §6f / §6g を追記。`npm run typecheck` 通過。 |
+| 2026-05-25 | **部材管理 手配済・行色・案件完了 要件追記（実装なし）**: §8.5.6.3.2 手配済は購入行のみ（社内製作・未設定は非表示）。§8.5.19.4 手配済=薄緑・入荷済=蛍光緑・遅延優先の既知不具合を明記。§8.5.21 部材管理「案件完了」ボタン（`projects.status = done` 連動、完了後リスク表示抑制）。`task-progress.md` に未実装チェックリスト追加。 |
+| 2026-05-25 | **部材管理 §8.5.6.3.1〜3.2 / §8.5.19.4 / §8.5.21 実装**: 手配済は購入のみ・`status` 連動（ON→発注済/OFF→未着手）。行背景（入荷済=蛍光緑、手配済=薄緑、案件完了で遅延抑制）。`parts-tracker:project:complete` + ヘッダー「案件完了」ボタン。`projectList` に `status` 追加。 |
+| 2026-05-25 | **部材管理 §8.5.22 必要着日の初期値（溶接開始日）要件追記（実装なし）**: 新規行の `required_date` デフォルトを生産ボードガント **溶接**（`pt05`）の `start_date` に。未取得時は案件納期→当日。CSV 取込・手動追加・BOM 展開のみ。コピー・再取込は既存日付維持。 |
+| 2026-05-25 | **部材管理 §8.5.22 追補（実装なし）**: 計画 `start_date` 確定。コピー時は **新案件の溶接開始日**（前回必要着日は複製しない）。§8.6.7 同型の工程マッピング。溶接日程変更時は override なし行のみ追随＋バナー「溶接の日程の変更がありました。」`required_date_user_override` 案。 |
+| 2026-05-25 | **部材管理 §8.5.21.1 / §8.5.22.7 実装**: 「完了を解除」ボタン（`parts-tracker:project:uncomplete`）。admin 向け「溶接工程」マッピングモーダル（§8.6.7 同型 UI）。 |

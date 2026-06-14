@@ -320,6 +320,13 @@ DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削�
 | `parts-tracker:projectList` | 🔒 | `undefined` | `PartsTrackerProjectOption[]`（`partNumber`・`lineCount` を含む。カスケード案件選択 §8.5.17.3） |
 | `parts-tracker:project:suggestRepeatSources` | 🔒 | `{ seisanProjectId }` | `SuggestRepeatSourcesResult`（同一親番の過去案件候補・納期降順 §8.5.17.1） |
 | `parts-tracker:project:cloneBomFrom` | ✏️ | `{ targetProjectId, sourceProjectId, includeHidden?, replaceExisting? }` | `CloneBomFromResult`（前回案件 BOM コピー §8.5.17.1） |
+| `parts-tracker:project:complete` | ✏️ | `{ seisanProjectId }` | `CompleteProjectResult`（案件完了 §8.5.21 — `projects.status = done`） |
+| `parts-tracker:project:uncomplete` | ✏️ | `{ seisanProjectId }` | `CompleteProjectResult`（案件完了解除 §8.5.21.1 — `done` → `in_progress`） |
+| `parts-tracker:welding:getProcessTemplateMapping` | admin | `undefined` | `WeldingProcessTemplateMapping`（§8.5.22.7） |
+| `parts-tracker:welding:setProcessTemplateMapping` | admin | `{ processTemplateName }` | `WeldingProcessTemplateMapping` |
+| `parts-tracker:project:weldingStartDate` | 🔒 | `{ seisanProjectId }` | `WeldingStartDateInfo`（§8.5.22 溶接開始日・変更検知） |
+| `parts-tracker:project:syncRequiredDatesFromWelding` | ✏️ | `{ seisanProjectId }` | `SyncRequiredDatesFromWeldingResult`（override=0 の行のみ追随） |
+| `parts-tracker:project:ackWeldingDateChange` | ✏️ | `{ seisanProjectId }` | `null`（溶接日程変更の確認のみ） |
 | `parts-tracker:line:list` | 🔒 | `{ seisanProjectId; includeHidden? }` | `ProjectPartLine[]` |
 | `parts-tracker:line:create` | ✏️ | `ProjectPartLineUpsertInput` | `ProjectPartLine` |
 | `parts-tracker:line:update` | ✏️ | `{ id; input }` | `ProjectPartLine` |
@@ -333,12 +340,12 @@ DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削�
 | `parts-tracker:productBom:match` | 🔒 | `{ partNumber }` | 親番一致の `m_products` × `m_product_boms` の一覧（**UI 非推奨・IPC 残置**） |
 | `parts-tracker:productBom:previewExpand` | 🔒 | `{ productBomId; multiplier? }` | `ProductBomExpandPreview`（多階層を再帰展開、循環検出・未登録サブ組立検出） |
 | `parts-tracker:productBom:expand` | ✏️ | `ProductBomExpandInput` | `ProductBomExpandResult`（`skip` / `addQuantity` / `overwrite` ポリシー） |
-| `parts-tracker:import:preview` | 🔒 | `{ csvText }` | `BomCsvPreviewResult`（列ヘッダ自動認識、商社マスタ照合、エラー・警告検出） |
-| `parts-tracker:import:commit` | ✏️ | `BomCsvImportCommitInput` | `BomCsvImportCommitResult`（重複ポリシー: `appendOnly` / `updateOnRevision` / `replaceAll`。`project_part_import_batches` に履歴を残す） |
+| `parts-tracker:import:preview` | 🔒 | `{ csvText; seisanProjectId?; duplicatePolicy? }` | `BomCsvPreviewResult`（列認識・商社照合。案件 ID 指定時は `mergeHints` で再取込見込み） |
+| `parts-tracker:import:commit` | ✏️ | `BomCsvImportCommitInput` | `BomCsvImportCommitResult`（§8.5.13.4.1 調達入力保持・§8.5.13.4.2 基準マージ並び。`preservedProcurementCount` / `orderMergeApplied` 含む） |
 | `parts-tracker:import:downloadTemplate` | 🔒 | `undefined` | `{ csv; fileName }`（UTF-8 BOM 付きテンプレ CSV） |
 | `parts-tracker:import:batches` | 🔒 | `{ seisanProjectId }` | `BomCsvImportBatchRow[]` |
-| `parts-tracker:bomDiff:productRev` | 🔒 | `{ productBomIdA; productBomIdB; matchByAssemblyPath? }` | `BomDiffResult`（製品 Rev 同士の差分） |
-| `parts-tracker:bomDiff:project` | 🔒 | `{ seisanProjectIdA; seisanProjectIdB; matchByAssemblyPath? }` | `BomDiffResult`（案件同士の差分） |
+| `parts-tracker:bomDiff:productRev` | 🔒 | `{ productBomIdA; productBomIdB }` | `BomDiffResult`（製品 Rev 同士。基準ツリー走査＋品番優先マッチ） |
+| `parts-tracker:bomDiff:project` | 🔒 | `{ seisanProjectIdA; seisanProjectIdB }` | `BomDiffResult`（案件同士。比較元＝前回生産案件を基準ツリーに使用） |
 | `parts-tracker:bomDiff:currentVsLatest` | 🔒 | `{ seisanProjectId }` | `BomDiffResult \| null`（案件にスナップショット済みの Rev と、製品マスタの最新 Rev を比較） |
 
 型は `shared/partsTracker.ts` / `shared/productBom.ts` / `shared/partsTrackerCsvFormat.ts` / `shared/bomDiff.ts` を参照。`ProjectPartLine` には `isArranged` / `arrangedByUsername` / `arrangedAt` / `isHidden` / `hiddenReason` / `revision` / `bomLevel` / `assemblyPath` / `parentAssemblyPartNumber` / `rootProductBomId` / `sourceProductBomLineId` / `importBatchId` が含まれる（5-A-1 / 5-B / 5-E 用）。

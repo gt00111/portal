@@ -60,6 +60,7 @@ export interface ProjectPartLine {
   rootProductBomId: number | null;
   sourceProductBomLineId: number | null;
   importBatchId: number | null;
+  requiredDateUserOverride: boolean;
   risk: PartLineRisk;
   createdAt: string;
   updatedAt: string;
@@ -91,6 +92,8 @@ export interface ProjectPartSummary {
   needOrderCount: number;
   plannedCount: number;
   arrangedCount: number;
+  /** 生産案件が完了（`projects.status = done`）のとき true — リスク件数は 0 で返す */
+  projectComplete: boolean;
 }
 
 export interface SetArrangedInput {
@@ -136,6 +139,35 @@ export interface PartsTrackerProjectOption {
   deadline: string;
   partNumber: string | null;
   lineCount: number;
+  /** 生産ボード `projects.status`（§8.5.21 案件完了連動） */
+  status: string;
+}
+
+export interface CompleteProjectInput {
+  seisanProjectId: string;
+}
+
+export interface CompleteProjectResult {
+  id: string;
+  status: string;
+}
+
+/** §8.5.6.3.2 手配済チェックは購入行のみ */
+export function showsArrangedCheckbox(sourceType: PartSourceType): boolean {
+  return sourceType === "purchase";
+}
+
+/** §8.5.6.3.1 手配済 ON/OFF 時の status 自動進行（購入のみ） */
+export function resolveStatusAfterArrangedToggle(
+  status: PartLineStatus,
+  arranged: boolean
+): PartLineStatus | undefined {
+  if (arranged) {
+    if (status === "planned") return "ordered";
+    return undefined;
+  }
+  if (status === "ordered") return "planned";
+  return undefined;
 }
 
 /** §8.5.17.1 リピート BOM コピー元候補 */
@@ -168,6 +200,13 @@ export interface CloneBomFromResult {
   insertedCount: number;
   removedCount: number;
 }
+
+export type {
+  SyncRequiredDatesFromWeldingResult,
+  WeldingProcessTemplateMapping,
+  WeldingStartDateInfo,
+  WeldingStartDateSource,
+} from "./partsTrackerWeldingDate.js";
 
 /** §8.5.18.4 トレーサビリティ履歴インデックス */
 export interface PartsTrackerHistoryEntry {

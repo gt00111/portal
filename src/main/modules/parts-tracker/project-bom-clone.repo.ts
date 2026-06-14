@@ -2,6 +2,10 @@
 
 import { getPartsTrackerDb } from "@main/db/partsTrackerConnection.js";
 
+import {
+  applyWeldingRequiredDateToAllLines,
+} from "./welding-start-date.repo.js";
+
 export interface CloneBomFromInput {
   targetProjectId: string;
   sourceProjectId: string;
@@ -115,6 +119,8 @@ export function cloneBomFrom(input: CloneBomFromInput): CloneBomFromResult {
         ORDER BY sort_order ASC, id ASC`
       )
       .run(target, source);
+
+    applyWeldingRequiredDateToAllLines(target);
 
     return {
       insertedCount: insertResult.changes,

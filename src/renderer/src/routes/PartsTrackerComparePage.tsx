@@ -33,7 +33,6 @@ export function PartsTrackerComparePage({ session }: Props): JSX.Element {
   const [diffResult, setDiffResult] = useState<BomDiffResult | null>(null);
   const [diffBusy, setDiffBusy] = useState(false);
   const [changesOnly, setChangesOnly] = useState(true);
-  const [matchByPath, setMatchByPath] = useState(true);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -77,7 +76,6 @@ export function PartsTrackerComparePage({ session }: Props): JSX.Element {
       const res = await invoke<BomDiffResult>("parts-tracker:bomDiff:project", {
         seisanProjectIdA: projectIdA,
         seisanProjectIdB: projectIdB,
-        matchByAssemblyPath: matchByPath,
       });
       setDiffResult(res);
     } catch (err) {
@@ -85,7 +83,7 @@ export function PartsTrackerComparePage({ session }: Props): JSX.Element {
     } finally {
       setDiffBusy(false);
     }
-  }, [projectIdA, projectIdB, matchByPath, toast]);
+  }, [projectIdA, projectIdB, toast]);
 
   return (
     <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
@@ -142,15 +140,6 @@ export function PartsTrackerComparePage({ session }: Props): JSX.Element {
                 className="rounded border-border-strong"
               />
               変更ありのみ表示
-            </label>
-            <label className="flex items-center gap-2 text-sm text-fg-muted">
-              <input
-                type="checkbox"
-                checked={matchByPath}
-                onChange={(e) => setMatchByPath(e.target.checked)}
-                className="rounded border-border-strong"
-              />
-              組立パスでマッチング
             </label>
             <Button
               type="button"

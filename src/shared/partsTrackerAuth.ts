@@ -46,6 +46,16 @@ export function canPartsTrackerSetArranged(session: SessionUser): boolean {
   return canPartsTrackerBulkEdit(session);
 }
 
+/** 案件完了（§8.5.21）・完了の解除（§8.5.21.1） */
+export function canPartsTrackerCompleteProject(session: SessionUser): boolean {
+  return canPartsTrackerBulkEdit(session);
+}
+
+/** 溶接工程マッピング（§8.5.22.7） */
+export function canPartsTrackerWeldingMapping(session: SessionUser): boolean {
+  return getPartsTrackerAppRole(session) === "admin";
+}
+
 /** CSV 出力・コピー（印刷用）・印刷 */
 export function canPartsTrackerExport(session: SessionUser): boolean {
   return getPartsTrackerAppRole(session) != null;
