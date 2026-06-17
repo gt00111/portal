@@ -1,8 +1,18 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, FileUp, Download, Loader2, AlertTriangle } from 'lucide-react'
+import { Plus, FileUp, Download, Loader2, AlertTriangle, HelpCircle } from 'lucide-react'
 import { showToast } from '../components/Toaster'
 import { Button } from '../components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog'
+import {
+  SeisanBoardHelpContent,
+  seisanHelpTitle,
+} from '@renderer/apps/seisan-board/components/SeisanBoardHelpContent.js'
 import { ProjectTable } from '../components/ProjectTable'
 import { ProjectFormDialog } from '../components/ProjectFormDialog'
 import { CsvImportDialog } from '../components/CsvImportDialog'
@@ -45,6 +55,7 @@ export function ProjectsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [csvOpen, setCsvOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [includeDone, setIncludeDone] = useState(false)
   const [filters, setFilters] = useState<ProjectListFilter>(loadFilters)
   const [total, setTotal] = useState(0)
@@ -208,8 +219,19 @@ export function ProjectsPage() {
               新規案件
             </Button>
           )}
+          <Button variant="ghost" size="icon" onClick={() => setHelpOpen(true)} title="ヘルプ">
+            <HelpCircle className="h-4 w-4" />
+          </Button>
         </div>
       </div>
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{seisanHelpTitle('projects')}</DialogTitle>
+          </DialogHeader>
+          <SeisanBoardHelpContent variant="projects" />
+        </DialogContent>
+      </Dialog>
       {fetchError && (
         <div className="flex items-center gap-2 rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-700">
           <AlertTriangle className="h-4 w-4 shrink-0" />

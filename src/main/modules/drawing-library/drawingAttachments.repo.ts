@@ -54,11 +54,19 @@ export function listComments(drawingId: number): LibCommentRow[] {
     .all(drawingId) as LibCommentRow[];
 }
 
-export function insertComment(drawingId: number, text: string): LibCommentRow {
+export function insertComment(
+  drawingId: number,
+  text: string,
+  userNameId: number,
+  userName: string
+): LibCommentRow {
   const db = getDrawingLibraryDb();
   const r = db
-    .prepare("INSERT INTO drawing_comments (drawing_id, comment_text) VALUES (?, ?)")
-    .run(drawingId, text.trim());
+    .prepare(
+      `INSERT INTO drawing_comments (drawing_id, comment_text, user_name_id, user_name)
+       VALUES (?, ?, ?, ?)`
+    )
+    .run(drawingId, text.trim(), userNameId, userName);
   const id = Number(r.lastInsertRowid);
   return db.prepare("SELECT * FROM drawing_comments WHERE id = ?").get(id) as LibCommentRow;
 }
@@ -75,11 +83,20 @@ export function updateComment(id: number, text: string): LibCommentRow {
   return db.prepare("SELECT * FROM drawing_comments WHERE id = ?").get(id) as LibCommentRow;
 }
 
-export function deleteComment(id: number): void {
+export function getComment(id: number): LibCommentRow | null {
   const db = getDrawingLibraryDb();
-  const existing = db.prepare("SELECT * FROM drawing_comments WHERE id = ?").get(id);
+  const row = db.prepare("SELECT * FROM drawing_comments WHERE id = ?").get(id) as LibCommentRow | undefined;
+  return row ?? null;
+}
+
+export function deleteComment(id: number, requesterUserNameId: number, isAdmin: boolean): void {
+  const db = getDrawingLibraryDb();
+  const existing = getComment(id);
   if (!existing) {
     throw new Error("コメントが見つかりません。");
+  }
+  if (!isAdmin && existing.user_name_id !== requesterUserNameId) {
+    throw new Error("このコメントを削除する権限がありません。");
   }
   db.prepare("DELETE FROM drawing_comments WHERE id = ?").run(id);
 }

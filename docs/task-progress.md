@@ -908,6 +908,17 @@ flowchart TB
 - [x] **自社発行 › 図面登録内容の編集** — 誤登録時に客先・機種・品番・Rev・名称・カテゴリ・PDF を修正。`drawing:update` + `drawing:pickPdf`（IPC 実装済み、UI 未接続）。編集モーダルは新規登録フォームと同等。editor 以上のみ
 - [x] ヘルプ文言に編集手順を追記（`drawingLibraryHelpCopy.ts`）
 
+### 図面ライブラリ（Rev 運用 UX・§8.4.6）
+
+要件: `docs/requirements.md` **§8.4.6**（ChatGPT 案ベース。Rev 管理方式・`is_obsolete` は維持）。
+
+- [x] **Rev 履歴パネル** — 詳細モーダル右カラムを `Rev履歴 | eDrawings` タブ化。`drawing:revHistory` IPC
+- [x] **現行版バッジ** — 一覧カード・詳細ヘッダー（緑=現行、灰=旧）。`shared/drawingRevisionSort.ts`
+- [x] **現行版のみ表示** — 一覧チェックボックス（初期 ON）。`drawing:list` に `currentOnly`
+- [x] **コメント強化** — `drawing_comments` に `user_name_id` / `user_name`。投稿者 or admin のみ削除
+- [~] **PDF 比較ショートカット** — **見送り**（詳細からの導線は付けない。PDF比較タブはローカル2件比較のおまけとして維持）
+- [x] **Rev 変更理由** — `drawings.change_summary`、新規/編集/詳細 UI
+
 ### 工程管理（ヘルプ・ボード UI）
 - [x] ボード／マイタスクの長い説明・DB パスを撤去し、**ヘルプモーダル**に集約（`processManagementHelpCopy.ts`、`ProcessManagementApp.tsx`）。画面上は短いタグラインのみ
 - [x] ボード「**案件内容**」を secondary＋`ExternalLink` で強調。**進捗（共有）**は先頭 **約15文字**表示し**クリックでモーダル全文**（一覧はアクティブ／履歴共通）
@@ -985,3 +996,6 @@ flowchart TB
 | 2026-05-25 | **部材管理 §8.5.21.1 / §8.5.22.7 実装**: 「完了を解除」ボタン（`parts-tracker:project:uncomplete`）。admin 向け「溶接工程」マッピングモーダル（§8.6.7 同型 UI）。 |
 | 2026-05-25 | **図面ライブラリ §8.4.5 要件追記（実装なし）**: 自社発行の登録内容編集（`drawing:update` UI 接続）、顧客図面・自社発行・PDF 比較の全幅表示、更新／ヘルプボタン順の入れ替え。`task-progress.md` に未実装チェックリスト追加。 |
 | 2026-05-25 | **図面ライブラリ §8.4.5 実装**: 全タブ全幅（`DrawingLibraryApp.tsx`）、更新→ヘルプ順（顧客・自社）、自社発行の編集モーダル（一覧鉛筆・詳細「編集」、`drawing:update`）。ヘルプ文言更新。 |
+| 2026-05-25 | **図面ライブラリ §8.4.6 要件追記（実装なし）**: ChatGPT 案を現行 Rev モデル・`is_obsolete` 維持で整理。Rev 履歴・現行版バッジ・現行のみフィルタ・コメント強化・PDF 比較ショートカット・`change_summary`。`task-progress.md` に未実装チェックリスト追加。 |
+| 2026-05-25 | **図面ライブラリ §8.4.6 実装**: Rev履歴タブ・現行/旧バッジ・現行版のみフィルタ・コメント投稿者・`change_summary`。`drawing:revHistory` / `shared/drawingRevisionSort.ts`。 |
+| 2026-05-25 | **図面ライブラリ §8.4.6.6 見送り**: 自社発行詳細の PDF比較ショートカットを削除。PDF比較タブはローカル2件比較のおまけとして維持。 |

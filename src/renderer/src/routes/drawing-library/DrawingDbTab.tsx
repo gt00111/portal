@@ -1,6 +1,11 @@
 import { Download, FileText, HelpCircle, PencilLine, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { getAppRole } from "@shared/auth.js";
+import {
+  buildCurrentDrawingIdMap,
+  isCurrentDrawing,
+} from "@shared/drawingRevisionSort.js";
 import type {
   DrawingListParams,
   DrawingListResult,
@@ -13,6 +18,7 @@ import type {
 } from "@shared/drawingLibrary.js";
 import type { MasterRow } from "@shared/master.js";
 import type { SkuRow } from "@shared/sku.js";
+import type { SessionUser } from "@shared/types.js";
 
 const WORK_CATEGORY_SCOPE = "drawing-library/work" as const;
 
@@ -35,8 +41,10 @@ import {
   WORK_DRAWINGS_TAB_HELP,
 } from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
 import { PdfCardThumbnail, PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
+import { CurrentRevisionBadge } from "@renderer/routes/drawing-library/workDrawingUi.js";
 
 interface Props {
+  session: SessionUser;
   writable: boolean;
 }
 
@@ -123,6 +131,7 @@ function WorkDrawingCard({
   row,
   writable,
   categoryLabel,
+  isCurrent,
   onOpen,
   onEdit,
   onDelete,
@@ -131,6 +140,7 @@ function WorkDrawingCard({
   row: LibDrawingRow;
   writable: boolean;
   categoryLabel: string | null;
+  isCurrent: boolean;
   onOpen: (r: LibDrawingRow) => void;
   onEdit: (r: LibDrawingRow) => void;
   onDelete: (r: LibDrawingRow) => void;
@@ -178,6 +188,7 @@ function WorkDrawingCard({
               {categoryLabel}
             </span>
           )}
+          <CurrentRevisionBadge isCurrent={isCurrent} />
           <p className="text-[11px] text-fg-muted">更新 {row.updated_at}</p>
         </div>
         <div className="mt-auto flex w-full min-w-0 items-center justify-between gap-2 border-t border-border-subtle/60 px-3 pb-3 pt-2">
@@ -230,11 +241,13 @@ function WorkDrawingCard({
   );
 }
 
-export function DrawingDbTab({ writable }: Props): JSX.Element {
+export function DrawingDbTab({ session, writable }: Props): JSX.Element {
   const toast = useToast();
+  const isDlAdmin = getAppRole(session, "drawing-library") === "admin";
   const [result, setResult] = useState<DrawingListResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [currentOnly, setCurrentOnly] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<DrawingListPageSize>(DEFAULT_DRAWING_LIST_PAGE_SIZE);
   const [fcCustomer, setFcCustomer] = useState("");
@@ -254,6 +267,8 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [comments, setComments] = useState<LibCommentRow[]>([]);
   const [edrawingsFiles, setEdrawingsFiles] = useState<LibEdrawingsFileRow[]>([]);
+  const [revHistory, setRevHistory] = useState<LibDrawingRow[]>([]);
+  const [detailSideTab, setDetailSideTab] = useState<"rev" | "edraw">("rev");
   const [commentDraft, setCommentDraft] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -267,6 +282,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
   const [newDrawingNumber, setNewDrawingNumber] = useState("");
   const [newRevision, setNewRevision] = useState("");
   const [newCategory, setNewCategory] = useState("");
+  const [newChangeSummary, setNewChangeSummary] = useState("");
   const [newFilePath, setNewFilePath] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -280,6 +296,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
   const [editDrawingNumber, setEditDrawingNumber] = useState("");
   const [editRevision, setEditRevision] = useState("");
   const [editCategory, setEditCategory] = useState("");
+  const [editChangeSummary, setEditChangeSummary] = useState("");
   const [editFilePath, setEditFilePath] = useState<string | null>(null);
   const [editSkuListLoading, setEditSkuListLoading] = useState(false);
 
@@ -296,6 +313,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
         model: fcModel.trim() || undefined,
         productName: fcProduct.trim() || undefined,
         category: fcCategory.trim() || undefined,
+        currentOnly: currentOnly || undefined,
         sortBy,
         sortOrder,
       };
@@ -307,7 +325,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [search, page, toast, pageSize, fcCustomer, fcModel, fcProduct, fcCategory, sortId]);
+  }, [search, page, toast, pageSize, fcCustomer, fcModel, fcProduct, fcCategory, sortId, currentOnly]);
 
   useEffect(() => {
     void load();
@@ -375,6 +393,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
     setNewDrawingNumber("");
     setNewRevision("");
     setNewCategory("");
+    setNewChangeSummary("");
     setNewFilePath(null);
     void (async () => {
       try {
@@ -427,6 +446,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
     setEditDrawingNumber(row.drawing_number ?? "");
     setEditRevision(row.revision ?? "");
     setEditCategory(row.category ?? "");
+    setEditChangeSummary(row.change_summary ?? "");
     setEditFilePath(row.file_path);
     setEditSkuId("");
     setEditOpen(true);
@@ -451,16 +471,24 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
 
   async function openDetail(row: LibDrawingRow): Promise<void> {
     setDetail(row);
+    setDetailSideTab("rev");
     setPdfDataUrl(null);
     setPdfLoading(false);
     setCommentDraft("");
     try {
-      const [c, e] = await Promise.all([
+      const customerName = row.customer_name?.trim() ?? "";
+      const model = row.model?.trim() ?? "";
+      const productName = row.product_name?.trim() ?? "";
+      const [c, e, history] = await Promise.all([
         invoke<LibCommentRow[]>("drawing-comment:list", { drawing_id: row.id }),
         invoke<LibEdrawingsFileRow[]>("drawing-edrawings:list", { drawing_id: row.id }),
+        customerName && model && productName
+          ? invoke<LibDrawingRow[]>("drawing:revHistory", { customerName, model, productName })
+          : Promise.resolve([] as LibDrawingRow[]),
       ]);
       setComments(c);
       setEdrawingsFiles(e);
+      setRevHistory(history);
       const fp = row.file_path?.trim();
       if (fp && fp.toLowerCase().endsWith(".pdf")) {
         setPdfLoading(true);
@@ -481,6 +509,27 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
   function closeDetail(): void {
     setPdfDataUrl(null);
     setDetail(null);
+    setRevHistory([]);
+  }
+
+  function canDeleteComment(comment: LibCommentRow): boolean {
+    if (!writable) return false;
+    if (isDlAdmin) return true;
+    if (comment.user_name_id == null) return false;
+    return comment.user_name_id === session.userNameId;
+  }
+
+  async function deleteCommentRow(id: number): Promise<void> {
+    if (!window.confirm("このコメントを削除しますか？")) return;
+    if (!detail) return;
+    try {
+      await invoke("drawing-comment:delete", { id });
+      const c = await invoke<LibCommentRow[]>("drawing-comment:list", { drawing_id: detail.id });
+      setComments(c);
+      toast.push("success", "コメントを削除しました。");
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
   }
 
   function defaultExportName(row: LibDrawingRow): string {
@@ -599,6 +648,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
       drawing_number: newDrawingNumber.trim() || null,
       revision: newRevision.trim() || null,
       category: newCategory.trim() || null,
+      change_summary: newChangeSummary.trim() || null,
       file_path: newFilePath,
       drawingType: DRAWING_TYPE,
     };
@@ -630,6 +680,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
       drawing_number: editDrawingNumber.trim() || null,
       revision: editRevision.trim() || null,
       category: editCategory.trim() || null,
+      change_summary: editChangeSummary.trim() || null,
       file_path: editFilePath,
     };
     try {
@@ -716,6 +767,24 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
 
   const detailObsolete = detail ? detail.is_obsolete === 1 : false;
 
+  const revHistoryCurrentMap = useMemo(
+    () => buildCurrentDrawingIdMap(revHistory),
+    [revHistory]
+  );
+
+  const detailIsCurrent = detail ? isCurrentDrawing(detail, revHistoryCurrentMap) : false;
+
+  function formatCommentDate(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${y}/${m}/${day} ${h}:${min}`;
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -754,6 +823,18 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
           }}
           className="h-10 min-w-[200px] flex-1 rounded-lg border border-border-strong bg-bg-surface px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
         />
+        <label className="flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-border-subtle bg-bg-surface px-3 text-sm text-fg-primary">
+          <input
+            type="checkbox"
+            checked={currentOnly}
+            onChange={(e) => {
+              setCurrentOnly(e.target.checked);
+              setPage(1);
+            }}
+            className="rounded border-border-strong"
+          />
+          現行版のみ表示
+        </label>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -867,6 +948,7 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
                 key={r.id}
                 row={r}
                 writable={writable}
+                isCurrent={r.is_current}
                 categoryLabel={
                   r.category ? categories.find((c) => c.code === r.category)?.name ?? r.category : null
                 }
@@ -959,6 +1041,16 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
           />
           <TextField label="リビジョン" value={newRevision} onChange={(e) => setNewRevision(e.target.value)} />
           <TextField label="名称" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+          <label className="flex flex-col gap-1 text-sm text-fg-primary">
+            <span className="text-fg-muted">変更理由（任意）</span>
+            <textarea
+              value={newChangeSummary}
+              onChange={(e) => setNewChangeSummary(e.target.value)}
+              placeholder="例: ブラケット追加、穴位置変更"
+              rows={2}
+              className="rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+            />
+          </label>
           <Select
             label="カテゴリ（任意・マスタ「カテゴリ」/ 自社発行）"
             value={newCategory}
@@ -1019,6 +1111,16 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
                   <dt className="text-xs text-fg-muted">名称</dt>
                   <dd className="font-medium text-fg-primary">{detail.title}</dd>
                 </div>
+                <div className="col-span-2 sm:col-span-3 lg:col-span-4">
+                  <dt className="text-xs text-fg-muted">変更理由</dt>
+                  <dd className="text-fg-primary">{detail.change_summary?.trim() || "—"}</dd>
+                </div>
+                <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-3 lg:col-span-4">
+                  <CurrentRevisionBadge isCurrent={detailIsCurrent} />
+                  {!detailIsCurrent && (
+                    <span className="text-xs text-fg-muted">この Rev は現行版ではありません</span>
+                  )}
+                </div>
               </dl>
               <div className="flex flex-col items-end gap-2 shrink-0">
                 {writable && (
@@ -1055,40 +1157,104 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
                 )}
               </div>
               <div className="flex min-h-0 flex-col gap-4 border-t border-border-subtle pt-6 lg:col-span-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-                <p className="text-xs font-semibold text-fg-primary">eDrawings</p>
-                <ul className="max-h-[min(40vh,420px)] min-h-[8rem] flex-1 space-y-0 divide-y divide-border-subtle overflow-y-auto border-y border-border-subtle text-sm">
-                  {edrawingsFiles.map((f) => (
-                    <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-primary">{f.file_name}</span>
-                      <div className="flex shrink-0 gap-1">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => void exportEdrawingFile(f.file_path, f.file_name)}
-                        >
-                          <Download size={12} />
-                        </Button>
-                        {writable && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => void deleteEdrawingRow(f.id)}
-                            aria-label="削除"
-                          >
-                            <Trash2 size={14} className="text-state-danger" />
-                          </Button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                {edrawingsFiles.length === 0 && <p className="text-xs text-fg-primary">紐付けなし</p>}
-                {writable && (
-                  <Button type="button" variant="secondary" size="sm" onClick={() => void attachEdrawings()}>
-                    eDrawings を追加
-                  </Button>
+                <div className="flex gap-1 border-b border-border-subtle">
+                  <button
+                    type="button"
+                    onClick={() => setDetailSideTab("rev")}
+                    className={cn(
+                      "px-3 py-2 text-xs font-medium transition-colors",
+                      detailSideTab === "rev"
+                        ? "border-b-2 border-accent-primary text-fg-primary"
+                        : "text-fg-muted hover:text-fg-primary"
+                    )}
+                  >
+                    Rev履歴
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailSideTab("edraw")}
+                    className={cn(
+                      "px-3 py-2 text-xs font-medium transition-colors",
+                      detailSideTab === "edraw"
+                        ? "border-b-2 border-accent-primary text-fg-primary"
+                        : "text-fg-muted hover:text-fg-primary"
+                    )}
+                  >
+                    eDrawings
+                  </button>
+                </div>
+                {detailSideTab === "rev" ? (
+                  <ul className="max-h-[min(40vh,420px)] min-h-[8rem] flex-1 space-y-1 overflow-y-auto text-sm">
+                    {revHistory.length === 0 ? (
+                      <li className="py-2 text-xs text-fg-muted">Rev 履歴がありません</li>
+                    ) : (
+                      revHistory.map((h) => {
+                        const isActive = h.id === detail.id;
+                        const isCurrentRev = isCurrentDrawing(h, revHistoryCurrentMap);
+                        return (
+                          <li key={h.id}>
+                            <button
+                              type="button"
+                              onClick={() => void openDetail(h)}
+                              className={cn(
+                                "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors",
+                                isActive
+                                  ? "bg-accent-primary/10 font-semibold text-fg-primary"
+                                  : "hover:bg-bg-elevated text-fg-primary"
+                              )}
+                            >
+                              <span>
+                                Rev {h.revision?.trim() || "—"}
+                                {isActive && (
+                                  <span className="ml-2 text-xs font-normal text-fg-muted">（表示中）</span>
+                                )}
+                              </span>
+                              <CurrentRevisionBadge isCurrent={isCurrentRev} />
+                            </button>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                ) : (
+                  <>
+                    <ul className="max-h-[min(40vh,420px)] min-h-[8rem] flex-1 space-y-0 divide-y divide-border-subtle overflow-y-auto border-y border-border-subtle text-sm">
+                      {edrawingsFiles.map((f) => (
+                        <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                          <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-primary">
+                            {f.file_name}
+                          </span>
+                          <div className="flex shrink-0 gap-1">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => void exportEdrawingFile(f.file_path, f.file_name)}
+                            >
+                              <Download size={12} />
+                            </Button>
+                            {writable && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void deleteEdrawingRow(f.id)}
+                                aria-label="削除"
+                              >
+                                <Trash2 size={14} className="text-state-danger" />
+                              </Button>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    {edrawingsFiles.length === 0 && <p className="text-xs text-fg-primary">紐付けなし</p>}
+                    {writable && (
+                      <Button type="button" variant="secondary" size="sm" onClick={() => void attachEdrawings()}>
+                        eDrawings を追加
+                      </Button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -1098,8 +1264,27 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
               <ul className="mt-3 max-h-[min(35vh,360px)] space-y-0 divide-y divide-border-subtle overflow-y-auto border-y border-border-subtle text-sm text-fg-primary">
                 {comments.map((c) => (
                   <li key={c.id} className="py-2.5">
-                    {c.comment_text}
-                    <span className="ml-2 text-xs text-fg-muted">{c.created_at}</span>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-fg-muted">
+                          {formatCommentDate(c.created_at)}
+                          {c.user_name ? `  ${c.user_name}` : ""}
+                        </p>
+                        <p className="mt-1">{c.comment_text}</p>
+                      </div>
+                      {canDeleteComment(c) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void deleteCommentRow(c.id)}
+                          aria-label="コメント削除"
+                          className="shrink-0 text-state-danger"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -1154,6 +1339,16 @@ export function DrawingDbTab({ writable }: Props): JSX.Element {
           />
           <TextField label="リビジョン" value={editRevision} onChange={(e) => setEditRevision(e.target.value)} />
           <TextField label="名称" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          <label className="flex flex-col gap-1 text-sm text-fg-primary">
+            <span className="text-fg-muted">変更理由（任意）</span>
+            <textarea
+              value={editChangeSummary}
+              onChange={(e) => setEditChangeSummary(e.target.value)}
+              placeholder="例: ブラケット追加、穴位置変更"
+              rows={2}
+              className="rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+            />
+          </label>
           <Select
             label="カテゴリ（任意・マスタ「カテゴリ」/ 自社発行）"
             value={editCategory}

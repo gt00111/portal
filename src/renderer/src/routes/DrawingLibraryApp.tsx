@@ -52,7 +52,7 @@ export function DrawingLibraryApp({ session }: Props): JSX.Element {
                     ? "提供ファイル（生産ボードと同期）"
                     : id === "workDb"
                       ? "drawing-library.db に登録した自社図面"
-                      : "外部 PDF 2 件の比較（補助）"
+                      : "ローカル PDF 2 件の比較（補助・おまけ）"
                 }
                 className={cn(
                   "flex items-center gap-1.5 rounded-md px-2 py-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
@@ -80,7 +80,7 @@ export function DrawingLibraryApp({ session }: Props): JSX.Element {
       <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <div className="w-full space-y-4 px-3 py-4 sm:px-4">
           {tab === "seisan" && <SeisanProvidedFilesTab writable={writable} />}
-          {tab === "workDb" && <DrawingDbTab writable={writable} />}
+          {tab === "workDb" && <DrawingDbTab session={session} writable={writable} />}
           {tab === "pdfCompare" && <PdfCompareBonusTab />}
         </div>
       </main>

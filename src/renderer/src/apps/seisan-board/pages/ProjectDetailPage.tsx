@@ -1,8 +1,18 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Copy } from 'lucide-react'
+import { ArrowLeft, Copy, HelpCircle } from 'lucide-react'
 import { showToast } from '../components/Toaster'
 import { Button } from '../components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog'
+import {
+  SeisanBoardHelpContent,
+  seisanHelpTitle,
+} from '@renderer/apps/seisan-board/components/SeisanBoardHelpContent.js'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { StatusBadge } from '../components/StatusBadge'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -30,6 +40,7 @@ export function ProjectDetailPage() {
   const [notFound, setNotFound] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const overviewRef = useRef<ProjectOverviewRef>(null)
 
@@ -210,7 +221,19 @@ export function ProjectDetailPage() {
             )}
           </div>
         </div>
+        <Button variant="ghost" size="icon" onClick={() => setHelpOpen(true)} title="ヘルプ">
+          <HelpCircle className="h-4 w-4" />
+        </Button>
       </div>
+
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{seisanHelpTitle('project-detail')}</DialogTitle>
+          </DialogHeader>
+          <SeisanBoardHelpContent variant="project-detail" />
+        </DialogContent>
+      </Dialog>
 
       {errorMsg && (
         <div className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-700">

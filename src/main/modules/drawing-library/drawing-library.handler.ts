@@ -9,6 +9,7 @@ import type {
   DrawingUpsertInput,
   DrawingWorkCascadeResult,
 } from "@shared/drawingLibrary.js";
+import { getAppRole } from "@shared/auth.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 import type { ProjectFileWithProject } from "@shared/seisan/projectFile.js";
 
@@ -91,6 +92,32 @@ export function register(ipcMain: IpcMain): void {
       return fail(err);
     }
   });
+
+  ipcMain.handle(
+    "drawing:revHistory",
+    async (
+      _event,
+      data: {
+        customerName?: string;
+        model?: string;
+        productName?: string;
+      }
+    ) => {
+      try {
+        assertLoggedIn();
+        ensureDrawingLibrary();
+        const customerName = data?.customerName?.trim() ?? "";
+        const model = data?.model?.trim() ?? "";
+        const productName = data?.productName?.trim() ?? "";
+        if (!customerName || !model || !productName) {
+          throw new Error("客先・機種・品番が必要です。");
+        }
+        return ok(drawings.listRevHistory(customerName, model, productName));
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
 
   ipcMain.handle("drawing:create", async (_event, data: { input?: DrawingUpsertInput }) => {
     try {
@@ -334,11 +361,18 @@ export function register(ipcMain: IpcMain): void {
     "drawing-comment:create",
     async (_event, data: { drawing_id?: number; comment_text?: string }) => {
       try {
-        assertCanWriteApp("drawing-library");
+        const session = assertCanWriteApp("drawing-library");
         ensureDrawingLibrary();
         if (data?.drawing_id == null) throw new Error("drawing_id が必要です。");
         if (!data?.comment_text?.trim()) throw new Error("コメントが必要です。");
-        return ok(attachments.insertComment(data.drawing_id, data.comment_text));
+        return ok(
+          attachments.insertComment(
+            data.drawing_id,
+            data.comment_text,
+            session.userNameId,
+            session.username
+          )
+        );
       } catch (err) {
         return fail(err);
       }
@@ -362,10 +396,11 @@ export function register(ipcMain: IpcMain): void {
 
   ipcMain.handle("drawing-comment:delete", async (_event, data: { id?: number }) => {
     try {
-      assertCanWriteApp("drawing-library");
+      const session = assertCanWriteApp("drawing-library");
       ensureDrawingLibrary();
       if (data?.id == null) throw new Error("id が必要です。");
-      attachments.deleteComment(data.id);
+      const isAdmin = getAppRole(session, "drawing-library") === "admin";
+      attachments.deleteComment(data.id, session.userNameId, isAdmin);
       return ok(null);
     } catch (err) {
       return fail(err);

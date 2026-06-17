@@ -32,23 +32,10 @@ import { PortalAppHeaderLogo } from "@renderer/components/PortalAppHeaderLogo.js
 import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
 import {
-  BOARD_HELP_ACTIVE_HISTORY_HINT,
-  BOARD_HELP_HISTORY,
-  BOARD_HELP_OVERVIEW,
-  BOARD_HELP_PROGRESS,
-  BOARD_HELP_UNDO_ADMIN,
-  BOARD_HELP_LIFECYCLE,
-  BOARD_HELP_PARALLEL,
-  BOARD_HELP_UNDO_VIEWER,
-  BOARD_HELP_VIEW_ACTIVE_TEMPLATE,
-  BOARD_PAGE_TAGLINE,
-  HELP_DB_STORAGE_NOTE,
-  MY_TASKS_HELP_CASE_VIEW,
-  MY_TASKS_HELP_COMPLETE_MISTAKE_VIEWER,
-  MY_TASKS_HELP_INPUT,
-  MY_TASKS_HELP_SCOPE_TEMPLATE,
-  MY_TASKS_PAGE_TAGLINE,
-} from "@renderer/routes/process-management/processManagementHelpCopy.js";
+  ProcessManagementHelpContent,
+  processMgmtHelpTitle,
+  type ProcessMgmtHelpVariant,
+} from "@renderer/routes/process-management/ProcessManagementHelpContent.js";
 import { ProcessMgmtNotificationBell } from "@renderer/routes/process-management/ProcessMgmtNotificationBell.js";
 import { ProcessMgmtActionMenu } from "@renderer/routes/process-management/ProcessMgmtActionMenu.js";
 import { ProcessMgmtDashboard } from "@renderer/routes/process-management/ProcessMgmtDashboard.js";
@@ -1073,7 +1060,14 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
           )}
 
           {tab === "dashboard" && hasPmGroup && (
-            <ProcessMgmtDashboard
+            <section className="space-y-3">
+              <div className="flex justify-end">
+                <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+                  <HelpCircle size={16} aria-hidden />
+                  ヘルプ
+                </Button>
+              </div>
+              <ProcessMgmtDashboard
               session={session}
               boardTasks={boardTasks}
               myTasks={myTasks}
@@ -1086,6 +1080,7 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
               onGoMyTasks={() => setTab("mytasks")}
               onFilterBoardByAssignee={filterBoardByAssignee}
             />
+            </section>
           )}
 
           {tab === "board" && boardMode === "active" && (
@@ -1544,45 +1539,16 @@ export function ProcessManagementApp({ session }: Props): JSX.Element {
       />
       <Modal
         open={helpOpen}
-        title={
-          tab === "board"
-            ? "工程管理（ボード）のヘルプ"
-            : tab === "mytasks"
-              ? "工程管理（マイタスク）のヘルプ"
-              : "工程管理（ダッシュボード）のヘルプ"
-        }
+        title={processMgmtHelpTitle(tab as ProcessMgmtHelpVariant)}
         onClose={() => setHelpOpen(false)}
         width="lg"
       >
-        <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
-          <p className="font-medium text-fg-primary">
-            {tab === "board"
-              ? BOARD_PAGE_TAGLINE
-              : tab === "mytasks"
-                ? MY_TASKS_PAGE_TAGLINE
-                : "工程の概要と未確認通知を確認できます。詳細操作はボードまたはマイタスクから行ってください。"}
-          </p>
-          <p className="text-fg-muted">{HELP_DB_STORAGE_NOTE}</p>
-          {tab === "board" ? (
-            <>
-              <p>{BOARD_HELP_OVERVIEW}</p>
-              <p>{BOARD_HELP_PROGRESS}</p>
-              <p>{BOARD_HELP_VIEW_ACTIVE_TEMPLATE(PROCESS_VIEW_LABELS[session.processView])}</p>
-              <p>{BOARD_HELP_HISTORY}</p>
-              <p className="text-xs text-fg-muted">{BOARD_HELP_ACTIVE_HISTORY_HINT}</p>
-              <p className="text-xs text-fg-muted">{BOARD_HELP_PARALLEL}</p>
-              <p className="text-xs text-fg-muted">{BOARD_HELP_LIFECYCLE}</p>
-              <p className="text-xs text-fg-muted">{pmAdmin ? BOARD_HELP_UNDO_ADMIN : BOARD_HELP_UNDO_VIEWER}</p>
-            </>
-          ) : (
-            <>
-              <p>{MY_TASKS_HELP_SCOPE_TEMPLATE(session.username)}</p>
-              <p>{MY_TASKS_HELP_INPUT}</p>
-              <p>{MY_TASKS_HELP_CASE_VIEW}</p>
-              {!pmAdmin && <p className="text-xs text-fg-muted">{MY_TASKS_HELP_COMPLETE_MISTAKE_VIEWER}</p>}
-            </>
-          )}
-        </div>
+        <ProcessManagementHelpContent
+          variant={tab as ProcessMgmtHelpVariant}
+          username={session.username}
+          processView={session.processView}
+          pmAdmin={pmAdmin}
+        />
       </Modal>
       <UndoCompleteDialog
         task={undoTarget}

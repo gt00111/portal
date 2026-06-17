@@ -2,8 +2,15 @@ import type {
   DrawingListParams,
   DrawingListResult,
   DrawingUpsertInput,
+  LibDrawingListItem,
   LibDrawingRow,
 } from "@shared/drawingLibrary.js";
+import {
+  buildCurrentDrawingIdMap,
+  isCurrentDrawing,
+  sortByRevisionDesc,
+  type RevGroupRow,
+} from "@shared/drawingRevisionSort.js";
 
 import { getDrawingLibraryDb } from "@main/db/drawingLibraryConnection.js";
 
@@ -86,6 +93,41 @@ function orderClauseForList(sortBy: string | undefined, sortOrder: string | unde
   return `ORDER BY COALESCE(${col}, '') COLLATE NOCASE ${order}`;
 }
 
+function listWorkRevGroupRows(db: ReturnType<typeof getDrawingLibraryDb>): RevGroupRow[] {
+  return db
+    .prepare(
+      `SELECT id, customer_name, model, product_name, revision, is_obsolete
+       FROM drawings WHERE ${SQL_WORK_DRAWING}`
+    )
+    .all() as RevGroupRow[];
+}
+
+function toListItems(rows: LibDrawingRow[], currentIdMap: Map<string, number>): LibDrawingListItem[] {
+  return rows.map((row) => ({
+    ...row,
+    change_summary: row.change_summary ?? null,
+    is_current: isCurrentDrawing(row, currentIdMap),
+  }));
+}
+
+export function listRevHistory(
+  customerName: string,
+  model: string,
+  productName: string
+): LibDrawingRow[] {
+  const db = getDrawingLibraryDb();
+  const rows = db
+    .prepare(
+      `SELECT * FROM drawings
+       WHERE ${SQL_WORK_DRAWING}
+         AND customer_name = ?
+         AND model = ?
+         AND product_name = ?`
+    )
+    .all(customerName.trim(), model.trim(), productName.trim()) as LibDrawingRow[];
+  return sortByRevisionDesc(rows.map((r) => ({ ...r, change_summary: r.change_summary ?? null })));
+}
+
 export function listDrawings(params: DrawingListParams): DrawingListResult {
   const db = getDrawingLibraryDb();
   const limitNum = Math.min(Math.max(params.limit ?? 50, 1), 200);
@@ -129,6 +171,26 @@ export function listDrawings(params: DrawingListParams): DrawingListResult {
     qparams.push(params.productName.trim());
   }
 
+  const isWorkList = drawingType === "work";
+  let currentIdMap = new Map<string, number>();
+  if (isWorkList) {
+    currentIdMap = buildCurrentDrawingIdMap(listWorkRevGroupRows(db));
+    if (params.currentOnly) {
+      const currentIds = [...currentIdMap.values()];
+      if (currentIds.length === 0) {
+        return {
+          drawings: [],
+          total: 0,
+          limit: limitNum,
+          offset: offsetNum,
+          totalPages: 1,
+        };
+      }
+      conditions.push(`id IN (${currentIds.map(() => "?").join(", ")})`);
+      qparams.push(...currentIds);
+    }
+  }
+
   if (conditions.length > 0) {
     const whereClause = " WHERE " + conditions.join(" AND ");
     query += whereClause;
@@ -142,8 +204,16 @@ export function listDrawings(params: DrawingListParams): DrawingListResult {
   const totalRow = db.prepare(countQuery).get(...countParams) as { total: number } | undefined;
   const total = totalRow?.total ?? 0;
 
+  const listItems: LibDrawingListItem[] = isWorkList
+    ? toListItems(drawings, currentIdMap)
+    : drawings.map((row) => ({
+        ...row,
+        change_summary: row.change_summary ?? null,
+        is_current: false,
+      }));
+
   return {
-    drawings,
+    drawings: listItems,
     total,
     limit: limitNum,
     offset: offsetNum,
@@ -154,7 +224,8 @@ export function listDrawings(params: DrawingListParams): DrawingListResult {
 export function getDrawing(id: number): LibDrawingRow | null {
   const db = getDrawingLibraryDb();
   const row = db.prepare("SELECT * FROM drawings WHERE id = ?").get(id) as LibDrawingRow | undefined;
-  return row ?? null;
+  if (!row) return null;
+  return { ...row, change_summary: row.change_summary ?? null };
 }
 
 export function checkDuplicate(
@@ -199,8 +270,8 @@ export function insertDrawing(input: DrawingUpsertInput): LibDrawingRow {
     .prepare(
       `INSERT INTO drawings (
         title, description, file_path, category, tags,
-        customer_name, model, product_name, drawing_number, revision, drawing_type
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        customer_name, model, product_name, drawing_number, revision, drawing_type, change_summary
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.title,
@@ -213,7 +284,8 @@ export function insertDrawing(input: DrawingUpsertInput): LibDrawingRow {
       input.product_name ?? null,
       input.drawing_number ?? null,
       input.revision ?? null,
-      dt
+      dt,
+      input.change_summary?.trim() || null
     );
 
   const id = Number(result.lastInsertRowid);
@@ -237,6 +309,8 @@ export function updateDrawing(id: number, patch: Partial<DrawingUpsertInput>): L
   const product_name = patch.product_name !== undefined ? patch.product_name : existing.product_name;
   const drawing_number = patch.drawing_number !== undefined ? patch.drawing_number : existing.drawing_number;
   const revision = patch.revision !== undefined ? patch.revision : existing.revision;
+  const change_summary =
+    patch.change_summary !== undefined ? patch.change_summary : existing.change_summary;
 
   const checkPn = product_name ?? "";
   const checkRev = revision ?? "";
@@ -263,7 +337,7 @@ export function updateDrawing(id: number, patch: Partial<DrawingUpsertInput>): L
     `UPDATE drawings SET
       title = ?, description = ?, file_path = ?, category = ?, tags = ?,
       customer_name = ?, model = ?, product_name = ?, drawing_number = ?, revision = ?,
-      drawing_type = ?, updated_at = CURRENT_TIMESTAMP
+      drawing_type = ?, change_summary = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?`
   ).run(
     title,
@@ -277,6 +351,7 @@ export function updateDrawing(id: number, patch: Partial<DrawingUpsertInput>): L
     drawing_number,
     revision,
     drawingType,
+    change_summary?.trim() || null,
     id
   );
 

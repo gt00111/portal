@@ -52,6 +52,7 @@ export function initDrawingLibrarySchema(db: Database.Database): void {
       revision TEXT,
       drawing_type TEXT DEFAULT 'customer',
       is_obsolete INTEGER DEFAULT 0,
+      change_summary TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -70,6 +71,8 @@ export function initDrawingLibrarySchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       drawing_id INTEGER NOT NULL,
       comment_text TEXT NOT NULL,
+      user_name_id INTEGER,
+      user_name TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (drawing_id) REFERENCES drawings(id) ON DELETE CASCADE
@@ -87,6 +90,15 @@ export function initDrawingLibrarySchema(db: Database.Database): void {
     { sql: `ALTER TABLE drawings ADD COLUMN drawing_number TEXT`, name: "drawing_number" },
     { sql: `ALTER TABLE drawings ADD COLUMN revision TEXT`, name: "revision" },
     { sql: `ALTER TABLE drawings ADD COLUMN is_obsolete INTEGER DEFAULT 0`, name: "is_obsolete" },
+    { sql: `ALTER TABLE drawings ADD COLUMN change_summary TEXT`, name: "change_summary" },
+    {
+      sql: `ALTER TABLE drawing_comments ADD COLUMN user_name_id INTEGER`,
+      name: "drawing_comments.user_name_id",
+    },
+    {
+      sql: `ALTER TABLE drawing_comments ADD COLUMN user_name TEXT`,
+      name: "drawing_comments.user_name",
+    },
   ];
   for (const { sql } of alterColumns) {
     try {

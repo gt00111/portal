@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { flushSync } from 'react-dom'
-import { Printer, Search } from 'lucide-react'
+import { Printer, Search, HelpCircle } from 'lucide-react'
 import { showToast } from '../components/Toaster'
 import { useAuth } from '../contexts/AuthContext'
 import MyCustomGantt from '../components/MyCustomGantt'
@@ -19,6 +19,10 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { Button } from '../components/ui/button'
+import {
+  SeisanBoardHelpContent,
+  seisanHelpTitle,
+} from '@renderer/apps/seisan-board/components/SeisanBoardHelpContent.js'
 import { Label } from '../components/ui/label'
 import { Input } from '../components/ui/input'
 import type { ProcessTemplate, TaskWithProject } from 'shared'
@@ -137,6 +141,7 @@ export function GanttOverviewPage() {
   const [printRange, setPrintRange] = useState<{ start: string; end: string } | null>(null)
   const [pendingPrint, setPendingPrint] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [helpOpen, setHelpOpen] = useState(false)
   const fetchTasks = useCallback(async () => {
     if (!window.api) return
     const res = await window.api.tasks.listAll({
@@ -309,8 +314,19 @@ export function GanttOverviewPage() {
             />
             完了工程を含む
           </label>
+          <Button variant="ghost" size="icon" onClick={() => setHelpOpen(true)} title="ヘルプ">
+            <HelpCircle className="h-4 w-4" />
+          </Button>
         </div>
       </div>
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{seisanHelpTitle('gantt')}</DialogTitle>
+          </DialogHeader>
+          <SeisanBoardHelpContent variant="gantt" />
+        </DialogContent>
+      </Dialog>
       <p className="print-hide text-sm text-muted-foreground">
         各案件の作業工程と納期を一覧表示。いつまでに終わらせ次工程に回すか確認できます。グループで絞り込めます。
       </p>

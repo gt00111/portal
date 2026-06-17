@@ -145,33 +145,69 @@ export function PdfCardThumbnail({
   dataUrl: string | null;
   className?: string;
 }): JSX.Element {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    const container = containerRef.current;
     const canvas = canvasRef.current;
-    if (!dataUrl || !canvas) {
+    if (!dataUrl || !container || !canvas) {
       return;
     }
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       return;
     }
+
     let alive = true;
+    let pdfDoc: PDFDocumentProxy | null = null;
+    let renderGen = 0;
     const loadingTask = pdfjs.getDocument({ data: dataUrlToUint8Array(dataUrl), useSystemFonts: true });
+
+    const renderThumb = async (): Promise<void> => {
+      if (!alive || !pdfDoc) {
+        return;
+      }
+      const gen = ++renderGen;
+      const cw = container.clientWidth;
+      const ch = container.clientHeight;
+      if (cw <= 0 || ch <= 0) {
+        return;
+      }
+      try {
+        const page = await pdfDoc.getPage(1);
+        if (!alive || gen !== renderGen) {
+          return;
+        }
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(cw / base.width, ch / base.height);
+        const viewport = page.getViewport({ scale });
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+      } catch {
+        /* ignore */
+      }
+    };
+
     void loadingTask.promise
       .then(async (doc) => {
-        if (!alive) return;
-        const page = await doc.getPage(1);
-        if (!alive) return;
-        const viewport = page.getViewport({ scale: 0.22 });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        if (!alive) {
+          return;
+        }
+        pdfDoc = doc;
+        await renderThumb();
       })
       .catch(() => {});
 
+    const ro = new ResizeObserver(() => {
+      void renderThumb();
+    });
+    ro.observe(container);
+
     return () => {
       alive = false;
+      ro.disconnect();
       void loadingTask.destroy().catch(() => {});
     };
   }, [dataUrl]);
@@ -191,12 +227,13 @@ export function PdfCardThumbnail({
 
   return (
     <div
+      ref={containerRef}
       className={cn(
-        "flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-lg bg-bg-elevated/50 p-2",
+        "flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-lg bg-bg-elevated/50",
         className
       )}
     >
-      <canvas ref={canvasRef} className="max-h-full max-w-full object-contain" />
+      <canvas ref={canvasRef} className="block max-h-full max-w-full" />
     </div>
   );
 }

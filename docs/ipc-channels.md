@@ -200,8 +200,9 @@ interface Sku {
 
 | チャネル | 権限 | Request | Response |
 |---------|------|---------|----------|
-| `drawing:list` | 🔒 | `DrawingListParams`（`sortBy` / `sortOrder` 可） | `DrawingListResult` |
+| `drawing:list` | 🔒 | `DrawingListParams`（`sortBy` / `sortOrder` / `currentOnly` 可） | `DrawingListResult`（`is_current` 付き） |
 | `drawing:workCascadeOptions` | 🔒 | `{ customerName?; model? }` | `DrawingWorkCascadeResult`（自社図面の客先→機種→品番候補） |
+| `drawing:revHistory` | 🔒 | `{ customerName; model; productName }` | `LibDrawingRow[]`（Rev 降順） |
 | `drawing:get` | 🔒 | `{ id: number }` | `LibDrawingRow` |
 | `drawing:create` | ✏️ | `{ input: DrawingUpsertInput }` | `LibDrawingRow` |
 | `drawing:update` | ✏️ | `{ id; patch }` | `LibDrawingRow` |
@@ -224,9 +225,9 @@ DXF の取り扱いは廃止済み（旧 `drawing-dxf:*` チャネル群は削�
 | `drawing-edrawings:upload` | ✏️ | eDrawings 拡張子、eDrawings 保存先は自社フォルダ規約 |
 | `drawing-edrawings:delete` | ✏️ | `{ id }` |
 | `drawing-comment:list` | 🔒 | `{ drawing_id }` |
-| `drawing-comment:create` | ✏️ | `{ drawing_id; comment_text }` |
-| `drawing-comment:update` | ✏️ | `{ id; comment_text }` |
-| `drawing-comment:delete` | ✏️ | `{ id }` |
+| `drawing-comment:create` | ✏️ | `{ drawing_id; comment_text }`（投稿者をセッションから保存） |
+| `drawing-comment:update` | ✏️ | `{ id; comment_text }`（UI 未使用） |
+| `drawing-comment:delete` | ✏️ | `{ id }`（投稿者本人または drawing-library admin のみ） |
 
 ---
 

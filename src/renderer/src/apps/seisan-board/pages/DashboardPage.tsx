@@ -1,4 +1,7 @@
-import { DASHBOARD_PAGE_TAGLINE } from '@renderer/apps/seisan-board/seisanBoardHelpCopy.js'
+import {
+  SeisanBoardHelpContent,
+  seisanHelpTitle,
+} from '@renderer/apps/seisan-board/components/SeisanBoardHelpContent.js'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HelpCircle, RefreshCw, AlertTriangle } from 'lucide-react'
@@ -229,50 +232,9 @@ export function DashboardPage() {
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
         <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>ダッシュボードの見方</DialogTitle>
+            <DialogTitle>{seisanHelpTitle('dashboard')}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
-            <p className="font-medium text-foreground">{DASHBOARD_PAGE_TAGLINE}</p>
-            <section>
-              <h3 className="mb-1 font-semibold text-foreground">KPIカード（上段の数値）</h3>
-              <ul className="list-inside list-disc space-y-1">
-                <li><span className="font-medium text-blue-600">進行中案件</span> ― 現在「進行中」ステータスの案件数。今どれだけ仕事が動いているかの指標。</li>
-                <li><span className="font-medium text-yellow-600">今月納期</span> ― 今月中に納期がある進行中案件の数。月末に向けて注意すべき案件。</li>
-                <li><span className="font-medium text-red-600">納期遅延</span> ― 納期を過ぎてもまだ完了していない案件の数。ゼロが理想。</li>
-                <li><span className="font-medium text-green-600">今月完了</span> ― 今月中に完了した案件の数。チームの成果を確認できます。</li>
-              </ul>
-            </section>
-            <section>
-              <h3 className="mb-1 font-semibold text-foreground">グループ別 案件負荷（横棒グラフ）</h3>
-              <p>各グループが抱えている案件数をステータスごとに色分けして表示します。棒が長いグループほど仕事量が多く、負荷が偏っていないか確認できます。</p>
-              <ul className="mt-1 list-inside list-disc space-y-0.5">
-                <li><span className="text-purple-500">紫</span> = 承認済（これから着手する案件）</li>
-                <li><span className="text-blue-500">青</span> = 進行中（現在作業中）</li>
-                <li><span className="text-green-500">緑</span> = 完了</li>
-              </ul>
-            </section>
-            <section>
-              <h3 className="mb-1 font-semibold text-foreground">ステータス別 案件分布（ドーナツチャート）</h3>
-              <p>全案件がどのステータスに分布しているかを円グラフで表示します。「進行中」が極端に多い場合はボトルネックの可能性があります。</p>
-            </section>
-            <section>
-              <h3 className="mb-1 font-semibold text-foreground">月別 案件推移（折れ線グラフ）</h3>
-              <p>過去6ヶ月間の新規登録数と完了数の推移を表示します。完了数が新規数に追いついていない場合、仕事が溜まっている状態です。</p>
-            </section>
-            <section>
-              <h3 className="mb-1 font-semibold text-foreground">直近の納期（テーブル）</h3>
-              <p>今日から30日以内に納期がある未完了案件を一覧表示します。残日数に応じて色分けされています。</p>
-              <ul className="mt-1 list-inside list-disc space-y-0.5">
-                <li><span className="rounded bg-red-500 px-1.5 py-0.5 text-xs text-white">赤</span> = 7日以内または超過</li>
-                <li><span className="rounded bg-yellow-500 px-1.5 py-0.5 text-xs text-white">黄</span> = 14日以内</li>
-                <li><span className="rounded bg-green-500 px-1.5 py-0.5 text-xs text-white">緑</span> = 15日以上</li>
-              </ul>
-            </section>
-            <section>
-              <h3 className="mb-1 font-semibold text-foreground">グループフィルタ</h3>
-              <p>右上のグループ選択で、特定のグループだけに絞り込めます。全てのグラフとテーブルが連動してフィルタリングされます。</p>
-            </section>
-          </div>
+          <SeisanBoardHelpContent variant="dashboard" />
         </DialogContent>
       </Dialog>
 

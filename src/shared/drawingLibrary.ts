@@ -14,8 +14,15 @@ export interface LibDrawingRow {
   revision: string | null;
   drawing_type: string | null;
   is_obsolete: number;
+  /** Rev 変更理由（§8.4.6） */
+  change_summary: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** `drawing:list` の自社発行行（現行版フラグ付き） */
+export interface LibDrawingListItem extends LibDrawingRow {
+  is_current: boolean;
 }
 
 export interface DrawingUpsertInput {
@@ -29,6 +36,7 @@ export interface DrawingUpsertInput {
   product_name?: string | null;
   drawing_number?: string | null;
   revision?: string | null;
+  change_summary?: string | null;
   drawingType?: "customer" | "work";
 }
 
@@ -45,6 +53,8 @@ export interface DrawingListParams {
   /** 並び替え列（`drawing:list`） */
   sortBy?: DrawingListSortColumn;
   sortOrder?: "asc" | "desc";
+  /** 自社発行: 各 Rev グループの現行版のみ（§8.4.6） */
+  currentOnly?: boolean;
 }
 
 export type DrawingListSortColumn =
@@ -63,11 +73,18 @@ export interface DrawingWorkCascadeResult {
 }
 
 export interface DrawingListResult {
-  drawings: LibDrawingRow[];
+  drawings: LibDrawingListItem[];
   total: number;
   limit: number;
   offset: number;
   totalPages: number;
+}
+
+export interface DrawingRevHistoryParams {
+  customerName: string;
+  model: string;
+  productName: string;
+  drawingType?: "work";
 }
 
 export interface LibEdrawingsFileRow {
@@ -83,6 +100,8 @@ export interface LibCommentRow {
   id: number;
   drawing_id: number;
   comment_text: string;
+  user_name_id: number | null;
+  user_name: string | null;
   created_at: string;
   updated_at: string;
 }
