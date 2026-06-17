@@ -8,10 +8,9 @@ import { Modal } from "@renderer/components/ui/Modal.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
 import {
-  PDF_COMPARE_PAGE_TAGLINE,
-  PDF_COMPARE_TAB_HELP,
-  PDF_COMPARE_TAB_HELP_NOTE,
-} from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
+  DrawingLibraryHelpContent,
+  drawingLibraryHelpTitle,
+} from "@renderer/routes/drawing-library/DrawingLibraryHelpContent.js";
 
 function basename(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/");
@@ -167,12 +166,8 @@ export function PdfCompareBonusTab(): JSX.Element {
         </Button>
       </div>
 
-      <Modal open={helpOpen} title="図面ライブラリ（PDF比較）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
-        <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
-          <p className="font-medium text-fg-primary">{PDF_COMPARE_PAGE_TAGLINE}</p>
-          <p>{PDF_COMPARE_TAB_HELP}</p>
-          <p className="text-xs text-fg-muted">{PDF_COMPARE_TAB_HELP_NOTE}</p>
-        </div>
+      <Modal open={helpOpen} title={drawingLibraryHelpTitle("pdf-compare")} onClose={() => setHelpOpen(false)} width="lg">
+        <DrawingLibraryHelpContent variant="pdf-compare" />
       </Modal>
 
       <div className="grid gap-3 sm:grid-cols-2">

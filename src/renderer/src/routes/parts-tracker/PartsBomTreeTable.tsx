@@ -37,15 +37,13 @@ import {
 } from "@renderer/routes/parts-tracker/bomTableLayout.js";
 import { BomTruncatableText } from "@renderer/routes/parts-tracker/BomTruncatableText.js";
 import type { LineInlineDraft } from "@renderer/routes/parts-tracker/partsTrackerInlineEdit.js";
+import { SupplierCombobox } from "@renderer/routes/parts-tracker/SupplierCombobox.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { cn } from "@renderer/lib/cn.js";
 
 const INLINE_SELECT =
   "h-7 min-w-[6.5rem] w-[8.5rem] max-w-[11rem] rounded border border-border-strong bg-bg-surface px-2 py-0 text-sm text-fg-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary";
-
-const INLINE_SELECT_SUPPLIER =
-  "h-7 min-w-[8rem] w-[10.5rem] max-w-[13rem] rounded border border-border-strong bg-bg-surface px-2 py-0 text-sm text-fg-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary";
 
 const INLINE_SELECT_STATUS =
   "h-7 min-w-[6rem] w-[8rem] max-w-[10rem] rounded border border-border-strong bg-bg-surface px-2 py-0 text-sm text-fg-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary";
@@ -452,27 +450,17 @@ export function PartsBomTreeTable({
                 <td className={cn(BOM_TABLE_CELL, editMode && actions.canBulkEdit && "min-w-[11rem]")}>
                   {editMode && actions.canBulkEdit && onDraftChange ? (
                     resolveDraft(line, drafts).sourceType === "purchase" ? (
-                      <select
-                        className={INLINE_SELECT_SUPPLIER}
-                        value={
-                          resolveDraft(line, drafts).supplierId != null
-                            ? String(resolveDraft(line, drafts).supplierId)
-                            : ""
-                        }
-                        aria-label={`${line.partNumber} の商社`}
-                        onChange={(e) =>
+                      <SupplierCombobox
+                        compact
+                        suppliers={suppliers}
+                        value={resolveDraft(line, drafts).supplierId}
+                        ariaLabel={`${line.partNumber} の商社`}
+                        onChange={(supplierId) =>
                           onDraftChange(line.id, {
-                            supplierId: e.target.value ? Number(e.target.value) : null,
+                            supplierId,
                           })
                         }
-                      >
-                        <option value="">—</option>
-                        {suppliers.map((s) => (
-                          <option key={s.id} value={String(s.id)}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     ) : (
                       <span className="text-sm text-fg-subtle">—</span>
                     )

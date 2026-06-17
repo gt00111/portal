@@ -75,6 +75,7 @@ import { projectCascadeLabel } from "@renderer/routes/parts-tracker/projectCasca
 import { openBomPrintWindow } from "@renderer/routes/parts-tracker/partsBomPrint.js";
 import { cn } from "@renderer/lib/cn.js";
 import { PartsTrackerHelpContent } from "@renderer/routes/parts-tracker/PartsTrackerHelpContent.js";
+import { SupplierCombobox } from "@renderer/routes/parts-tracker/SupplierCombobox.js";
 import { WeldingProcessMappingModal } from "@renderer/routes/parts-tracker/WeldingProcessMappingModal.js";
 import {
   countBySourceTab,
@@ -1136,7 +1137,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                       <span className="text-sm text-fg-muted">
                         {hasInlineDraftChanges
                           ? `未保存の変更: ${dirtyInlineCount} 件`
-                          : "区分・商社・状態（手配済行のみ）をプルダウンで編集"}
+                          : "区分・商社（予測変換）・状態（手配済行のみ）を編集"}
                       </span>
                     )}
                   </div>
@@ -1591,21 +1592,18 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           )}
           {form.sourceType === "purchase" && (
             <div className="sm:col-span-2">
-              <Select
+              <SupplierCombobox
                 label="商社"
-                value={form.supplierId != null ? String(form.supplierId) : ""}
-                onChange={(e) => {
+                suppliers={suppliers}
+                value={form.supplierId ?? null}
+                onChange={(supplierId) => {
                   const next = {
                     ...form,
-                    supplierId: e.target.value ? Number(e.target.value) : null,
+                    supplierId,
                   };
                   setForm(next);
                   void suggestLeadTime(next);
                 }}
-                options={[
-                  { value: "", label: "（選択）" },
-                  ...suppliers.map((s) => ({ value: String(s.id), label: `${s.code} : ${s.name}` })),
-                ]}
               />
             </div>
           )}

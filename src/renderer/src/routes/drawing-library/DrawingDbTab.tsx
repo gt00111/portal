@@ -36,10 +36,9 @@ import {
   type DrawingListPageSize,
 } from "@renderer/routes/drawing-library/drawingListPageSize.js";
 import {
-  HELP_DB_STORAGE_NOTE,
-  WORK_DRAWINGS_PAGE_TAGLINE,
-  WORK_DRAWINGS_TAB_HELP,
-} from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
+  DrawingLibraryHelpContent,
+  drawingLibraryHelpTitle,
+} from "@renderer/routes/drawing-library/DrawingLibraryHelpContent.js";
 import { PdfCardThumbnail, PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
 import { CurrentRevisionBadge } from "@renderer/routes/drawing-library/workDrawingUi.js";
 
@@ -804,12 +803,8 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
           </Button>
       </div>
 
-      <Modal open={helpOpen} title="図面ライブラリ（自社発行）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
-        <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
-          <p className="font-medium text-fg-primary">{WORK_DRAWINGS_PAGE_TAGLINE}</p>
-          <p className="text-fg-muted">{HELP_DB_STORAGE_NOTE}</p>
-          <p>{WORK_DRAWINGS_TAB_HELP}</p>
-        </div>
+      <Modal open={helpOpen} title={drawingLibraryHelpTitle("work")} onClose={() => setHelpOpen(false)} width="lg">
+        <DrawingLibraryHelpContent variant="work" />
       </Modal>
 
       <div className="flex flex-wrap gap-2">

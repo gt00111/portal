@@ -1,33 +1,90 @@
 /** 図面ライブラリのヘルプ・ページ冒頭用文言 */
 
-export const DRAWING_LIBRARY_PAGE_TAGLINE =
-  "顧客図面は生産ボードの提供ファイルと連携し、自社発行図面は図面ライブラリ専用 DB で管理します。PDF 比較は登録図面に依存しない補助機能です。";
-
 export const CUSTOMER_DRAWINGS_PAGE_TAGLINE =
   "生産ボードに登録された顧客提供ファイルを、案件単位で検索・ダウンロードできます。データの正は生産ボード側です。";
 
 export const WORK_DRAWINGS_PAGE_TAGLINE =
-  "自社発行図面を登録・検索・更新します。客先・機種・図面番号・Rev などで管理し、旧版化（obsolete）にも対応します。";
+  "自社発行図面を Rev ごとに登録・検索します。Rev アップは既存を編集せず新規登録します。";
 
 export const PDF_COMPARE_PAGE_TAGLINE =
-  "ローカルの PDF を2つ選び、差分比較ツールで並べて確認します。図面 DB に登録していないファイルでも利用できます。";
+  "ローカルの PDF を2つ選び、差分を並べて確認します。図面 DB に登録していないファイルでも利用できます。";
 
-export const HELP_DB_STORAGE_NOTE =
-  "自社発行図面はポータルと同じデータフォルダの drawing-library.db に保存されます。";
+export const HELP_CUSTOMER_SECTIONS = [
+  {
+    title: "このページでできること",
+    body: "顧客から預かった図面・資料の閲覧とダウンロード。登録・更新は生産ボードの案件詳細（提供ファイル）で行います。",
+  },
+  {
+    title: "操作手順 — 絞り込み",
+    steps: [
+      "検索欄にファイル名・案件・客先・品番などを入力",
+      "客先 → 機種 → 図面番号(品番) のプルダウンでカスケード絞り込み",
+      "「更新」で最新の提供ファイル一覧を再読込",
+    ],
+  },
+  {
+    title: "操作手順 — ダウンロード",
+    steps: [
+      "案件カードを開く → 提供ファイル一覧を表示",
+      "各行の「ダウンロード」で個別保存",
+      "「一括ダウンロード」で案件のファイルをまとめて保存",
+    ],
+  },
+] as const;
 
-export const CUSTOMER_DRAWINGS_TAB_HELP =
-  "カードを開くと、その案件に紐づく提供ファイルを一覧し、個別または一括でダウンロードできます。検索・客先・リビジョンで絞り込めます。";
+export const HELP_WORK_SECTIONS = [
+  {
+    title: "このページでできること",
+    body: "自社発行図面の Rev 登録・検索・履歴確認。治具・社内設備はカテゴリで区別します。",
+  },
+  {
+    title: "操作手順 — 絞り込み",
+    steps: [
+      "検索欄に客先・機種・図面番号・名称・Rev などを入力",
+      "客先 → 機種 → 図面番号 のプルダウンでカスケード絞り込み",
+      "「現行版のみ表示」で最新 Rev だけ一覧",
+    ],
+  },
+  {
+    title: "操作手順 — 新規登録（Rev）",
+    steps: [
+      "「新規」をクリック（編集者以上）",
+      "SKU を選ぶと客先・機種・品番が自動入力される",
+      "Rev・名称・カテゴリ・PDF を入力して保存",
+      "Rev アップは既存行を編集せず、新しい Rev で「新規」登録",
+    ],
+  },
+  {
+    title: "操作手順 — 詳細・履歴",
+    steps: [
+      "カードまたは詳細画面を開く",
+      "Rev 履歴タブで同一品番の別 Rev に切り替え",
+      "eDrawings ファイルの参照・コメントの閲覧・投稿",
+      "一覧カードまたは詳細の鉛筆アイコンで編集（編集者以上）",
+    ],
+  },
+] as const;
 
-export const WORK_DRAWINGS_TAB_HELP =
-  "新規登録・編集・旧版化ができます（編集者以上）。一覧カードまたは詳細画面の鉛筆アイコンから、客先・機種・品番・Rev・名称・カテゴリ・PDF を修正できます。図面番号(品番)とリビジョンの組み合わせは他の図面と重複できません。Rev は 0, 1, 2… の整数文字列を推奨します。詳細の Rev履歴タブで同一品番の別 Rev に切り替えられます。「現行版のみ表示」で最新 Rev だけを一覧できます。カテゴリはマスタの「カテゴリ」タブと連携します。";
+export const HELP_PDF_COMPARE_SECTIONS = [
+  {
+    title: "このページでできること",
+    body: "PC 上の PDF 2 つを選んで差分を目視確認します。顧客図面は先にダウンロードしてから比較してください。",
+  },
+  {
+    title: "操作手順",
+    steps: [
+      "比較元（A）・比較先（B）それぞれ「PDF を選択」でファイルを指定",
+      "ページ数が表示されたら「比較実行」",
+      "差分ツールで並べて確認（目安確認程度・完璧な差分表示ではありません）",
+      "必要に応じて比較結果画像をダウンロード",
+    ],
+  },
+] as const;
 
-export const PDF_COMPARE_TAB_HELP =
-  "比較元・比較先の PDF を選び、社内ツールで差分表示します。初回のみ compare_drawings.exe または Python スクリプトの配置が必要な場合があります（詳細は resources/tools の README）。";
-
-/** @deprecated 後方互換。新規はタブラベル用定数を使用 */
-export const DRAWING_LIBRARY_OVERVIEW = DRAWING_LIBRARY_PAGE_TAGLINE;
-
+/** @deprecated 後方互換 */
+export const DRAWING_LIBRARY_PAGE_TAGLINE = CUSTOMER_DRAWINGS_PAGE_TAGLINE;
+export const CUSTOMER_DRAWINGS_TAB_HELP = HELP_CUSTOMER_SECTIONS[2].steps?.join(" ");
+export const WORK_DRAWINGS_TAB_HELP = HELP_WORK_SECTIONS[2].steps?.join(" ");
+export const PDF_COMPARE_TAB_HELP = HELP_PDF_COMPARE_SECTIONS[1].steps?.join(" ");
 export const PDF_COMPARE_TAB_HELP_PRIMARY = PDF_COMPARE_PAGE_TAGLINE;
-
-export const PDF_COMPARE_TAB_HELP_NOTE =
-  "環境変数 DRAWING_COMPARE_EXE または POPPLER_PATH でツールの場所を指定できる場合があります。";
+export const PDF_COMPARE_TAB_HELP_NOTE = "登録図面に依存しない補助機能です。";

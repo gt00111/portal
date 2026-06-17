@@ -1,4 +1,6 @@
-import { NavLink, Outlet, useOutletContext } from "react-router-dom";
+import { HelpCircle } from "lucide-react";
+import { NavLink, Outlet, useLocation, useOutletContext } from "react-router-dom";
+import { useMemo, useState } from "react";
 
 import { isPortalAdmin } from "@shared/auth.js";
 import {
@@ -11,8 +13,16 @@ import {
 import type { SessionUser } from "@shared/types.js";
 
 import { MasterCrud } from "@renderer/components/MasterCrud.js";
+import { Modal } from "@renderer/components/ui/Modal.js";
 import { PortalAppHeaderLogo } from "@renderer/components/PortalAppHeaderLogo.js";
+import { Button } from "@renderer/components/ui/Button.js";
 import { cn } from "@renderer/lib/cn.js";
+import {
+  MasterDatabaseHelpContent,
+  masterHelpTitle,
+  type MasterHelpVariant,
+} from "@renderer/routes/master/MasterDatabaseHelpContent.js";
+import { HELP_TAB_CONTENT } from "@renderer/routes/master/masterDatabaseHelpCopy.js";
 
 const CATEGORY_SCOPE_CHOICES = CATEGORY_SCOPES.map((s) => ({
   value: s,
@@ -23,7 +33,18 @@ interface Props {
   session: SessionUser;
 }
 
+function resolveHelpVariant(pathname: string): MasterHelpVariant {
+  const seg = pathname.split("/").filter(Boolean).pop() ?? "m_customers";
+  if (seg in HELP_TAB_CONTENT) return seg as MasterHelpVariant;
+  if ((MASTER_TABLES as readonly string[]).includes(seg)) return seg as MasterTable;
+  return "m_customers";
+}
+
 export function MasterDatabase({ session }: Props): JSX.Element {
+  const location = useLocation();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpVariant = useMemo(() => resolveHelpVariant(location.pathname), [location.pathname]);
+
   return (
     <div className="flex flex-col">
       <div
@@ -42,6 +63,10 @@ export function MasterDatabase({ session }: Props): JSX.Element {
               客先・機種・図面番号(品番) などの中央マスタを管理します。SKU タブではマスタの組み合わせに加え、台帳用の図面番号表記や Rev を登録できます。
             </p>
           </div>
+          <Button type="button" variant="secondary" size="sm" onClick={() => setHelpOpen(true)}>
+            <HelpCircle size={16} aria-hidden />
+            ヘルプ
+          </Button>
         </header>
 
         <nav className="mt-4 flex flex-wrap gap-1 rounded-xl border border-border-subtle bg-bg-surface/60 p-1">
@@ -119,6 +144,15 @@ export function MasterDatabase({ session }: Props): JSX.Element {
           </NavLink>
         </nav>
       </div>
+
+      <Modal
+        open={helpOpen}
+        title={masterHelpTitle(helpVariant)}
+        onClose={() => setHelpOpen(false)}
+        width="lg"
+      >
+        <MasterDatabaseHelpContent variant={helpVariant} />
+      </Modal>
 
       <div className="pt-6">
         <Outlet context={{ session, canWrite: isPortalAdmin(session.role) }} />

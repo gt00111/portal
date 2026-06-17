@@ -17,9 +17,9 @@ import {
 } from "@renderer/routes/drawing-library/drawingListPageSize.js";
 import { PdfCardThumbnail } from "@renderer/routes/drawing-library/PdfJsViewer.js";
 import {
-  CUSTOMER_DRAWINGS_TAB_HELP,
-  CUSTOMER_DRAWINGS_PAGE_TAGLINE,
-} from "@renderer/routes/drawing-library/drawingLibraryHelpCopy.js";
+  DrawingLibraryHelpContent,
+  drawingLibraryHelpTitle,
+} from "@renderer/routes/drawing-library/DrawingLibraryHelpContent.js";
 
 interface Props {
   writable: boolean;
@@ -360,11 +360,8 @@ export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
           </Button>
       </div>
 
-      <Modal open={helpOpen} title="図面ライブラリ（顧客図面）のヘルプ" onClose={() => setHelpOpen(false)} width="lg">
-        <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
-          <p className="font-medium text-fg-primary">{CUSTOMER_DRAWINGS_PAGE_TAGLINE}</p>
-          <p>{CUSTOMER_DRAWINGS_TAB_HELP}</p>
-        </div>
+      <Modal open={helpOpen} title={drawingLibraryHelpTitle("customer")} onClose={() => setHelpOpen(false)} width="lg">
+        <DrawingLibraryHelpContent variant="customer" />
       </Modal>
 
       <input

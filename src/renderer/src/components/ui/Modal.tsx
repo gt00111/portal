@@ -11,6 +11,8 @@ interface Props {
   children: ReactNode;
   /** `full` はビューポート周囲に余白を取り、パネルをほぼ全画面に広げます。 */
   width?: "sm" | "md" | "lg" | "xl" | "2xl" | "full";
+  /** `contained` は親要素（position:relative）の範囲内中央。サイドバー付きレイアウト向け。 */
+  placement?: "viewport" | "contained";
 }
 
 const widths = {
@@ -21,7 +23,7 @@ const widths = {
   "2xl": "max-w-6xl",
 } as const;
 
-export function Modal({ open, title, onClose, children, width = "md" }: Props): JSX.Element {
+export function Modal({ open, title, onClose, children, width = "md", placement = "viewport" }: Props): JSX.Element {
   const isFull = width === "full";
 
   return (
@@ -32,7 +34,8 @@ export function Modal({ open, title, onClose, children, width = "md" }: Props): 
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className={cn(
-            "fixed inset-0 z-40 flex bg-bg-base/80 backdrop-blur",
+            placement === "contained" ? "absolute" : "fixed",
+            "inset-0 z-40 flex bg-bg-base/80 backdrop-blur",
             isFull ? "items-stretch justify-stretch p-3 sm:p-4 md:p-5" : "items-center justify-center p-4"
           )}
           onClick={onClose}

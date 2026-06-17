@@ -1,23 +1,7 @@
-import type { AppRole } from "@shared/auth.js";
-
 import {
-  HELP_ADD_EDIT,
-  HELP_ARRANGED,
-  HELP_ASSEMBLY_BADGE,
-  HELP_TABLE_TEXT,
-  HELP_BOM_DIFF,
-  HELP_CSV_IMPORT,
-  HELP_DB_STORAGE_NOTE,
-  HELP_EXPORT,
-  HELP_HIDDEN,
-  HELP_HISTORY,
-  HELP_INLINE_EDIT,
-  HELP_MASTER,
-  HELP_PROJECT_COMPLETE,
-  HELP_PROJECT_SELECT,
-  HELP_REVISION,
-  HELP_RISK,
-  HELP_ROW_COLORS,
+  HELP_COMPARE_SECTIONS,
+  HELP_HISTORY_SECTIONS,
+  HELP_MAIN_SECTIONS,
   HELP_ROLES_ADMIN,
   HELP_ROLES_EDITOR,
   HELP_ROLES_VIEWER,
@@ -26,12 +10,43 @@ import {
   PARTS_TRACKER_HISTORY_PAGE_TAGLINE,
   PARTS_TRACKER_PAGE_TAGLINE,
 } from "@renderer/routes/parts-tracker/partsTrackerHelpCopy.js";
+import type { AppRole } from "@shared/auth.js";
 
-type Variant = "main" | "compare" | "history";
+export type PartsTrackerHelpVariant = "main" | "compare" | "history";
 
-interface Props {
-  variant: Variant;
-  appRole: AppRole | null;
+const TAGLINES: Record<PartsTrackerHelpVariant, string> = {
+  main: PARTS_TRACKER_PAGE_TAGLINE,
+  compare: PARTS_TRACKER_COMPARE_PAGE_TAGLINE,
+  history: PARTS_TRACKER_HISTORY_PAGE_TAGLINE,
+};
+
+const SECTIONS: Record<
+  PartsTrackerHelpVariant,
+  readonly { title: string; body?: string; steps?: readonly string[]; items?: readonly string[] }[]
+> = {
+  main: HELP_MAIN_SECTIONS,
+  compare: HELP_COMPARE_SECTIONS,
+  history: HELP_HISTORY_SECTIONS,
+};
+
+function SectionList({ items }: { items: readonly string[] }): JSX.Element {
+  return (
+    <ul className="list-inside list-disc space-y-1 text-fg-muted">
+      {items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+function StepsList({ steps }: { steps: readonly string[] }): JSX.Element {
+  return (
+    <ol className="list-decimal space-y-1 pl-5 text-fg-muted">
+      {steps.map((step) => (
+        <li key={step}>{step}</li>
+      ))}
+    </ol>
+  );
 }
 
 function roleHelpParagraph(role: AppRole | null): string {
@@ -40,56 +55,32 @@ function roleHelpParagraph(role: AppRole | null): string {
   return HELP_ROLES_VIEWER;
 }
 
-export function PartsTrackerHelpContent({ variant, appRole }: Props): JSX.Element {
-  const tagline =
-    variant === "compare"
-      ? PARTS_TRACKER_COMPARE_PAGE_TAGLINE
-      : variant === "history"
-        ? PARTS_TRACKER_HISTORY_PAGE_TAGLINE
-        : PARTS_TRACKER_PAGE_TAGLINE;
-
+export function PartsTrackerHelpContent({
+  variant,
+  appRole,
+}: {
+  variant: PartsTrackerHelpVariant;
+  appRole: AppRole | null;
+}): JSX.Element {
   return (
-    <div className="space-y-3 text-sm leading-relaxed text-fg-primary">
-      <p className="font-medium text-fg-primary">{tagline}</p>
-      {variant === "main" && <p className="text-fg-muted">{HELP_DB_STORAGE_NOTE}</p>}
+    <div className="space-y-4 text-sm leading-relaxed text-fg-primary">
+      <p className="font-medium text-fg-primary">{TAGLINES[variant]}</p>
+
+      {SECTIONS[variant].map((sec) => (
+        <section key={sec.title}>
+          <h3 className="mb-1 font-semibold text-fg-primary">{sec.title}</h3>
+          {"body" in sec && sec.body ? <p className="text-fg-muted">{sec.body}</p> : null}
+          {"items" in sec && sec.items ? <SectionList items={sec.items} /> : null}
+          {"steps" in sec && sec.steps ? <StepsList steps={sec.steps} /> : null}
+        </section>
+      ))}
+
       {variant === "main" && (
-        <>
-          <p>{HELP_PROJECT_SELECT}</p>
-          <p>{HELP_ADD_EDIT}</p>
-          <p>{HELP_INLINE_EDIT}</p>
-          <p>{HELP_RISK}</p>
-          <p>{HELP_ARRANGED}</p>
-          <p>{HELP_ROW_COLORS}</p>
-          <p>{HELP_PROJECT_COMPLETE}</p>
-          {appRole === "admin" && <p>{HELP_WELDING_MAPPING}</p>}
-          <p>{HELP_REVISION}</p>
-          <p>{HELP_HIDDEN}</p>
-          <p>{HELP_CSV_IMPORT}</p>
-          <p>{HELP_ASSEMBLY_BADGE}</p>
-          <p>{HELP_TABLE_TEXT}</p>
-          <p>{HELP_EXPORT}</p>
-          <p>{HELP_HISTORY}</p>
-          <p>{HELP_BOM_DIFF}</p>
-          <p>{HELP_MASTER}</p>
-          <p>{roleHelpParagraph(appRole)}</p>
-        </>
-      )}
-      {variant === "compare" && (
-        <>
-          <p>{HELP_BOM_DIFF}</p>
-          <p>{HELP_ASSEMBLY_BADGE}</p>
-          <p>{HELP_TABLE_TEXT}</p>
-          <p className="text-fg-muted">{HELP_PROJECT_SELECT}</p>
-        </>
-      )}
-      {variant === "history" && (
-        <>
-          <p>{HELP_HISTORY}</p>
-          <p>{HELP_ASSEMBLY_BADGE}</p>
-          <p>{HELP_TABLE_TEXT}</p>
-          <p>{HELP_EXPORT}</p>
-          <p className="text-fg-muted">{HELP_DB_STORAGE_NOTE}</p>
-        </>
+        <section>
+          <h3 className="mb-1 font-semibold text-fg-primary">権限別にできること</h3>
+          <p className="text-fg-muted">{roleHelpParagraph(appRole)}</p>
+          {appRole === "admin" && <p className="mt-1 text-fg-muted">{HELP_WELDING_MAPPING}</p>}
+        </section>
       )}
     </div>
   );
