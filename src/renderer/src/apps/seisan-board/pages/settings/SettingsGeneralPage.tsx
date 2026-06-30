@@ -41,7 +41,7 @@ export function SettingsGeneralPage() {
     if (path) {
       const res = await window.api.db.connect(path)
       if (res.success) {
-        setMessage('接続しました')
+        setMessage('共有フォルダの生産ボード DB に接続しました')
         fetchStatus()
         window.dispatchEvent(new CustomEvent('seisan:refresh'))
         navigate(seisanPath('projects'))
@@ -57,7 +57,7 @@ export function SettingsGeneralPage() {
     if (path) {
       const res = await window.api.db.connect(path)
       if (res.success) {
-        setMessage('新規DBを作成して接続しました')
+        setMessage('共有フォルダに生産ボード DB を作成して接続しました')
         fetchStatus()
         window.dispatchEvent(new CustomEvent('seisan:refresh'))
         navigate(seisanPath('projects'))
@@ -102,20 +102,22 @@ export function SettingsGeneralPage() {
       <h1 className="text-2xl font-bold">DB設定</h1>
       {!connected && (
         <p className="text-sm text-muted-foreground rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
-          データベースが接続されていません。既存のDBを選択するか、新規作成してください。
+          生産ボード DB は、ポータル中央 DB（portal-master.db）と同じ共有フォルダ内の
+          <code className="mx-1 rounded bg-muted px-1">seisan-board.db</code>
+          を全 PC で共通利用します。初回のみ「共有 DB を作成」を実行してください。
         </p>
       )}
       <div className="rounded-lg border p-6 space-y-4">
         <div className="space-y-2">
-          <Label>現在のDBパス</Label>
+          <Label>現在のDBパス（共有フォルダ内）</Label>
           <p className="text-sm text-muted-foreground font-mono break-all">
             {dbPath ?? '未接続'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={handleSelectFile}>DBを選択</Button>
+          <Button onClick={handleSelectFile}>共有 DB に接続</Button>
           <Button variant="outline" onClick={handleCreateNew}>
-            新規DB作成
+            共有 DB を作成（初回のみ）
           </Button>
         </div>
         {message && (
@@ -157,8 +159,10 @@ export function SettingsGeneralPage() {
       <h2 className="text-xl font-bold pt-4">CSVインポート用フォーマット（Excel）</h2>
       <div className="rounded-lg border p-6 space-y-4">
         <p className="text-sm text-muted-foreground">
-          案件一括登録用の Excel テンプレート（<code className="rounded bg-muted px-1">resources/format.xlsx</code>
-          同梱）をダウンロードできます。記入後、<strong>CSV UTF-8（コンマ区切り）</strong>で保存し、案件一覧の「CSVインポート」から取り込んでください。
+          案件一括登録用の Excel テンプレートをダウンロードできます。正本は共有データフォルダ（中央 DB と同じ場所）の{' '}
+          <code className="rounded bg-muted px-1">resources/format.xlsx</code>
+          です。未配置の場合はアプリ同梱版から取得し、初回ダウンロード時に共有フォルダへコピーされます。記入後、
+          <strong>CSV UTF-8（コンマ区切り）</strong>で保存し、案件一覧の「CSVインポート」から取り込んでください。
         </p>
 
         <div className="rounded-lg bg-muted/50 p-4 text-sm space-y-2">

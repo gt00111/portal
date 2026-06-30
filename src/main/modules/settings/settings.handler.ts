@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { app, BrowserWindow, dialog, type IpcMain } from "electron";
@@ -16,6 +16,8 @@ import type { BootstrapStage, CompanyInfo, SettingsSnapshot } from "@shared/type
 import { appendAuditEntry } from "@main/audit/audit.repo.js";
 import { assertPortalAdmin } from "@main/auth-guard.js";
 import { closeDatabase, getDbPath, isOpen, openDatabase } from "@main/db/connection.js";
+import { resolveStoredPath } from "@main/db/dataRoot.js";
+import { importHeroBackground } from "@main/db/portalAssets.js";
 import { getPortalWindow } from "@main/window.js";
 
 import { countOperators, getSetting, putSetting } from "./settings.repo.js";
@@ -140,10 +142,15 @@ export function register(ipcMain: IpcMain): void {
           );
         }
         if (data.homeHeroBackgroundPath !== undefined) {
-          putSetting(
-            SETTINGS_KEYS.homeHeroBackgroundPath,
-            data.homeHeroBackgroundPath?.trim() ? data.homeHeroBackgroundPath.trim() : ""
-          );
+          const raw = data.homeHeroBackgroundPath?.trim() ?? "";
+          if (!raw) {
+            putSetting(SETTINGS_KEYS.homeHeroBackgroundPath, "");
+          } else if (isAbsolute(raw)) {
+            const relative = await importHeroBackground(raw);
+            putSetting(SETTINGS_KEYS.homeHeroBackgroundPath, relative);
+          } else {
+            putSetting(SETTINGS_KEYS.homeHeroBackgroundPath, raw.replace(/\\/g, "/"));
+          }
         }
         appendAuditEntry({
           channel: "settings:updateCompanyInfo",
@@ -221,9 +228,9 @@ function readStoredImagePath(key: string): string | null {
 function resolveLocalImageFileUrl(storedPath: string | null): string | null {
   if (!storedPath) return null;
   try {
-    const normalized = normalize(storedPath.trim());
-    if (!existsSync(normalized)) return null;
-    return pathToFileURL(normalized).href;
+    const abs = resolveStoredPath(storedPath);
+    if (!existsSync(abs)) return null;
+    return pathToFileURL(abs).href;
   } catch {
     return null;
   }

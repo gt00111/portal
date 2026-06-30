@@ -14,6 +14,21 @@ export const HOME_LP_BACKGROUNDS = {
 
 export const DB_FILE_NAME = "portal-master.db";
 
+/** 中央 DB と同じフォルダに置く生産ボード用サテライト DB */
+export const SEISAN_BOARD_DB_FILE_NAME = "seisan-board.db";
+
+/** データ根配下のポータル共通静的アセット */
+export const PORTAL_ASSETS_DIR = "assets";
+
+/** データ根配下の共有テンプレート等（Electron ビルド同梱 resources/ とは別） */
+export const DATA_ROOT_RESOURCES_DIR = "resources";
+
+export const FORMAT_XLSX_FILENAME = "format.xlsx";
+
+export const FORMAT_XLSX_RELATIVE_PATH = `${DATA_ROOT_RESOURCES_DIR}/${FORMAT_XLSX_FILENAME}`;
+
+export const HERO_BACKGROUND_BASENAME = "hero-background";
+
 export const SETTINGS_KEYS = {
   dbPath: "portal.dbPath",
   bootstrapped: "portal.bootstrapped",

@@ -119,7 +119,8 @@ export function AdminSettings({ settings, onUpdated }: Props): JSX.Element {
               <span className="text-sm font-medium text-fg-primary">ヒーロー背景（会社名エリア）</span>
             </div>
             <p className="text-xs text-fg-muted">
-              未設定のときはコード既定またはグラデーションのみです。PNG / JPG / WebP など。モットーのカルーセルには画像は付きません。
+              未設定のときはコード既定またはグラデーションのみです。PNG / JPG / WebP など。
+              保存時に中央 DB と同じ共有フォルダの <code className="rounded bg-muted px-1">assets/</code> へコピーされ、全 PC から参照できます。
             </p>
             <p className="break-all rounded-md border border-border-subtle bg-bg-surface px-3 py-2 font-mono text-xs text-fg-muted">
               {heroBgPath ?? "（未設定）"}

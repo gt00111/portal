@@ -100,7 +100,8 @@ export function register(ipcMain: IpcMain): void {
       if (!file) {
         throw new Error("ファイルが見つかりません。");
       }
-      const errMsg = await shell.openPath(file.file_path);
+      const absPath = projectFilesRepo.resolveProjectFilePath(file.file_path);
+      const errMsg = await shell.openPath(absPath);
       if (errMsg) {
         throw new Error(errMsg);
       }
@@ -128,7 +129,7 @@ export function register(ipcMain: IpcMain): void {
       if (res.canceled || !res.filePath) {
         throw new Error("保存がキャンセルされました。");
       }
-      await copyFile(file.file_path, res.filePath);
+      await copyFile(projectFilesRepo.resolveProjectFilePath(file.file_path), res.filePath);
       return ok<{ path: string }>({ path: res.filePath });
     } catch (err) {
       return fail(err);
@@ -163,7 +164,7 @@ export function register(ipcMain: IpcMain): void {
       if (!file) {
         throw new Error("ファイルが見つかりません。");
       }
-      const buf = await readFile(file.file_path);
+      const buf = await readFile(projectFilesRepo.resolveProjectFilePath(file.file_path));
       if (buf.length > SEISAN_READ_MAX) {
         throw new Error("ファイルが大きすぎます。プレビューできません。");
       }
@@ -223,7 +224,7 @@ export function register(ipcMain: IpcMain): void {
 
         for (const f of files) {
           const targetPath = await ensureUniqueFilePath(projectDir, f.file_name);
-          await copyFile(f.file_path, targetPath);
+          await copyFile(projectFilesRepo.resolveProjectFilePath(f.file_path), targetPath);
         }
 
         return ok(projectDir);

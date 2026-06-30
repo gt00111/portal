@@ -1,9 +1,9 @@
-import { dirname, join } from "node:path";
+import { join, dirname } from "node:path";
 
 import Database from "better-sqlite3";
 
-import { getSeisanBoardOverridePath } from "./seisanBoardPathStore.js";
 import { initSeisanSchema } from "./seisanSchema.js";
+import { getDefaultSeisanBoardDbPath } from "./seisanBoardPath.js";
 
 let sat: Database.Database | null = null;
 let satPath: string | null = null;
@@ -44,14 +44,9 @@ export function openSeisanSatelliteAdjacentToCentral(centralDbPath: string): voi
   openSeisanDatabaseFile(join(dirname(centralDbPath), "seisan-board.db"));
 }
 
-/** 中央 DB 起動直後: ユーザー指定があればそれを、なければ中央と隣接する seisan-board.db */
-export function openSeisanForCurrentCentral(centralDbPath: string): void {
-  const override = getSeisanBoardOverridePath();
-  if (override) {
-    openSeisanDatabaseFile(override);
-  } else {
-    openSeisanSatelliteAdjacentToCentral(centralDbPath);
-  }
+/** 中央 DB 起動直後: データ根配下の seisan-board.db を開く（共有運用） */
+export function openSeisanForCurrentCentral(_centralDbPath: string): void {
+  openSeisanDatabaseFile(getDefaultSeisanBoardDbPath());
 }
 
 export function closeSeisanSatellite(): void {

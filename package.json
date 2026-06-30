@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
+    "@img/sharp-win32-x64": "^0.34.5",
     "@radix-ui/react-dialog": "^1.1.2",
     "@radix-ui/react-dropdown-menu": "^2.1.2",
     "@radix-ui/react-label": "^2.1.0",
@@ -59,6 +60,7 @@
     "electron-builder": "^25.0.5",
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.47",
+    "rcedit": "^4.0.1",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.2",
     "vite": "^5.4.8"
@@ -66,9 +68,15 @@
   "build": {
     "appId": "jp.portal.app",
     "productName": "Portal",
+    "afterPack": "./scripts/embed-win-icon.cjs",
     "directories": {
       "output": "dist"
     },
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/sharp/**",
+      "node_modules/@img/**"
+    ],
     "files": [
       "out/**/*",
       "resources/**/*",
@@ -83,6 +91,7 @@
     ],
     "win": {
       "icon": "resources/branding/portal/icon.ico",
+      "signAndEditExecutable": false,
       "target": [
         "nsis"
       ]

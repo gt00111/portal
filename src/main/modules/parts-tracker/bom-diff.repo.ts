@@ -11,6 +11,7 @@ import { buildDiffSummaryText, computeBomDiff } from "@shared/bomDiff.js";
 
 import { getDb } from "@main/db/connection.js";
 import { getPartsTrackerDb } from "@main/db/partsTrackerConnection.js";
+import * as seisanProjects from "@main/seisan/repos/projects.repo.js";
 
 import { previewExpansion } from "./product-bom-expand.repo.js";
 
@@ -93,9 +94,7 @@ function loadProjectSnapshot(seisanProjectId: string): BomDiffLineInput[] {
 }
 
 function projectLabel(seisanProjectId: string): string {
-  const row = getDb()
-    .prepare(`SELECT project_no, project_name FROM projects WHERE id = ?`)
-    .get(seisanProjectId) as { project_no: string | null; project_name: string | null } | undefined;
+  const row = seisanProjects.get(seisanProjectId);
   if (!row) return seisanProjectId;
   return [row.project_no, row.project_name].filter(Boolean).join(" · ") || seisanProjectId;
 }

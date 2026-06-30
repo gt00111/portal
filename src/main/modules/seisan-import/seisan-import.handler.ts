@@ -1,42 +1,27 @@
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 
-import { app, BrowserWindow, dialog, type IpcMain } from "electron";
+import { BrowserWindow, dialog, type IpcMain } from "electron";
 
 import { buildCsvImportTemplateContent } from "@shared/seisan/csvImportFormat.js";
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
 import { fail, ok } from "@shared/ipcResponse.js";
 
 import { assertCanViewApp } from "@main/auth-guard.js";
+import {
+  resolveFormatXlsxPath,
+  seedFormatXlsxToDataRoot,
+} from "@main/db/formatXlsxPath.js";
 import { getPortalWindow } from "@main/window.js";
-
-function getResourcesPath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, "resources");
-  }
-  return join(app.getAppPath(), "resources");
-}
 
 function dialogParent(): BrowserWindow | undefined {
   return BrowserWindow.getFocusedWindow() ?? getPortalWindow() ?? undefined;
-}
-
-/** Excel テンプレは `resources/format.xlsx` に同梱すること。 */
-function resolveFormatXlsxPath(): string {
-  const bundled = join(getResourcesPath(), "format.xlsx");
-  if (existsSync(bundled)) {
-    return bundled;
-  }
-  throw new Error(
-    "CSVインポート用フォーマット (format.xlsx) が見つかりません。resources/format.xlsx を配置してください。",
-  );
 }
 
 export function register(ipcMain: IpcMain): void {
   ipcMain.handle(SEISAN_CHANNELS.import.downloadFormat, async () => {
     try {
       assertCanViewApp("seisan-board");
-      const src = resolveFormatXlsxPath();
+      const { path: src, source } = resolveFormatXlsxPath();
       const parent = dialogParent();
       const result = parent
         ? await dialog.showSaveDialog(parent, {
@@ -51,6 +36,9 @@ export function register(ipcMain: IpcMain): void {
         throw new Error("キャンセルされました");
       }
       copyFileSync(src, result.filePath);
+      if (source === "bundled") {
+        seedFormatXlsxToDataRoot(src);
+      }
       return ok(result.filePath);
     } catch (err) {
       return fail(err);

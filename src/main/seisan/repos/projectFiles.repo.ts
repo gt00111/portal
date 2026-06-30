@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { ProjectFile, ProjectFileWithProject } from "@shared/seisan/projectFile.js";
 
+import { resolveStoredPath, toRelativeDataPath } from "@main/db/dataRoot.js";
 import { getSeisanDb, getSeisanDbPath } from "@main/db/seisanConnection.js";
 import { generateId } from "@main/seisan/utils/id.js";
 import { now } from "@main/seisan/utils/datetime.js";
@@ -30,6 +31,11 @@ function ensureAllowedFile(filePath: string): string {
     throw new Error('対応していないファイル形式です')
   }
   return ext
+}
+
+/** DB 保存パス（相対 or 絶対）を実ファイルパスへ解決 */
+export function resolveProjectFilePath(storedPath: string): string {
+  return resolveStoredPath(storedPath);
 }
 
 function sanitizePathSegment(input: string): string {
@@ -168,13 +174,15 @@ export async function add(projectId: string, filePath: string): Promise<ProjectF
   }
   await fs.copyFile(filePath, finalFilePath)
 
+  const storedPath = toRelativeDataPath(finalFilePath)
+
   db.prepare(
     `
     INSERT INTO project_files (
       id, project_id, file_name, file_path, file_ext, is_obsolete, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `
-  ).run(id, projectId, finalFileName, finalFilePath, ext, 0, ts, ts)
+  ).run(id, projectId, finalFileName, storedPath, ext, 0, ts, ts)
 
   return db.prepare('SELECT * FROM project_files WHERE id = ?').get(id) as ProjectFile
 }
@@ -193,7 +201,7 @@ export async function remove(id: string): Promise<void> {
   const file = getById(id);
   if (file?.file_path) {
     try {
-      await fs.unlink(file.file_path);
+      await fs.unlink(resolveProjectFilePath(file.file_path));
     } catch (err) {
       console.warn(`ファイル削除失敗 (${file.file_path}):`, err);
     }

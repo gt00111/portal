@@ -165,6 +165,7 @@ function migrateSourceTypeUnset(db: Database.Database): void {
   if (!master?.sql || master.sql.includes("'unset'")) return;
 
   db.exec(`
+    DROP TABLE IF EXISTS project_part_lines_mig;
     CREATE TABLE project_part_lines_mig (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       seisan_project_id TEXT NOT NULL,
@@ -200,7 +201,8 @@ function migrateSourceTypeUnset(db: Database.Database): void {
       assembly_path TEXT,
       parent_assembly_part_number TEXT,
       root_product_bom_id INTEGER,
-      source_product_bom_line_id INTEGER
+      source_product_bom_line_id INTEGER,
+      required_date_user_override INTEGER NOT NULL DEFAULT 0
     );
     INSERT INTO project_part_lines_mig SELECT * FROM project_part_lines;
     DROP TABLE project_part_lines;
