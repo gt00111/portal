@@ -55,3 +55,14 @@ export function seedFormatXlsxToDataRoot(bundledPath: string): void {
     // データ根への書き込み権限がない場合はフォールバック運用のまま
   }
 }
+
+/**
+ * 中央 DB 接続後に呼び出し、データ根へ format.xlsx を自動配置する。
+ * 既に存在する場合・同梱が無い場合・書き込み不可の場合は何もしない（冪等）。
+ */
+export function ensureFormatXlsxSeeded(): void {
+  const bundled = resolveBundledFormatXlsxPath();
+  if (bundled) {
+    seedFormatXlsxToDataRoot(bundled);
+  }
+}

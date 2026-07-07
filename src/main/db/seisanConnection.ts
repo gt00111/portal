@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 
 import { initSeisanSchema } from "./seisanSchema.js";
 import { getDefaultSeisanBoardDbPath } from "./seisanBoardPath.js";
+import { ensureFormatXlsxSeeded } from "./formatXlsxPath.js";
 
 let sat: Database.Database | null = null;
 let satPath: string | null = null;
@@ -47,6 +48,7 @@ export function openSeisanSatelliteAdjacentToCentral(centralDbPath: string): voi
 /** 中央 DB 起動直後: データ根配下の seisan-board.db を開く（共有運用） */
 export function openSeisanForCurrentCentral(_centralDbPath: string): void {
   openSeisanDatabaseFile(getDefaultSeisanBoardDbPath());
+  ensureFormatXlsxSeeded();
 }
 
 export function closeSeisanSatellite(): void {
