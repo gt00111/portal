@@ -1,3 +1,5 @@
+import type { RevGroupRowWithId } from "@shared/drawingRevisionSort.js";
+
 export interface ProjectFile {
   id: string;
   project_id: string;
@@ -20,4 +22,18 @@ export interface ProjectFileWithProject extends ProjectFile {
   revision: string | null;
   project_name: string | null;
   group_id: string | null;
+}
+
+export type CustomerRevGroupRow = RevGroupRowWithId<string>;
+
+/** 顧客図面の Rev グループ判定用（客先・機種・品番・案件 Rev）。 */
+export function projectFileToRevGroupRow(row: ProjectFileWithProject): CustomerRevGroupRow {
+  return {
+    id: row.id,
+    customer_name: row.company_id,
+    model: row.model_type,
+    product_name: row.part_number,
+    revision: row.revision,
+    is_obsolete: row.is_obsolete,
+  };
 }

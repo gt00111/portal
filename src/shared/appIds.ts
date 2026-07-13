@@ -2,8 +2,8 @@
 export const GRANTABLE_APP_IDS = [
   "master-database",
   "seisan-board",
-  "parts-tracker",
   "drawing-library",
+  "parts-tracker",
   "process-management",
   "sheet-metal-support",
   "pixo-converter",

@@ -285,6 +285,29 @@ function groupByAssembly(rows: LibDrawingListItem[]): {
   return { groups, loose };
 }
 
+/** 検索語に最も合う部品をグループ内から選ぶ（詳細表示の初期選択用） */
+function pickPreferredPartFromGroup(
+  parts: LibDrawingListItem[],
+  keyword: string
+): LibDrawingListItem | null {
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  const q = keyword.trim().toLowerCase();
+  if (q) {
+    const exact = parts.find((p) => p.product_name?.trim().toLowerCase() === q);
+    if (exact) return exact;
+    const drawingExact = parts.find((p) => p.drawing_number?.trim().toLowerCase() === q);
+    if (drawingExact) return drawingExact;
+    const pnPartial = parts.find((p) => p.product_name?.trim().toLowerCase().includes(q));
+    if (pnPartial) return pnPartial;
+    const dnPartial = parts.find((p) => p.drawing_number?.trim().toLowerCase().includes(q));
+    if (dnPartial) return dnPartial;
+    const titlePartial = parts.find((p) => p.title?.trim().toLowerCase().includes(q));
+    if (titlePartial) return titlePartial;
+  }
+  return parts.find((p) => p.is_current) ?? parts[0];
+}
+
 function AssemblyPartRow({
   part,
   writable,
@@ -795,6 +818,10 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
   }
 
   async function openAssemblyDetail(group: AssemblyGroup): Promise<void> {
+    const preferredFromList = pickPreferredPartFromGroup(
+      group.parts,
+      search.trim() || fcProduct.trim()
+    );
     // 全Rev（現行版のみ表示に関わらず）を取得して、Rev切替・部品一覧に使う
     let rows: LibDrawingListItem[] = group.parts;
     try {
@@ -817,9 +844,19 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     setDetailAssemblyRows(rows);
     const revsDesc = sortByRevisionDesc([...rows]);
     const latestRev = revsDesc[0]?.revision?.trim() || "";
-    setDetailAssemblyRev(latestRev);
-    const atLatest = rows.filter((r) => (r.revision?.trim() || "") === latestRev);
-    const active = atLatest.find((p) => p.is_current) ?? atLatest[0] ?? rows[0] ?? null;
+    const preferredRev = preferredFromList?.revision?.trim() || latestRev;
+    setDetailAssemblyRev(preferredRev);
+    const atPreferredRev = rows.filter((r) => (r.revision?.trim() || "") === preferredRev);
+    const preferredPn = preferredFromList?.product_name?.trim().toLowerCase();
+    const active =
+      (preferredPn
+        ? atPreferredRev.find((p) => (p.product_name?.trim().toLowerCase() || "") === preferredPn)
+        : null) ??
+      preferredFromList ??
+      atPreferredRev.find((p) => p.is_current) ??
+      atPreferredRev[0] ??
+      rows[0] ??
+      null;
     if (active) await openDetail(active, { sideTab: "parts" });
   }
 
@@ -1434,7 +1471,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
             setSearch(e.target.value);
             setPage(1);
           }}
-          className="h-10 min-w-[200px] flex-1 rounded-lg border border-border-strong bg-bg-surface px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+          className="h-10 min-w-[200px] flex-1 rounded-lg border border-border-strong bg-bg-surface px-3 text-sm text-fg-primary placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
         />
         <label className="flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-border-subtle bg-bg-surface px-3 text-sm text-fg-primary">
           <input

@@ -1,7 +1,6 @@
-/** 自社発行図面の Rev グループ・大小比較・現行版判定（§8.4.6） */
+/** 自社発行図面・顧客図面の Rev グループ・大小比較・現行版判定（§8.4.6） */
 
-export interface RevGroupRow {
-  id: number;
+export interface RevGroupRowCore {
   customer_name: string | null;
   model: string | null;
   product_name: string | null;
@@ -14,6 +13,12 @@ export interface RevGroupRow {
    */
   assembly_number?: string | null;
 }
+
+export interface RevGroupRow extends RevGroupRowCore {
+  id: number;
+}
+
+export type RevGroupRowWithId<TId> = RevGroupRowCore & { id: TId };
 
 export function revGroupKey(
   customerName: string | null | undefined,
@@ -29,7 +34,7 @@ export function revGroupKey(
   ].join("\0");
 }
 
-export function revGroupKeyFromRow(row: RevGroupRow): string {
+export function revGroupKeyFromRow(row: RevGroupRowCore): string {
   return revGroupKey(row.customer_name, row.model, row.product_name, row.assembly_number);
 }
 
@@ -55,6 +60,48 @@ export function sortByRevisionDesc<T extends { revision: string | null }>(rows: 
   return [...rows].sort((x, y) => compareRevisionDesc(x.revision, y.revision));
 }
 
+function groupRowsByRevKey<T extends RevGroupRowCore>(rows: T[]): Map<string, T[]> {
+  const byGroup = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = revGroupKeyFromRow(row);
+    const list = byGroup.get(key) ?? [];
+    list.push(row);
+    byGroup.set(key, list);
+  }
+  return byGroup;
+}
+
+/** グループ内の最大 Rev（is_obsolete=0 の行のみ）。該当なしは null。 */
+export function findMaxRevisionInGroup(rows: RevGroupRowCore[]): string | null {
+  const active = rows.filter((r) => r.is_obsolete !== 1);
+  if (active.length === 0) return null;
+  let bestRev = active[0]!.revision;
+  for (let i = 1; i < active.length; i++) {
+    const r = active[i]!;
+    if (compareRevision(r.revision, bestRev) > 0) {
+      bestRev = r.revision;
+    }
+  }
+  return bestRev;
+}
+
+/** 全行からグループキー → 現行 Rev の Map を構築する（顧客図面の複数ファイル対応）。 */
+export function buildMaxRevisionByGroup<T extends RevGroupRowCore>(rows: T[]): Map<string, string | null> {
+  const result = new Map<string, string | null>();
+  for (const [key, list] of groupRowsByRevKey(rows)) {
+    result.set(key, findMaxRevisionInGroup(list));
+  }
+  return result;
+}
+
+/** 現行 Rev に該当する行か（同一案件の複数ファイルもすべて true）。 */
+export function isCurrentRevisionRow(row: RevGroupRowCore, maxRevByGroup: Map<string, string | null>): boolean {
+  if (row.is_obsolete === 1) return false;
+  const maxRev = maxRevByGroup.get(revGroupKeyFromRow(row));
+  if (maxRev == null) return false;
+  return compareRevision(row.revision, maxRev) === 0;
+}
+
 /** グループ内の現行版 id（最大 Rev かつ is_obsolete=0）。該当なしは undefined。 */
 export function findCurrentDrawingIdInGroup(rows: RevGroupRow[]): number | undefined {
   const active = rows.filter((r) => r.is_obsolete !== 1);
@@ -71,15 +118,8 @@ export function findCurrentDrawingIdInGroup(rows: RevGroupRow[]): number | undef
 
 /** 全 work 行からグループキー → 現行版 id の Map を構築する。 */
 export function buildCurrentDrawingIdMap(rows: RevGroupRow[]): Map<string, number> {
-  const byGroup = new Map<string, RevGroupRow[]>();
-  for (const row of rows) {
-    const key = revGroupKeyFromRow(row);
-    const list = byGroup.get(key) ?? [];
-    list.push(row);
-    byGroup.set(key, list);
-  }
   const result = new Map<string, number>();
-  for (const [key, list] of byGroup) {
+  for (const [key, list] of groupRowsByRevKey(rows)) {
     const currentId = findCurrentDrawingIdInGroup(list);
     if (currentId != null) {
       result.set(key, currentId);

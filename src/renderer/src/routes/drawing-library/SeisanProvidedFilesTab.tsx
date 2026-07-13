@@ -2,7 +2,9 @@ import { Download, FileText, FolderOpen, HelpCircle, RefreshCw } from "lucide-re
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ProjectFile, ProjectFileWithProject } from "@shared/seisan/projectFile.js";
+import { projectFileToRevGroupRow } from "@shared/seisan/projectFile.js";
 import { SEISAN_CHANNELS } from "@shared/seisan/channels.js";
+import { buildMaxRevisionByGroup, isCurrentRevisionRow } from "@shared/drawingRevisionSort.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { Modal } from "@renderer/components/ui/Modal.js";
@@ -190,6 +192,7 @@ export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
   const [fcModel, setFcModel] = useState("");
   const [fcPart, setFcPart] = useState("");
   const [sortId, setSortId] = useState("updated_at|desc");
+  const [currentOnly, setCurrentOnly] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<DrawingListPageSize>(DEFAULT_DRAWING_LIST_PAGE_SIZE);
 
@@ -256,8 +259,16 @@ export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
     return { companies, models, partNumbers };
   }, [rows, fcCompany, fcModel]);
 
+  const maxRevByGroup = useMemo(
+    () => buildMaxRevisionByGroup(rows.map(projectFileToRevGroupRow)),
+    [rows]
+  );
+
   const filtered = useMemo(() => {
     let list = rows;
+    if (currentOnly) {
+      list = list.filter((r) => isCurrentRevisionRow(projectFileToRevGroupRow(r), maxRevByGroup));
+    }
     if (fcCompany) list = list.filter((r) => r.company_id === fcCompany);
     if (fcModel) list = list.filter((r) => r.model_type === fcModel);
     if (fcPart) list = list.filter((r) => r.part_number === fcPart);
@@ -280,7 +291,7 @@ export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
       );
     }
     return sortSeisanRows(list, sortId);
-  }, [rows, fcCompany, fcModel, fcPart, query, sortId]);
+  }, [rows, currentOnly, maxRevByGroup, fcCompany, fcModel, fcPart, query, sortId]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
 
@@ -295,7 +306,7 @@ export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
 
   useEffect(() => {
     setPage(1);
-  }, [query, fcCompany, fcModel, fcPart, sortId, pageSize]);
+  }, [query, fcCompany, fcModel, fcPart, sortId, pageSize, currentOnly]);
 
   async function handleOpen(id: string): Promise<void> {
     try {
@@ -364,13 +375,27 @@ export function SeisanProvidedFilesTab({ writable }: Props): JSX.Element {
         <DrawingLibraryHelpContent variant="customer" />
       </Modal>
 
-      <input
-        type="search"
-        placeholder="ファイル名・案件・リビジョン・客先・図面番号(品番) など"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className="h-10 w-full rounded-lg border border-border-strong bg-bg-surface px-3 text-sm placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="search"
+          placeholder="ファイル名・案件・リビジョン・客先・図面番号(品番) など"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="h-10 min-w-[200px] flex-1 rounded-lg border border-border-strong bg-bg-surface px-3 text-sm text-fg-primary placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+        />
+        <label className="flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-border-subtle bg-bg-surface px-3 text-sm text-fg-primary">
+          <input
+            type="checkbox"
+            checked={currentOnly}
+            onChange={(e) => {
+              setCurrentOnly(e.target.checked);
+              setPage(1);
+            }}
+            className="rounded border-border-strong"
+          />
+          現行版のみ表示
+        </label>
+      </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex min-w-[140px] flex-col gap-1 text-xs text-fg-muted">
