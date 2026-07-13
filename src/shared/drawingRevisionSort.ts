@@ -7,18 +7,30 @@ export interface RevGroupRow {
   product_name: string | null;
   revision: string | null;
   is_obsolete: number;
+  /**
+   * トップアセンブリ品番（REQ-DL-004）。部品単位登録では
+   * 同一部品品番が複数アセンブリに存在しうるため、Rev グループキーに含める。
+   * 顧客図面・旧データでは null（従来どおりの挙動）。
+   */
+  assembly_number?: string | null;
 }
 
 export function revGroupKey(
   customerName: string | null | undefined,
   model: string | null | undefined,
-  productName: string | null | undefined
+  productName: string | null | undefined,
+  assemblyNumber?: string | null | undefined
 ): string {
-  return `${customerName?.trim() ?? ""}\0${model?.trim() ?? ""}\0${productName?.trim() ?? ""}`;
+  return [
+    customerName?.trim() ?? "",
+    model?.trim() ?? "",
+    productName?.trim() ?? "",
+    assemblyNumber?.trim() ?? "",
+  ].join("\0");
 }
 
 export function revGroupKeyFromRow(row: RevGroupRow): string {
-  return revGroupKey(row.customer_name, row.model, row.product_name);
+  return revGroupKey(row.customer_name, row.model, row.product_name, row.assembly_number);
 }
 
 /** 昇順（小→大）。整数文字列は数値比較、それ以外は localeCompare。 */

@@ -17,6 +17,9 @@ export const DB_FILE_NAME = "portal-master.db";
 /** 中央 DB と同じフォルダに置く生産ボード用サテライト DB */
 export const SEISAN_BOARD_DB_FILE_NAME = "seisan-board.db";
 
+/** 中央 DB と同じフォルダに置く板金製造支援用サテライト DB */
+export const SHEET_METAL_SUPPORT_DB_FILE_NAME = "sheet-metal-support.db";
+
 /** データ根配下のポータル共通静的アセット */
 export const PORTAL_ASSETS_DIR = "assets";
 
@@ -110,6 +113,15 @@ export const APP_CATALOG = [
     section: "progress" as const,
     description:
       "生産技術が使い、生産ボードでは見にくい「設計」と「レーザーデータ作成」の進捗だけを、部内で細かく追えるようにしたアプリです。SolidWorks や CADMAC など、担当する作業に合わせた見え方に切り替えられ、今どこまで進んでいるかがひと目で分かります。品番全体の日程や納期は生産ボード、技術部門の中の進み具合は工程管理、という使い分けをイメージしてください。部内の進捗共有や、次に手を付ける作業の整理に向いています。",
+    kind: "internal" as const,
+    ready: true,
+  },
+  {
+    id: "sheet-metal-support",
+    displayName: "板金製造支援",
+    section: "progress" as const,
+    description:
+      "設計者と曲げ加工の現場をつなぐ、板金加工の判断支援アプリです。まずは品番を入口に、図面ライブラリの自社発行図面から最新版の PDF をすぐに探して大きく表示できるようにしました。客先・機種・図番の順に絞り込めるので、現場で「どの図面が最新か」を探す時間を減らせます。今後は加工条件・曲げ順・技術ノート・加工履歴の管理、さらに曲げシミュレーションや加工判断エンジンへと段階的に育てていく、板金製造支援の土台となるアプリです。",
     kind: "internal" as const,
     ready: true,
   },

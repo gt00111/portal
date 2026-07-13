@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import * as pdfjs from "pdfjs-dist";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { cn } from "@renderer/lib/cn.js";
@@ -25,12 +25,24 @@ export function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   return bytes;
 }
 
-/** 複数ページ PDF の閲覧＋ページ送り */
-export function PdfJsViewer({ dataUrl }: { dataUrl: string | null }): JSX.Element {
+/** 複数ページ PDF の閲覧＋ページ送り。fitToContainer=true で枠内にページ全体を収めて表示（スクロールなし）。 */
+export function PdfJsViewer({
+  dataUrl,
+  fitToContainer = false,
+}: {
+  dataUrl: string | null;
+  fitToContainer?: boolean;
+}): JSX.Element {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [pageNum, setPageNum] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  const [fit, setFit] = useState(fitToContainer);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setFit(fitToContainer);
+  }, [fitToContainer]);
 
   useEffect(() => {
     if (!dataUrl) {
@@ -67,30 +79,83 @@ export function PdfJsViewer({ dataUrl }: { dataUrl: string | null }): JSX.Elemen
     }
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    if (!ctx) {
+    if (!canvas || !ctx) {
       return;
     }
     let cancelled = false;
-    void pdf
-      .getPage(Math.min(Math.max(1, pageNum), pdf.numPages))
-      .then(async (page) => {
-        if (cancelled) return;
-        const scale = 1.4;
-        const viewport = page.getViewport({ scale });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const renderTask = page.render({
-          canvasContext: ctx,
-          viewport,
-        });
-        await renderTask.promise;
-      })
-      .catch(() => {});
+    let activeTask: RenderTask | null = null;
+    let raf = 0;
 
+    const draw = async (): Promise<void> => {
+      if (cancelled) return;
+      if (activeTask) {
+        try {
+          activeTask.cancel();
+        } catch {
+          /* ignore */
+        }
+        activeTask = null;
+      }
+      let page;
+      try {
+        page = await pdf.getPage(Math.min(Math.max(1, pageNum), pdf.numPages));
+      } catch {
+        return;
+      }
+      if (cancelled) return;
+
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      let fitScale = 1.4;
+      if (fit && wrapperRef.current) {
+        const cw = wrapperRef.current.clientWidth - 16;
+        const ch = wrapperRef.current.clientHeight - 16;
+        if (cw <= 0 || ch <= 0) return;
+        const base = page.getViewport({ scale: 1, rotation: 0 });
+        fitScale = Math.min(cw / base.width, ch / base.height);
+      }
+      const viewport = page.getViewport({ scale: Math.max(fitScale, 0.05), rotation: 0 });
+      canvas.width = Math.floor(viewport.width * pixelRatio);
+      canvas.height = Math.floor(viewport.height * pixelRatio);
+      canvas.style.width = `${Math.floor(viewport.width)}px`;
+      canvas.style.height = `${Math.floor(viewport.height)}px`;
+
+      const task = page.render({
+        canvasContext: ctx,
+        viewport,
+        transform: pixelRatio !== 1 ? [pixelRatio, 0, 0, pixelRatio, 0, 0] : undefined,
+      });
+      activeTask = task;
+      try {
+        await task.promise;
+      } catch {
+        /* cancel 例外は無視 */
+      }
+      if (activeTask === task) activeTask = null;
+    };
+
+    void draw();
+
+    let ro: ResizeObserver | null = null;
+    if (fit && wrapperRef.current) {
+      ro = new ResizeObserver(() => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => void draw());
+      });
+      ro.observe(wrapperRef.current);
+    }
     return () => {
       cancelled = true;
+      cancelAnimationFrame(raf);
+      if (ro) ro.disconnect();
+      if (activeTask) {
+        try {
+          activeTask.cancel();
+        } catch {
+          /* ignore */
+        }
+      }
     };
-  }, [pdf, pageNum]);
+  }, [pdf, pageNum, fit]);
 
   if (!dataUrl) {
     return <p className="text-sm text-fg-muted">PDF がありません。</p>;
@@ -102,13 +167,22 @@ export function PdfJsViewer({ dataUrl }: { dataUrl: string | null }): JSX.Elemen
   const numPages = pdf?.numPages ?? 0;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className={cn("flex flex-col gap-2", fit && "h-full min-h-0")}>
       {numPages > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs text-fg-primary">
             {pageNum} / {numPages} ページ
           </span>
           <div className="flex gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setFit((v) => !v)}
+              title={fit ? "実寸表示に切替" : "画面に合わせる"}
+            >
+              {fit ? "実寸" : "画面に合わせる"}
+            </Button>
             <Button
               type="button"
               variant="secondary"
@@ -130,8 +204,16 @@ export function PdfJsViewer({ dataUrl }: { dataUrl: string | null }): JSX.Elemen
           </div>
         </div>
       )}
-      <div className="max-h-[min(88vh,1040px)] overflow-auto rounded-lg border border-border-subtle bg-bg-base/40 p-2">
-        <canvas ref={canvasRef} className="mx-auto block shadow-sm" />
+      <div
+        ref={wrapperRef}
+        className={cn(
+          "rounded-lg border border-border-subtle bg-bg-base/40 p-2",
+          fit
+            ? "flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+            : "max-h-[min(88vh,1040px)] overflow-auto"
+        )}
+      >
+        <canvas ref={canvasRef} className="block shadow-sm" />
       </div>
     </div>
   );
@@ -179,12 +261,21 @@ export function PdfCardThumbnail({
         if (!alive || gen !== renderGen) {
           return;
         }
-        const base = page.getViewport({ scale: 1 });
+        const base = page.getViewport({ scale: 1, rotation: 0 });
         const scale = Math.min(cw / base.width, ch / base.height);
-        const viewport = page.getViewport({ scale });
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const viewport = page.getViewport({ scale, rotation: 0 });
+        canvas.width = Math.floor(viewport.width * pixelRatio);
+        canvas.height = Math.floor(viewport.height * pixelRatio);
+        canvas.style.width = `${Math.floor(viewport.width)}px`;
+        canvas.style.height = `${Math.floor(viewport.height)}px`;
+        await page
+          .render({
+            canvasContext: ctx,
+            viewport,
+            transform: pixelRatio !== 1 ? [pixelRatio, 0, 0, pixelRatio, 0, 0] : undefined,
+          })
+          .promise;
       } catch {
         /* ignore */
       }

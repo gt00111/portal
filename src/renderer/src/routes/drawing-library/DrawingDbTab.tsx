@@ -5,6 +5,7 @@ import { getAppRole } from "@shared/auth.js";
 import {
   buildCurrentDrawingIdMap,
   isCurrentDrawing,
+  sortByRevisionDesc,
 } from "@shared/drawingRevisionSort.js";
 import type {
   DrawingListParams,
@@ -13,8 +14,12 @@ import type {
   DrawingUpsertInput,
   DrawingWorkCascadeResult,
   LibCommentRow,
+  LibDrawingListItem,
   LibDrawingRow,
   LibEdrawingsFileRow,
+  PickedWorkPdf,
+  WorkBatchCreateInput,
+  WorkBatchCreateResult,
 } from "@shared/drawingLibrary.js";
 import type { MasterRow } from "@shared/master.js";
 import type { SkuRow } from "@shared/sku.js";
@@ -240,6 +245,187 @@ function WorkDrawingCard({
   );
 }
 
+interface AssemblyGroup {
+  key: string;
+  customerName: string | null;
+  model: string | null;
+  assemblyNumber: string;
+  parts: LibDrawingListItem[];
+}
+
+/** result.drawings をトップアセンブリ品番でグループ化（客先＋機種＋アセンブリ単位）。順序は保持。 */
+function groupByAssembly(rows: LibDrawingListItem[]): {
+  groups: AssemblyGroup[];
+  loose: LibDrawingListItem[];
+} {
+  const groups: AssemblyGroup[] = [];
+  const index = new Map<string, AssemblyGroup>();
+  const loose: LibDrawingListItem[] = [];
+  for (const row of rows) {
+    const asm = row.assembly_number?.trim();
+    if (!asm) {
+      loose.push(row);
+      continue;
+    }
+    const key = `${row.customer_name?.trim() ?? ""}\u0000${row.model?.trim() ?? ""}\u0000${asm}`;
+    let group = index.get(key);
+    if (!group) {
+      group = {
+        key,
+        customerName: row.customer_name,
+        model: row.model,
+        assemblyNumber: asm,
+        parts: [],
+      };
+      index.set(key, group);
+      groups.push(group);
+    }
+    group.parts.push(row);
+  }
+  return { groups, loose };
+}
+
+function AssemblyPartRow({
+  part,
+  writable,
+  isActive,
+  onOpen,
+  onEdit,
+  onDelete,
+  onToggleObsolete,
+}: {
+  part: LibDrawingListItem;
+  writable: boolean;
+  isActive: boolean;
+  onOpen: (r: LibDrawingRow) => void;
+  onEdit: (r: LibDrawingRow) => void;
+  onDelete: (r: LibDrawingRow) => void;
+  onToggleObsolete: (r: LibDrawingRow, next: boolean) => void;
+}): JSX.Element {
+  const obsolete = part.is_obsolete === 1;
+  const partNum = part.product_name?.trim() || part.drawing_number?.trim() || "—";
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(part)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(part);
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary",
+        isActive
+          ? "border-accent-primary/60 bg-accent-primary/10"
+          : "border-border-subtle/60 hover:border-accent-primary/40 hover:bg-bg-elevated/50",
+        obsolete && "opacity-60"
+      )}
+    >
+      <FileText className="h-4 w-4 shrink-0 text-fg-subtle/60" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-mono text-xs font-semibold text-fg-primary">{partNum}</p>
+        {part.title?.trim() && (
+          <p className="truncate text-[11px] text-fg-muted">{part.title}</p>
+        )}
+      </div>
+      <span className="shrink-0 text-[11px] text-fg-muted">Rev {part.revision?.trim() || "—"}</span>
+      <CurrentRevisionBadge isCurrent={part.is_current} />
+      {writable ? (
+        <div className="flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <label className="mr-1 flex cursor-pointer items-center gap-1 text-[10px] text-fg-muted">
+            <input
+              type="checkbox"
+              checked={obsolete}
+              onChange={(e) => void onToggleObsolete(part, e.target.checked)}
+              className="rounded border-border-strong"
+            />
+            旧
+          </label>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onEdit(part)}
+            className="h-7 w-7 !p-0 text-fg-muted hover:text-fg-primary"
+            aria-label="編集"
+          >
+            <PencilLine size={13} />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => void onDelete(part)}
+            className="h-7 w-7 !p-0 text-state-danger"
+            aria-label="削除"
+          >
+            <Trash2 size={13} />
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** 一覧のアセンブリカード（部品は表示せず、クリックで詳細を開く） */
+function AssemblyCard({
+  group,
+  onOpen,
+}: {
+  group: AssemblyGroup;
+  onOpen: (g: AssemblyGroup) => void;
+}): JSX.Element {
+  const representative = group.parts.find((p) => p.is_current) ?? group.parts[0];
+  const thumbDataUrl = useWorkPdfThumbDataUrl(representative?.file_path);
+  const currentCount = group.parts.filter((p) => p.is_current).length;
+  const isPdf = Boolean(representative?.file_path?.trim().toLowerCase().endsWith(".pdf"));
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(group)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(group);
+        }
+      }}
+      className="group flex h-full min-h-0 w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border-subtle bg-bg-surface text-left text-fg-primary shadow-sm transition hover:border-accent-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+    >
+      <div className="relative flex aspect-[4/3] w-full shrink-0 items-center justify-center overflow-hidden bg-bg-elevated/40">
+        {isPdf ? (
+          <PdfCardThumbnail dataUrl={thumbDataUrl} className="h-full w-full rounded-none border-0 bg-transparent" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <FileText className="h-16 w-16 text-fg-subtle/50" />
+          </div>
+        )}
+        <span className="absolute right-2 top-2 rounded-full bg-accent-primary/90 px-2 py-0.5 text-[10px] font-semibold text-white shadow">
+          部品 {group.parts.length}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1 px-3 py-3">
+        <div className="flex items-center gap-1.5">
+          <FileText className="h-4 w-4 shrink-0 text-accent-primary" />
+          <p className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-fg-primary">
+            {group.assemblyNumber}
+          </p>
+        </div>
+        <p className="truncate text-[11px] text-fg-muted">
+          {[group.customerName?.trim(), group.model?.trim()].filter(Boolean).join(" / ") || "—"}
+        </p>
+        {currentCount > 0 && (
+          <span className="inline-flex w-fit items-center rounded-full bg-accent-secondary/15 px-2 py-0.5 text-[10px] text-accent-secondary">
+            現行 {currentCount} 件
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function DrawingDbTab({ session, writable }: Props): JSX.Element {
   const toast = useToast();
   const isDlAdmin = getAppRole(session, "drawing-library") === "admin";
@@ -252,6 +438,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
   const [fcCustomer, setFcCustomer] = useState("");
   const [fcModel, setFcModel] = useState("");
   const [fcProduct, setFcProduct] = useState("");
+  const [fcAssembly, setFcAssembly] = useState("");
   const [fcCategory, setFcCategory] = useState("");
   const [sortId, setSortId] = useState("updated_at|desc");
   const [categories, setCategories] = useState<MasterRow[]>([]);
@@ -259,16 +446,22 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     customers: [],
     models: [],
     productNames: [],
+    assemblies: [],
   });
 
   const [detail, setDetail] = useState<LibDrawingRow | null>(null);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [detailViewMode, setDetailViewMode] = useState<"part" | "assembly">("part");
+  const [assemblyMergeLoading, setAssemblyMergeLoading] = useState(false);
   const [comments, setComments] = useState<LibCommentRow[]>([]);
   const [edrawingsFiles, setEdrawingsFiles] = useState<LibEdrawingsFileRow[]>([]);
   const [revHistory, setRevHistory] = useState<LibDrawingRow[]>([]);
-  const [detailSideTab, setDetailSideTab] = useState<"rev" | "edraw">("rev");
+  const [detailSideTab, setDetailSideTab] = useState<"parts" | "rev" | "edraw">("rev");
   const [commentDraft, setCommentDraft] = useState("");
+  // REQ-DL-004: アセンブリから開いた場合の全Rev行（詳細内で部品一覧＋Rev切替に使用）
+  const [detailAssemblyRows, setDetailAssemblyRows] = useState<LibDrawingListItem[] | null>(null);
+  const [detailAssemblyRev, setDetailAssemblyRev] = useState<string>("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [skus, setSkus] = useState<SkuRow[]>([]);
@@ -278,12 +471,28 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
   const [newCustomer, setNewCustomer] = useState("");
   const [newModel, setNewModel] = useState("");
   const [newProductName, setNewProductName] = useState("");
+  const [newAssemblyNumber, setNewAssemblyNumber] = useState("");
   const [newDrawingNumber, setNewDrawingNumber] = useState("");
   const [newRevision, setNewRevision] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [newChangeSummary, setNewChangeSummary] = useState("");
   const [newFilePath, setNewFilePath] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // REQ-DL-004: 登録モードと複数部品一括登録用の状態（既定は複数部品まとめて登録）
+  const [createMode, setCreateMode] = useState<"single" | "batch">("batch");
+  const [batchParts, setBatchParts] = useState<
+    {
+      fileName: string;
+      partNumber: string;
+      title: string;
+      sourcePath?: string;
+      carryFromRelativePath?: string;
+      carried: boolean;
+    }[]
+  >([]);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [carryLoading, setCarryLoading] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -292,6 +501,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
   const [editCustomer, setEditCustomer] = useState("");
   const [editModel, setEditModel] = useState("");
   const [editProductName, setEditProductName] = useState("");
+  const [editAssemblyNumber, setEditAssemblyNumber] = useState("");
   const [editDrawingNumber, setEditDrawingNumber] = useState("");
   const [editRevision, setEditRevision] = useState("");
   const [editCategory, setEditCategory] = useState("");
@@ -303,14 +513,16 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     setLoading(true);
     try {
       const { sortBy, sortOrder } = parseWorkSortId(sortId);
+      // カード（アセンブリ）単位でまとめ、クライアント側でページングするため全件取得する。
       const params: DrawingListParams = {
         drawingType: DRAWING_TYPE,
         search: search.trim() || undefined,
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
+        limit: 5000,
+        offset: 0,
         customerName: fcCustomer.trim() || undefined,
         model: fcModel.trim() || undefined,
         productName: fcProduct.trim() || undefined,
+        assemblyNumber: fcAssembly.trim() || undefined,
         category: fcCategory.trim() || undefined,
         currentOnly: currentOnly || undefined,
         sortBy,
@@ -324,7 +536,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [search, page, toast, pageSize, fcCustomer, fcModel, fcProduct, fcCategory, sortId, currentOnly]);
+  }, [search, toast, fcCustomer, fcModel, fcProduct, fcAssembly, fcCategory, sortId, currentOnly]);
 
   useEffect(() => {
     void load();
@@ -389,11 +601,14 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     setNewCustomer("");
     setNewModel("");
     setNewProductName("");
+    setNewAssemblyNumber("");
     setNewDrawingNumber("");
     setNewRevision("");
     setNewCategory("");
     setNewChangeSummary("");
     setNewFilePath(null);
+    setCreateMode("batch");
+    setBatchParts([]);
     void (async () => {
       try {
         const rows = await invoke<SkuRow[]>("sku:list", {});
@@ -406,6 +621,24 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
       }
     })();
   }, [createOpen]);
+
+  // 一括登録: 客先＋アセンブリが揃ったら前Revの部品スナップショットを自動読込
+  useEffect(() => {
+    if (!createOpen || createMode !== "batch") return;
+    const customerName = newCustomer.trim();
+    const assemblyNumber = newAssemblyNumber.trim();
+    if (!customerName || !assemblyNumber) return;
+    const timer = window.setTimeout(() => {
+      void loadCarriedParts({
+        customerName,
+        model: newModel,
+        assemblyNumber,
+        targetRevision: newRevision,
+        replaceCarried: true,
+      });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [createOpen, createMode, newCustomer, newModel, newAssemblyNumber, newRevision]);
 
   useEffect(() => {
     if (!editOpen) return;
@@ -442,6 +675,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     setEditCustomer(row.customer_name ?? "");
     setEditModel(row.model ?? "");
     setEditProductName(row.product_name ?? "");
+    setEditAssemblyNumber(row.assembly_number ?? "");
     setEditDrawingNumber(row.drawing_number ?? "");
     setEditRevision(row.revision ?? "");
     setEditCategory(row.category ?? "");
@@ -468,9 +702,134 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     setNewRevision(sku.revision ?? "");
   }
 
-  async function openDetail(row: LibDrawingRow): Promise<void> {
+  // REQ-DL-004: 複数部品一括登録では、選んだ SKU をトップアセンブリとして客先/機種/アセンブリ品番に反映
+  function applySkuToBatch(id: string): void {
+    if (!id) return;
+    const sku = skus.find((s) => String(s.id) === id);
+    if (!sku) return;
+    const customerName = sku.customerName ?? "";
+    const model = sku.modelName ?? "";
+    const assemblyNumber =
+      (sku.drawingNumber ?? "").trim() || sku.partNumberName || sku.partNumberCode || "";
+    setNewCustomer(customerName);
+    setNewModel(model);
+    setNewAssemblyNumber(assemblyNumber);
+    setNewRevision(sku.revision ?? "");
+    void loadCarriedParts({ customerName, model, assemblyNumber });
+  }
+
+  // REQ-DL-004: 前リビジョンの現行部品を一覧に読み込む（実ファイルを新Revにコピー継承するため）
+  async function loadCarriedParts(over?: {
+    customerName?: string;
+    model?: string;
+    assemblyNumber?: string;
+    targetRevision?: string;
+    replaceCarried?: boolean;
+  }): Promise<void> {
+    const customerName = (over?.customerName ?? newCustomer).trim();
+    const model = (over?.model ?? newModel).trim();
+    const assemblyNumber = (over?.assemblyNumber ?? newAssemblyNumber).trim();
+    const targetRevision = (over?.targetRevision ?? newRevision).trim();
+    if (!customerName || !assemblyNumber) {
+      if (!over?.replaceCarried) {
+        toast.push("warning", "客先とトップアセンブリ品番を入力してください。");
+      }
+      return;
+    }
+    setCarryLoading(true);
+    try {
+      const res = await invoke<DrawingListResult>("drawing:list", {
+        drawingType: DRAWING_TYPE,
+        customerName,
+        model: model || undefined,
+        assemblyNumber,
+        currentOnly: false,
+        limit: 5000,
+        offset: 0,
+      });
+      const carryRev = (() => {
+        const revList: string[] = [];
+        const seen = new Set<string>();
+        for (const r of sortByRevisionDesc([...res.drawings])) {
+          const rev = r.revision?.trim() || "";
+          if (!seen.has(rev)) {
+            seen.add(rev);
+            revList.push(rev);
+          }
+        }
+        if (targetRevision) {
+          const other = revList.find((rev) => rev !== targetRevision);
+          if (other !== undefined) return other;
+        }
+        return revList[0] ?? "";
+      })();
+      const snapshot = res.drawings.filter(
+        (d) =>
+          (d.revision?.trim() || "") === carryRev &&
+          d.file_path &&
+          d.product_name?.trim() &&
+          d.is_obsolete !== 1
+      );
+      setBatchParts((prev) => {
+        const newOnly = prev.filter((p) => p.sourcePath && !p.carried);
+        const carried = snapshot.map((d) => ({
+          fileName: `${d.product_name}.pdf`,
+          partNumber: d.product_name!.trim(),
+          title: d.title?.trim() || "",
+          carryFromRelativePath: d.file_path!,
+          carried: true,
+        }));
+        const byPn = new Map<string, (typeof carried)[0] | (typeof newOnly)[0]>();
+        for (const c of carried) byPn.set(c.partNumber.toLowerCase(), c);
+        for (const n of newOnly) byPn.set(n.partNumber.toLowerCase(), n);
+        return [...byPn.values()];
+      });
+      if (snapshot.length === 0 && !over?.replaceCarried) {
+        toast.push("info", "引き継ぎ元のリビジョン部品は見つかりませんでした（新規アセンブリ）。");
+      }
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCarryLoading(false);
+    }
+  }
+
+  async function openAssemblyDetail(group: AssemblyGroup): Promise<void> {
+    // 全Rev（現行版のみ表示に関わらず）を取得して、Rev切替・部品一覧に使う
+    let rows: LibDrawingListItem[] = group.parts;
+    try {
+      const { sortBy, sortOrder } = parseWorkSortId("product_name|asc");
+      const res = await invoke<DrawingListResult>("drawing:list", {
+        drawingType: DRAWING_TYPE,
+        customerName: group.customerName ?? undefined,
+        model: group.model ?? undefined,
+        assemblyNumber: group.assemblyNumber,
+        currentOnly: false,
+        limit: 5000,
+        offset: 0,
+        sortBy,
+        sortOrder,
+      });
+      rows = res.drawings;
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+    setDetailAssemblyRows(rows);
+    const revsDesc = sortByRevisionDesc([...rows]);
+    const latestRev = revsDesc[0]?.revision?.trim() || "";
+    setDetailAssemblyRev(latestRev);
+    const atLatest = rows.filter((r) => (r.revision?.trim() || "") === latestRev);
+    const active = atLatest.find((p) => p.is_current) ?? atLatest[0] ?? rows[0] ?? null;
+    if (active) await openDetail(active, { sideTab: "parts" });
+  }
+
+  async function openDetail(
+    row: LibDrawingRow,
+    opts?: { sideTab?: "parts" | "rev" | "edraw" }
+  ): Promise<void> {
     setDetail(row);
-    setDetailSideTab("rev");
+    setDetailSideTab(opts?.sideTab ?? "rev");
+    setDetailViewMode("part");
     setPdfDataUrl(null);
     setPdfLoading(false);
     setCommentDraft("");
@@ -478,11 +837,17 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
       const customerName = row.customer_name?.trim() ?? "";
       const model = row.model?.trim() ?? "";
       const productName = row.product_name?.trim() ?? "";
+      const assemblyNumber = row.assembly_number?.trim() || null;
       const [c, e, history] = await Promise.all([
         invoke<LibCommentRow[]>("drawing-comment:list", { drawing_id: row.id }),
         invoke<LibEdrawingsFileRow[]>("drawing-edrawings:list", { drawing_id: row.id }),
         customerName && model && productName
-          ? invoke<LibDrawingRow[]>("drawing:revHistory", { customerName, model, productName })
+          ? invoke<LibDrawingRow[]>("drawing:revHistory", {
+              customerName,
+              model,
+              productName,
+              assemblyNumber,
+            })
           : Promise.resolve([] as LibDrawingRow[]),
       ]);
       setComments(c);
@@ -509,6 +874,8 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     setPdfDataUrl(null);
     setDetail(null);
     setRevHistory([]);
+    setDetailAssemblyRows(null);
+    setDetailAssemblyRev("");
   }
 
   function canDeleteComment(comment: LibCommentRow): boolean {
@@ -586,11 +953,63 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
 
   async function handleDelete(row: LibDrawingRow): Promise<void> {
     if (!window.confirm(`「${row.title}」を削除しますか？`)) return;
+    const wasAssemblyDetail = Boolean(detail && detailAssemblyRows);
     try {
       await invoke("drawing:delete", { id: row.id });
       toast.push("success", "削除しました。");
-      closeDetail();
       await load();
+      if (wasAssemblyDetail) {
+        await reloadAssemblyDetail(row.id);
+      } else if (detail?.id === row.id) {
+        closeDetail();
+      }
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** アセンブリ詳細内で部品が増減した後、詳細に留まったまま部品一覧を再取得する */
+  async function reloadAssemblyDetail(deletedId?: number): Promise<void> {
+    if (!detail) return;
+    const customerName = detail.customer_name?.trim() ?? "";
+    const model = detail.model?.trim() || undefined;
+    const assemblyNumber = detail.assembly_number?.trim() ?? "";
+    if (!customerName || !assemblyNumber) {
+      closeDetail();
+      return;
+    }
+    try {
+      const res = await invoke<DrawingListResult>("drawing:list", {
+        drawingType: DRAWING_TYPE,
+        customerName,
+        model,
+        assemblyNumber,
+        currentOnly: false,
+        limit: 5000,
+        offset: 0,
+      });
+      const rows = res.drawings;
+      if (rows.length === 0) {
+        closeDetail();
+        return;
+      }
+      setDetailAssemblyRows(rows);
+      let keepRev = detailAssemblyRev;
+      let atRev = rows.filter((r) => (r.revision?.trim() || "") === keepRev);
+      if (atRev.length === 0) {
+        keepRev = sortByRevisionDesc([...rows])[0]?.revision?.trim() || "";
+        setDetailAssemblyRev(keepRev);
+        atRev = rows.filter((r) => (r.revision?.trim() || "") === keepRev);
+      }
+      const active =
+        atRev.find((r) => r.id !== deletedId) ??
+        atRev[0] ??
+        rows.find((r) => r.id !== deletedId) ??
+        rows[0] ??
+        null;
+      if (active) {
+        await openDetail(active, { sideTab: "parts" });
+      }
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
     }
@@ -644,6 +1063,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
       customer_name: newCustomer.trim() || null,
       model: newModel.trim() || null,
       product_name: newProductName.trim() || null,
+      assembly_number: newAssemblyNumber.trim() || null,
       drawing_number: newDrawingNumber.trim() || null,
       revision: newRevision.trim() || null,
       category: newCategory.trim() || null,
@@ -658,6 +1078,147 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
       await load();
     } catch (err) {
       toast.push("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // REQ-DL-004: 複数部品PDFの選択（コピー前の一時パスを取得し一覧に追加。同一品番は上書き確認）
+  async function handlePickWorkPdfs(): Promise<void> {
+    let picked: PickedWorkPdf[];
+    try {
+      picked = await invoke<PickedWorkPdf[]>("drawing:pickWorkPdfs", {});
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("選択されません")) return;
+      toast.push("error", msg);
+      return;
+    }
+    const next = [...batchParts];
+    for (const p of picked) {
+      const idx = next.findIndex(
+        (it) => it.partNumber.trim().toLowerCase() === p.defaultPartNumber.trim().toLowerCase()
+      );
+      if (idx >= 0) {
+        const existed = next[idx];
+        const proceed = window.confirm(
+          `同じ部品「${existed.partNumber}」を今回のPDFで上書きします。よろしいですか？`
+        );
+        if (!proceed) continue;
+        next[idx] = {
+          fileName: p.fileName,
+          partNumber: existed.partNumber,
+          title: existed.title,
+          sourcePath: p.sourcePath,
+          carried: false,
+        };
+      } else {
+        next.push({
+          fileName: p.fileName,
+          partNumber: p.defaultPartNumber,
+          title: "",
+          sourcePath: p.sourcePath,
+          carried: false,
+        });
+      }
+    }
+    setBatchParts(next);
+  }
+
+  function updateBatchPart(index: number, field: "partNumber" | "title", value: string): void {
+    setBatchParts((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)));
+  }
+
+  function removeBatchPart(index: number): void {
+    setBatchParts((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleBatchSubmit(): Promise<void> {
+    if (!newCustomer.trim()) {
+      toast.push("warning", "客先を入力してください。");
+      return;
+    }
+    if (!newAssemblyNumber.trim()) {
+      toast.push("warning", "トップアセンブリ品番を入力してください。");
+      return;
+    }
+    if (batchParts.length === 0) {
+      toast.push("warning", "登録する部品が1つもありません。");
+      return;
+    }
+    if (batchParts.some((p) => !p.partNumber.trim())) {
+      toast.push("warning", "部品品番が空の項目があります。");
+      return;
+    }
+    const input: WorkBatchCreateInput = {
+      customerName: newCustomer.trim(),
+      model: newModel.trim() || null,
+      assemblyNumber: newAssemblyNumber.trim(),
+      revision: newRevision.trim() || null,
+      category: newCategory.trim() || null,
+      changeSummary: newChangeSummary.trim() || null,
+      parts: batchParts.map((p) => ({
+        sourcePath: p.sourcePath ?? null,
+        carryFromRelativePath: p.carryFromRelativePath ?? null,
+        partNumber: p.partNumber.trim(),
+        title: p.title.trim() || null,
+      })),
+    };
+    setBatchSubmitting(true);
+    try {
+      const res = await invoke<WorkBatchCreateResult>("drawing:createWorkBatch", { input });
+      toast.push("success", `${res.created} 件の部品図面を登録しました。`);
+      setCreateOpen(false);
+      await load();
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setBatchSubmitting(false);
+    }
+  }
+
+  // REQ-DL-004: アセンブリ全体を結合して表示 / 単一部品に戻す
+  async function showAssemblyMerged(): Promise<void> {
+    if (!detail) return;
+    const customerName = detail.customer_name?.trim() ?? "";
+    const model = detail.model?.trim() ?? "";
+    const assemblyNumber = detail.assembly_number?.trim() ?? "";
+    if (!customerName || !assemblyNumber) {
+      toast.push("warning", "アセンブリ品番が無いため結合表示できません。");
+      return;
+    }
+    setAssemblyMergeLoading(true);
+    setDetailViewMode("assembly");
+    try {
+      const { base64, mime } = await invoke<{ base64: string; mime: string }>(
+        "drawing:mergeWorkAssembly",
+        { customerName, model, assemblyNumber, revision: detailAssemblyRev || detail.revision || null }
+      );
+      setPdfDataUrl(`data:${mime};base64,${base64}`);
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+      setDetailViewMode("part");
+    } finally {
+      setAssemblyMergeLoading(false);
+    }
+  }
+
+  async function showPartFile(): Promise<void> {
+    if (!detail) return;
+    setDetailViewMode("part");
+    const fp = detail.file_path?.trim();
+    if (!fp || !fp.toLowerCase().endsWith(".pdf")) {
+      setPdfDataUrl(null);
+      return;
+    }
+    setPdfLoading(true);
+    try {
+      const { base64, mime } = await invoke<{ base64: string; mime: string }>("drawing:readFile", {
+        relativePath: fp,
+      });
+      setPdfDataUrl(`data:${mime};base64,${base64}`);
+    } catch (err) {
+      toast.push("error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setPdfLoading(false);
     }
   }
 
@@ -676,6 +1237,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
       customer_name: editCustomer.trim() || null,
       model: editModel.trim() || null,
       product_name: editProductName.trim() || null,
+      assembly_number: editAssemblyNumber.trim() || null,
       drawing_number: editDrawingNumber.trim() || null,
       revision: editRevision.trim() || null,
       category: editCategory.trim() || null,
@@ -754,7 +1316,32 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
     }
   }
 
-  const totalPages = result?.totalPages ?? 1;
+  const { groups: assemblyGroups, loose: looseRows } = useMemo(
+    () => groupByAssembly(result?.drawings ?? []),
+    [result]
+  );
+
+  // カード（アセンブリ＋単体/旧データ）を並べ、カード単位でページングする
+  type CardUnit =
+    | { kind: "assembly"; group: AssemblyGroup }
+    | { kind: "loose"; row: LibDrawingListItem };
+  const allUnits = useMemo<CardUnit[]>(() => {
+    const items: CardUnit[] = [];
+    for (const g of assemblyGroups) items.push({ kind: "assembly", group: g });
+    for (const r of looseRows) items.push({ kind: "loose", row: r });
+    return items;
+  }, [assemblyGroups, looseRows]);
+
+  const totalCards = allUnits.length;
+  const totalPages = Math.max(1, Math.ceil(totalCards / pageSize));
+  const pagedUnits = useMemo(
+    () => allUnits.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize),
+    [allUnits, page, pageSize]
+  );
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   function displayPartNumber(r: LibDrawingRow): string {
     const p = r.product_name?.trim();
@@ -772,6 +1359,37 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
   );
 
   const detailIsCurrent = detail ? isCurrentDrawing(detail, revHistoryCurrentMap) : false;
+
+  // アセンブリ詳細: Rev 一覧（新しい順）と、選択中 Rev の部品一覧
+  const assemblyRevsDesc = useMemo(() => {
+    const rows = detailAssemblyRows ?? [];
+    const sorted = sortByRevisionDesc([...rows]);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const r of sorted) {
+      const rev = r.revision?.trim() || "";
+      if (!seen.has(rev)) {
+        seen.add(rev);
+        out.push(rev);
+      }
+    }
+    return out;
+  }, [detailAssemblyRows]);
+
+  const detailPartsForRev = useMemo(() => {
+    const rows = detailAssemblyRows ?? [];
+    return rows.filter((r) => (r.revision?.trim() || "") === detailAssemblyRev);
+  }, [detailAssemblyRows, detailAssemblyRev]);
+
+  async function changeAssemblyRev(rev: string): Promise<void> {
+    setDetailAssemblyRev(rev);
+    const rows = detailAssemblyRows ?? [];
+    const atRev = rows.filter((r) => (r.revision?.trim() || "") === rev);
+    const currentPn = detail?.product_name?.trim();
+    const same = currentPn ? atRev.find((r) => (r.product_name?.trim() || "") === currentPn) : null;
+    const active = same ?? atRev[0] ?? null;
+    if (active) await openDetail(active, { sideTab: "parts" });
+  }
 
   function formatCommentDate(iso: string): string {
     const d = new Date(iso);
@@ -841,6 +1459,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
               setFcCustomer(e.target.value);
               setFcModel("");
               setFcProduct("");
+              setFcAssembly("");
               setPage(1);
             }}
             className="h-10 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg"
@@ -861,6 +1480,7 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
             onChange={(e) => {
               setFcModel(e.target.value);
               setFcProduct("");
+              setFcAssembly("");
               setPage(1);
             }}
             className="h-10 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg disabled:opacity-50"
@@ -888,6 +1508,25 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
             {cascade.productNames.map((p) => (
               <option key={p} value={p}>
                 {p}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-[160px] flex-col gap-1 text-xs text-fg-muted">
+          アセンブリ品番で絞る
+          <select
+            value={fcAssembly}
+            disabled={!fcCustomer || !fcModel}
+            onChange={(e) => {
+              setFcAssembly(e.target.value);
+              setPage(1);
+            }}
+            className="h-10 rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg disabled:opacity-50"
+          >
+            <option value="">（すべて）</option>
+            {(cascade.assemblies ?? []).map((a) => (
+              <option key={a} value={a}>
+                {a}
               </option>
             ))}
           </select>
@@ -937,26 +1576,32 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
         </p>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {result.drawings.map((r) => (
-              <WorkDrawingCard
-                key={r.id}
-                row={r}
-                writable={writable}
-                isCurrent={r.is_current}
-                categoryLabel={
-                  r.category ? categories.find((c) => c.code === r.category)?.name ?? r.category : null
-                }
-                onOpen={(row) => void openDetail(row)}
-                onEdit={(row) => openEditModal(row)}
-                onDelete={(row) => void handleDelete(row)}
-                onToggleObsolete={(row, next) => void toggleWorkObsolete(row, next)}
-              />
-            ))}
+          <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {pagedUnits.map((u) =>
+              u.kind === "assembly" ? (
+                <AssemblyCard key={u.group.key} group={u.group} onOpen={openAssemblyDetail} />
+              ) : (
+                <WorkDrawingCard
+                  key={u.row.id}
+                  row={u.row}
+                  writable={writable}
+                  isCurrent={u.row.is_current}
+                  categoryLabel={
+                    u.row.category
+                      ? categories.find((c) => c.code === u.row.category)?.name ?? u.row.category
+                      : null
+                  }
+                  onOpen={(row) => void openDetail(row)}
+                  onEdit={(row) => openEditModal(row)}
+                  onDelete={(row) => void handleDelete(row)}
+                  onToggleObsolete={(row, next) => void toggleWorkObsolete(row, next)}
+                />
+              )
+            )}
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm text-fg-muted">
-              {result.total} 件中 {page}/{totalPages} ページ
+              {totalCards} 枚中 {page}/{totalPages} ページ（図面 {result.total} 件）
             </span>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm text-fg-muted">
@@ -1006,69 +1651,235 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
 
       <Modal open={createOpen} title="図面を新規登録（自社発行）" onClose={() => setCreateOpen(false)} width="lg">
         <div className="flex flex-col gap-3">
-          <p className="text-xs text-fg-muted">
-            下の順で入力してください。SKU を選ぶと自動入力されます。図面番号(品番)とリビジョンの組み合わせは重複登録できません。
-          </p>
-          {skuListLoading ? (
-            <p className="text-xs text-fg-muted">SKU 一覧を読み込み中…</p>
+          <div className="flex gap-1 rounded-lg border border-border-subtle bg-bg-elevated/40 p-1 text-xs">
+            <button
+              type="button"
+              onClick={() => setCreateMode("single")}
+              className={cn(
+                "flex-1 rounded-md px-3 py-1.5 font-medium transition-colors",
+                createMode === "single"
+                  ? "bg-bg-surface text-fg-primary shadow-sm"
+                  : "text-fg-muted hover:text-fg-primary"
+              )}
+            >
+              1図面を登録
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreateMode("batch")}
+              className={cn(
+                "flex-1 rounded-md px-3 py-1.5 font-medium transition-colors",
+                createMode === "batch"
+                  ? "bg-bg-surface text-fg-primary shadow-sm"
+                  : "text-fg-muted hover:text-fg-primary"
+              )}
+            >
+              複数の部品PDFをまとめて登録（アセンブリ）
+            </button>
+          </div>
+
+          {createMode === "single" ? (
+            <>
+              <p className="text-xs text-fg-muted">
+                SKU を選ぶと自動入力されます。図面番号(品番)とリビジョンの組み合わせは重複登録できません。
+              </p>
+              {skuListLoading ? (
+                <p className="text-xs text-fg-muted">SKU 一覧を読み込み中…</p>
+              ) : (
+                <Select
+                  label="SKU（任意・中央マスタの SKU 台帳）"
+                  value={selectedSkuId}
+                  options={skuSelectOptions}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSelectedSkuId(v);
+                    if (v) applySkuById(v);
+                  }}
+                />
+              )}
+              <TextField
+                label="客先（保存フォルダ名）"
+                value={newCustomer}
+                onChange={(e) => setNewCustomer(e.target.value)}
+              />
+              <TextField label="機種" value={newModel} onChange={(e) => setNewModel(e.target.value)} />
+              <TextField
+                label="図面番号(品番)"
+                value={newProductName}
+                onChange={(e) => setNewProductName(e.target.value)}
+              />
+              <TextField label="リビジョン" value={newRevision} onChange={(e) => setNewRevision(e.target.value)} />
+              <TextField label="名称" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+              <label className="flex flex-col gap-1 text-sm text-fg-primary">
+                <span className="text-fg-muted">変更理由（任意）</span>
+                <textarea
+                  value={newChangeSummary}
+                  onChange={(e) => setNewChangeSummary(e.target.value)}
+                  placeholder="例: ブラケット追加、穴位置変更"
+                  rows={2}
+                  className="rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                />
+              </label>
+              <Select
+                label="カテゴリ（任意・マスタ「カテゴリ」/ 自社発行）"
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                options={[
+                  { value: "", label: "— 選択しない —" },
+                  ...categories.map((c) => ({ value: c.code, label: c.name })),
+                ]}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={() => void handlePickPdf()}>
+                  PDF を選択して取り込み
+                </Button>
+                {newFilePath && <span className="truncate text-xs text-fg-muted">{newFilePath}</span>}
+              </div>
+              <div className="mt-2 flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>
+                  キャンセル
+                </Button>
+                <Button type="button" variant="primary" onClick={() => void handleCreateSubmit()}>
+                  登録
+                </Button>
+              </div>
+            </>
           ) : (
-            <Select
-              label="SKU（任意・中央マスタの SKU 台帳）"
-              value={selectedSkuId}
-              options={skuSelectOptions}
-              onChange={(e) => {
-                const v = e.target.value;
-                setSelectedSkuId(v);
-                if (v) applySkuById(v);
-              }}
-            />
+            <>
+              <p className="text-xs text-fg-muted">
+                各PDFのファイル名が部品品番になります（取込後に修正可）。SKU を選ぶと前リビジョンの部品が自動で読み込まれます。
+                Rev アップ時は、読み込んだ前Rev部品のうち<strong>不要になった部品は行削除</strong>し、<strong>変更/新規の部品PDFを取り込む</strong>だけで OK です。
+                この一覧が新しいリビジョンの内容になります（前Rev部品も実ファイルを新Revフォルダにコピーし、完全なスナップショットとして保存。後から Rev 切替で閲覧できます）。
+              </p>
+              {skuListLoading ? (
+                <p className="text-xs text-fg-muted">SKU 一覧を読み込み中…</p>
+              ) : (
+                <Select
+                  label="SKU（中央マスタの SKU 台帳から客先・機種・トップアセンブリ品番を自動入力）"
+                  value={selectedSkuId}
+                  options={skuSelectOptions}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSelectedSkuId(v);
+                    if (v) applySkuToBatch(v);
+                  }}
+                />
+              )}
+              <TextField
+                label="客先（保存フォルダ名）"
+                value={newCustomer}
+                onChange={(e) => setNewCustomer(e.target.value)}
+              />
+              <TextField label="機種" value={newModel} onChange={(e) => setNewModel(e.target.value)} />
+              <TextField
+                label="トップアセンブリ品番"
+                value={newAssemblyNumber}
+                onChange={(e) => setNewAssemblyNumber(e.target.value)}
+              />
+              <TextField label="リビジョン" value={newRevision} onChange={(e) => setNewRevision(e.target.value)} />
+              <label className="flex flex-col gap-1 text-sm text-fg-primary">
+                <span className="text-fg-muted">変更理由（任意）</span>
+                <textarea
+                  value={newChangeSummary}
+                  onChange={(e) => setNewChangeSummary(e.target.value)}
+                  placeholder="例: ブラケット追加、穴位置変更"
+                  rows={2}
+                  className="rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                />
+              </label>
+              <Select
+                label="カテゴリ（任意・マスタ「カテゴリ」/ 自社発行）"
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                options={[
+                  { value: "", label: "— 選択しない —" },
+                  ...categories.map((c) => ({ value: c.code, label: c.name })),
+                ]}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={() => void handlePickWorkPdfs()}>
+                  <Plus size={14} />
+                  部品PDFを選択（複数可）
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={carryLoading}
+                  onClick={() => void loadCarriedParts()}
+                >
+                  <RefreshCw size={14} className={carryLoading ? "animate-spin" : ""} />
+                  前リビジョンの部品を読込
+                </Button>
+                <span className="text-xs text-fg-muted">{batchParts.length} 件</span>
+              </div>
+              {batchParts.length > 0 && (
+                <ul className="max-h-[38vh] space-y-2 overflow-y-auto rounded-lg border border-border-subtle p-2">
+                  {batchParts.map((p, i) => (
+                    <li
+                      key={`${p.carried ? "c" : "n"}:${p.partNumber}:${i}`}
+                      className="flex flex-col gap-1 rounded-md border border-border-subtle/60 bg-bg-surface p-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-muted">
+                          {p.fileName}
+                        </span>
+                        <span
+                          className={cn(
+                            "shrink-0 rounded-full px-2 py-0.5 text-[10px]",
+                            p.carried
+                              ? "bg-accent-secondary/15 text-accent-secondary"
+                              : "bg-accent-primary/15 text-accent-primary"
+                          )}
+                        >
+                          {p.carried ? "前Revから継承" : "新規/更新"}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeBatchPart(i)}
+                          aria-label="削除"
+                          className="h-7 w-7 shrink-0 !p-0 text-state-danger"
+                        >
+                          <Trash2 size={13} />
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          type="text"
+                          value={p.partNumber}
+                          onChange={(e) => updateBatchPart(i, "partNumber", e.target.value)}
+                          placeholder="部品品番"
+                          className="h-8 min-w-[140px] flex-1 rounded-md border border-border-strong bg-bg-surface px-2 text-xs text-fg-primary"
+                        />
+                        <input
+                          type="text"
+                          value={p.title}
+                          onChange={(e) => updateBatchPart(i, "title", e.target.value)}
+                          placeholder="名称（任意）"
+                          className="h-8 min-w-[140px] flex-1 rounded-md border border-border-strong bg-bg-surface px-2 text-xs text-fg-primary"
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-2 flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>
+                  キャンセル
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={batchSubmitting}
+                  onClick={() => void handleBatchSubmit()}
+                >
+                  {batchSubmitting ? "登録中…" : `${batchParts.length} 件を登録`}
+                </Button>
+              </div>
+            </>
           )}
-          <TextField
-            label="客先（保存フォルダ名）"
-            value={newCustomer}
-            onChange={(e) => setNewCustomer(e.target.value)}
-          />
-          <TextField label="機種" value={newModel} onChange={(e) => setNewModel(e.target.value)} />
-          <TextField
-            label="図面番号(品番)"
-            value={newProductName}
-            onChange={(e) => setNewProductName(e.target.value)}
-          />
-          <TextField label="リビジョン" value={newRevision} onChange={(e) => setNewRevision(e.target.value)} />
-          <TextField label="名称" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
-          <label className="flex flex-col gap-1 text-sm text-fg-primary">
-            <span className="text-fg-muted">変更理由（任意）</span>
-            <textarea
-              value={newChangeSummary}
-              onChange={(e) => setNewChangeSummary(e.target.value)}
-              placeholder="例: ブラケット追加、穴位置変更"
-              rows={2}
-              className="rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm text-fg-primary placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-            />
-          </label>
-          <Select
-            label="カテゴリ（任意・マスタ「カテゴリ」/ 自社発行）"
-            value={newCategory}
-            onChange={(e) => setNewCategory(e.target.value)}
-            options={[
-              { value: "", label: "— 選択しない —" },
-              ...categories.map((c) => ({ value: c.code, label: c.name })),
-            ]}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => void handlePickPdf()}>
-              PDF を選択して取り込み
-            </Button>
-            {newFilePath && <span className="truncate text-xs text-fg-muted">{newFilePath}</span>}
-          </div>
-          <div className="mt-2 flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>
-              キャンセル
-            </Button>
-            <Button type="button" variant="primary" onClick={() => void handleCreateSubmit()}>
-              登録
-            </Button>
-          </div>
         </div>
       </Modal>
 
@@ -1089,6 +1900,12 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
                 <div>
                   <dt className="text-xs text-fg-muted">図面番号(品番)</dt>
                   <dd className="font-mono text-xs text-fg-primary">{displayPartNumber(detail)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-fg-muted">アセンブリ品番</dt>
+                  <dd className="font-mono text-xs text-fg-primary">
+                    {detail.assembly_number?.trim() || "—"}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs text-fg-muted">リビジョン</dt>
@@ -1145,26 +1962,72 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
 
             <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-12 lg:gap-8">
               <div className="relative flex min-h-[min(72vh,900px)] flex-col gap-2 lg:col-span-7">
-                {pdfLoading ? (
-                  <p className="text-sm text-fg-muted">PDF を読み込み中…</p>
+                {detail.assembly_number?.trim() && (
+                  <div className="flex gap-1 rounded-lg border border-border-subtle bg-bg-elevated/40 p-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => void showPartFile()}
+                      className={cn(
+                        "rounded-md px-3 py-1.5 font-medium transition-colors",
+                        detailViewMode === "part"
+                          ? "bg-bg-surface text-fg-primary shadow-sm"
+                          : "text-fg-muted hover:text-fg-primary"
+                      )}
+                    >
+                      この部品
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void showAssemblyMerged()}
+                      className={cn(
+                        "rounded-md px-3 py-1.5 font-medium transition-colors",
+                        detailViewMode === "assembly"
+                          ? "bg-bg-surface text-fg-primary shadow-sm"
+                          : "text-fg-muted hover:text-fg-primary"
+                      )}
+                    >
+                      アセンブリ結合表示
+                    </button>
+                  </div>
+                )}
+                {pdfLoading || assemblyMergeLoading ? (
+                  <p className="text-sm text-fg-muted">
+                    {assemblyMergeLoading ? "アセンブリを結合中…" : "PDF を読み込み中…"}
+                  </p>
                 ) : (
-                  <PdfJsViewer dataUrl={pdfDataUrl} />
+                  <PdfJsViewer dataUrl={pdfDataUrl} fitToContainer />
                 )}
               </div>
               <div className="flex min-h-0 flex-col gap-4 border-t border-border-subtle pt-6 lg:col-span-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
                 <div className="flex gap-1 border-b border-border-subtle">
-                  <button
-                    type="button"
-                    onClick={() => setDetailSideTab("rev")}
-                    className={cn(
-                      "px-3 py-2 text-xs font-medium transition-colors",
-                      detailSideTab === "rev"
-                        ? "border-b-2 border-accent-primary text-fg-primary"
-                        : "text-fg-muted hover:text-fg-primary"
-                    )}
-                  >
-                    Rev履歴
-                  </button>
+                  {detailAssemblyRows && (
+                    <button
+                      type="button"
+                      onClick={() => setDetailSideTab("parts")}
+                      className={cn(
+                        "px-3 py-2 text-xs font-medium transition-colors",
+                        detailSideTab === "parts"
+                          ? "border-b-2 border-accent-primary text-fg-primary"
+                          : "text-fg-muted hover:text-fg-primary"
+                      )}
+                    >
+                      部品（{detailPartsForRev.length}）
+                    </button>
+                  )}
+                  {!detailAssemblyRows && (
+                    <button
+                      type="button"
+                      onClick={() => setDetailSideTab("rev")}
+                      className={cn(
+                        "px-3 py-2 text-xs font-medium transition-colors",
+                        detailSideTab === "rev"
+                          ? "border-b-2 border-accent-primary text-fg-primary"
+                          : "text-fg-muted hover:text-fg-primary"
+                      )}
+                    >
+                      Rev履歴
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setDetailSideTab("edraw")}
@@ -1178,7 +2041,45 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
                     eDrawings
                   </button>
                 </div>
-                {detailSideTab === "rev" ? (
+                {detailSideTab === "parts" ? (
+                  <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    {assemblyRevsDesc.length > 0 && (
+                      <label className="flex items-center gap-2 text-xs text-fg-muted">
+                        <span className="whitespace-nowrap">リビジョン</span>
+                        <select
+                          value={detailAssemblyRev}
+                          onChange={(e) => void changeAssemblyRev(e.target.value)}
+                          className="h-8 flex-1 rounded-md border border-border-strong bg-bg-surface px-2 text-xs text-fg-primary"
+                        >
+                          {assemblyRevsDesc.map((rev, i) => (
+                            <option key={rev || "—"} value={rev}>
+                              Rev {rev || "—"}
+                              {i === 0 ? "（最新）" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <div className="max-h-[min(44vh,480px)] min-h-[6rem] flex-1 space-y-1.5 overflow-y-auto">
+                      {detailPartsForRev.length === 0 ? (
+                        <p className="py-2 text-xs text-fg-muted">部品がありません</p>
+                      ) : (
+                        detailPartsForRev.map((p) => (
+                          <AssemblyPartRow
+                            key={p.id}
+                            part={p}
+                            writable={writable}
+                            isActive={p.id === detail.id}
+                            onOpen={(row) => void openDetail(row, { sideTab: "parts" })}
+                            onEdit={(row) => openEditModal(row)}
+                            onDelete={(row) => void handleDelete(row)}
+                            onToggleObsolete={(row, next) => void toggleWorkObsolete(row, next)}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : detailSideTab === "rev" ? (
                   <ul className="max-h-[min(40vh,420px)] min-h-[8rem] flex-1 space-y-1 overflow-y-auto text-sm">
                     {revHistory.length === 0 ? (
                       <li className="py-2 text-xs text-fg-muted">Rev 履歴がありません</li>
@@ -1327,6 +2228,11 @@ export function DrawingDbTab({ session, writable }: Props): JSX.Element {
             onChange={(e) => setEditCustomer(e.target.value)}
           />
           <TextField label="機種" value={editModel} onChange={(e) => setEditModel(e.target.value)} />
+          <TextField
+            label="トップアセンブリ品番（任意）"
+            value={editAssemblyNumber}
+            onChange={(e) => setEditAssemblyNumber(e.target.value)}
+          />
           <TextField
             label="図面番号(品番)"
             value={editProductName}

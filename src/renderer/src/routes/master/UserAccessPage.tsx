@@ -21,6 +21,7 @@ const APP_LABELS: Record<(typeof GRANTABLE_APP_IDS)[number], string> = {
   "parts-tracker": "部材管理",
   "drawing-library": "図面ライブラリ",
   "process-management": "工程管理",
+  "sheet-metal-support": "板金製造支援",
   "pixo-converter": "PixoConverter",
 };
 

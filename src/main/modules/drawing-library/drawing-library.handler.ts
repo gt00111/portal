@@ -8,6 +8,8 @@ import type {
   DrawingListParams,
   DrawingUpsertInput,
   DrawingWorkCascadeResult,
+  PickedWorkPdf,
+  WorkBatchCreateInput,
 } from "@shared/drawingLibrary.js";
 import { getAppRole } from "@shared/auth.js";
 import { fail, ok } from "@shared/ipcResponse.js";
@@ -27,6 +29,12 @@ import * as masters from "./drawingMasters.repo.js";
 import * as repo from "./drawing-library.repo.js";
 import * as drawings from "./drawings.repo.js";
 import { ensureEdrawingsInFolder, ensurePdfInCustomerFolder, resolveUnderDataDir } from "./drawingStorage.js";
+import { mergeAssemblyParts } from "./workAssemblyMerge.js";
+
+function pdfBasenameToPartNumber(filePath: string): string {
+  const name = basename(filePath);
+  return name.replace(/\.pdf$/i, "").trim() || name;
+}
 
 function dialogParent(): BrowserWindow | undefined {
   return BrowserWindow.getFocusedWindow() ?? getPortalWindow() ?? undefined;
@@ -101,6 +109,7 @@ export function register(ipcMain: IpcMain): void {
         customerName?: string;
         model?: string;
         productName?: string;
+        assemblyNumber?: string | null;
       }
     ) => {
       try {
@@ -112,7 +121,7 @@ export function register(ipcMain: IpcMain): void {
         if (!customerName || !model || !productName) {
           throw new Error("客先・機種・品番が必要です。");
         }
-        return ok(drawings.listRevHistory(customerName, model, productName));
+        return ok(drawings.listRevHistory(customerName, model, productName, data?.assemblyNumber));
       } catch (err) {
         return fail(err);
       }
@@ -232,6 +241,73 @@ export function register(ipcMain: IpcMain): void {
           data.drawingType ?? "customer"
         );
         return ok({ file_path: relativePath });
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  // 自社発行: 複数PDF選択（コピーはまだ行わず、一時パスと既定品番を返す。REQ-DL-004）
+  ipcMain.handle("drawing:pickWorkPdfs", async () => {
+    try {
+      assertCanWriteApp("drawing-library");
+      ensureDrawingLibrary();
+      const parent = dialogParent();
+      const opts: Electron.OpenDialogOptions = {
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+        properties: ["openFile", "multiSelections"],
+      };
+      const res = parent
+        ? await dialog.showOpenDialog(parent, opts)
+        : await dialog.showOpenDialog(opts);
+      if (res.canceled || res.filePaths.length === 0) {
+        throw new Error("ファイルが選択されませんでした。");
+      }
+      const picked: PickedWorkPdf[] = res.filePaths.map((p) => ({
+        sourcePath: p,
+        fileName: basename(p),
+        defaultPartNumber: pdfBasenameToPartNumber(p),
+      }));
+      return ok<PickedWorkPdf[]>(picked);
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  // 自社発行: 複数部品PDFの一括登録（REQ-DL-004）
+  ipcMain.handle("drawing:createWorkBatch", async (_event, data: { input?: WorkBatchCreateInput }) => {
+    try {
+      assertCanWriteApp("drawing-library");
+      ensureDrawingLibrary();
+      if (!data?.input) throw new Error("登録内容がありません。");
+      return ok(await drawings.insertWorkBatch(data.input));
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  // 自社発行: 指定アセンブリの現行部品PDFを結合して返す（REQ-DL-004 の結合表示）
+  ipcMain.handle(
+    "drawing:mergeWorkAssembly",
+    async (
+      _event,
+      data: { customerName?: string; model?: string; assemblyNumber?: string; revision?: string | null }
+    ) => {
+      try {
+        assertLoggedIn();
+        ensureDrawingLibrary();
+        const customerName = data?.customerName?.trim() ?? "";
+        const model = data?.model?.trim() ?? "";
+        const assemblyNumber = data?.assemblyNumber?.trim() ?? "";
+        const revision = data?.revision?.trim() ?? "";
+        if (!customerName || !assemblyNumber) {
+          throw new Error("客先とアセンブリ品番が必要です。");
+        }
+        const parts = revision
+          ? drawings.getAssemblyPartsByRevision(customerName, model, assemblyNumber, revision)
+          : drawings.getCurrentAssemblyParts(customerName, model, assemblyNumber);
+        if (parts.length === 0) throw new Error("このアセンブリに部品図面がありません。");
+        return ok(await mergeAssemblyParts(parts));
       } catch (err) {
         return fail(err);
       }

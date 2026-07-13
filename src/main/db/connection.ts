@@ -7,6 +7,10 @@ import { closeDrawingLibrary, openDrawingLibraryAdjacentToCentral } from "./draw
 import { closePartsTracker, openPartsTrackerAdjacentToCentral } from "./partsTrackerConnection.js";
 import { closeProcessMgmt, openProcessMgmtAdjacentToCentral } from "./processMgmtConnection.js";
 import { closeSeisanSatellite, openSeisanForCurrentCentral } from "./seisanConnection.js";
+import {
+  closeSheetMetalSupport,
+  openSheetMetalSupportAdjacentToCentral,
+} from "./sheetMetalSupportConnection.js";
 import { migrate } from "./migrate.js";
 import { seed } from "./seed.js";
 
@@ -52,6 +56,7 @@ export async function openDatabase(filePath: string, options: { createIfMissing:
   openDrawingLibraryAdjacentToCentral(filePath);
   openProcessMgmtAdjacentToCentral(filePath);
   openPartsTrackerAdjacentToCentral(filePath);
+  openSheetMetalSupportAdjacentToCentral(filePath);
 }
 
 export function closeDatabase(): void {
@@ -59,6 +64,7 @@ export function closeDatabase(): void {
   closeProcessMgmt();
   closePartsTracker();
   closeSeisanSatellite();
+  closeSheetMetalSupport();
   if (db) {
     db.close();
     db = null;

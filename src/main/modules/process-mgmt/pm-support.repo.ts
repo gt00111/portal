@@ -1,6 +1,6 @@
 import { getProcessMgmtDb } from "@main/db/processMgmtConnection.js";
 import { getDb } from "@main/db/connection.js";
-import type { PmBoardTask, PmTask } from "@shared/processMgmt.js";
+import type { PmBoardTask } from "@shared/processMgmt.js";
 import type { PmSupportAssignee, PmSupportProgressEntry } from "@shared/processMgmtParallel.js";
 
 import * as tasks from "./pm-tasks.repo.js";

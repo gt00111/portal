@@ -23,6 +23,7 @@ import { PixoConverterApp } from "@renderer/routes/PixoConverterApp.js";
 import { PartsTrackerRoutes } from "@renderer/routes/PartsTrackerRoutes.js";
 import { ProcessManagementApp } from "@renderer/routes/ProcessManagementApp.js";
 import { SeisanBoardApp } from "@renderer/routes/SeisanBoardApp.js";
+import { SheetMetalSupportApp } from "@renderer/routes/SheetMetalSupportApp.js";
 import { SkuRoute } from "@renderer/routes/SkuRoute.js";
 import { AuditLogPage } from "@renderer/routes/master/AuditLogPage.js";
 import { ProcurementLeadTimePage } from "@renderer/routes/master/ProcurementLeadTimePage.js";
@@ -197,6 +198,14 @@ function AppRoutes(): JSX.Element {
               element={
                 <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base text-fg-primary">
                   <ProcessManagementApp session={session} />
+                </div>
+              }
+            />
+            <Route
+              path="/apps/sheet-metal-support"
+              element={
+                <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base text-fg-primary">
+                  <SheetMetalSupportApp session={session} />
                 </div>
               }
             />
