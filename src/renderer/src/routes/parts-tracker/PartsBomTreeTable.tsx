@@ -5,6 +5,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   EyeOff,
+  FileText,
   Pencil,
   Trash2,
 } from "lucide-react";
@@ -27,6 +28,7 @@ import {
   type ProjectPartLine,
 } from "@shared/partsTracker.js";
 import type { MasterRow } from "@shared/master.js";
+import type { PartDrawingLinkInfo } from "@shared/partsTrackerDrawing.js";
 
 import { BomStructureBadge } from "@renderer/routes/parts-tracker/BomStructureBadge.js";
 import {
@@ -125,6 +127,65 @@ function riskBadge(risk: ProjectPartLine["risk"], suppressRiskHighlight: boolean
   );
 }
 
+function findDrawingLink(
+  partNumber: string,
+  links: Record<string, PartDrawingLinkInfo> | undefined
+): PartDrawingLinkInfo | undefined {
+  if (!links || !partNumber.trim()) return undefined;
+  const exact = links[partNumber];
+  if (exact) return exact;
+  const lower = partNumber.trim().toLowerCase();
+  for (const [key, value] of Object.entries(links)) {
+    if (key.trim().toLowerCase() === lower) return value;
+  }
+  return undefined;
+}
+
+function PartNumberCell({
+  partNumber,
+  drawingLink,
+  onOpenDrawing,
+  indent,
+}: {
+  partNumber: string;
+  drawingLink: PartDrawingLinkInfo | undefined;
+  onOpenDrawing?: (partNumber: string, link: PartDrawingLinkInfo) => void;
+  indent: number;
+}): JSX.Element {
+  const linked = Boolean(drawingLink && onOpenDrawing);
+  const content = (
+    <BomTruncatableText
+      value={partNumber}
+      mono
+      emphasize
+      ariaLabel={`品番 ${partNumber}`}
+    />
+  );
+  return (
+    <div
+      style={{ paddingLeft: `${indent}px` }}
+      className={cn(
+        "inline-flex min-w-0 max-w-full border-l pl-1.5",
+        linked ? "border-accent-primary/50" : "border-border-subtle/80"
+      )}
+    >
+      {linked ? (
+        <button
+          type="button"
+          onClick={() => onOpenDrawing!(partNumber, drawingLink!)}
+          title={`図面を表示（Rev ${drawingLink!.revision ?? "—"}）`}
+          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded text-left font-semibold text-accent-primary underline decoration-accent-primary/50 underline-offset-2 hover:decoration-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+        >
+          <FileText size={13} className="shrink-0 text-accent-primary" aria-hidden />
+          {content}
+        </button>
+      ) : (
+        content
+      )}
+    </div>
+  );
+}
+
 function arrangedMeta(line: ProjectPartLine): JSX.Element {
   if (!line.isArranged) return <span className="text-fg-subtle">—</span>;
   const who = line.arrangedByUsername ?? "";
@@ -156,6 +217,9 @@ export interface PartsBomTreeTableProps {
   onToggleHidden: (line: ProjectPartLine) => void;
   onHideRequest: (line: ProjectPartLine) => void;
   onDelete: (line: ProjectPartLine) => void;
+  /** 自社発行図面リンク（BOM 品番 → 現行版アセンブリ内の部品図面） */
+  drawingLinks?: Record<string, PartDrawingLinkInfo>;
+  onOpenDrawing?: (partNumber: string, link: PartDrawingLinkInfo) => void;
   /** §8.5.21 案件完了時は遅延ハイライト・リスクバッジを抑制 */
   suppressRiskHighlight?: boolean;
 }
@@ -184,6 +248,8 @@ export function PartsBomTreeTable({
   onToggleHidden,
   onHideRequest,
   onDelete,
+  drawingLinks,
+  onOpenDrawing,
   suppressRiskHighlight = false,
 }: PartsBomTreeTableProps): JSX.Element {
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => new Set());
@@ -399,17 +465,12 @@ export function PartsBomTreeTable({
                 </td>
                 <td className={BOM_TABLE_CELL}>{riskBadge(line.risk, suppressRiskHighlight)}</td>
                 <td className={BOM_TABLE_PART_NUMBER_CELL}>
-                  <div
-                    style={{ paddingLeft: `${indent}px` }}
-                    className="inline-flex min-w-0 max-w-full border-l border-border-subtle/80 pl-1.5"
-                  >
-                    <BomTruncatableText
-                      value={line.partNumber}
-                      mono
-                      emphasize
-                      ariaLabel={`品番 ${line.partNumber}`}
-                    />
-                  </div>
+                  <PartNumberCell
+                    partNumber={line.partNumber}
+                    drawingLink={findDrawingLink(line.partNumber, drawingLinks)}
+                    onOpenDrawing={onOpenDrawing}
+                    indent={indent}
+                  />
                 </td>
                 <td className={cn("font-mono text-sm", BOM_TABLE_CELL)}>{line.revision ?? "—"}</td>
                 <td className={BOM_TABLE_CELL}>

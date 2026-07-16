@@ -136,6 +136,8 @@ export interface PartsTrackerProjectOption {
   projectNo: string | null;
   projectName: string | null;
   companyName: string;
+  /** 生産ボード `projects.model_type`（図面ライブラリ連携の機種） */
+  modelType: string | null;
   deadline: string;
   partNumber: string | null;
   lineCount: number;

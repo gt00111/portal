@@ -2,6 +2,7 @@ import {
   ClipboardCopy,
   Copy,
   Download,
+  FileText,
   Printer,
   FileSpreadsheet,
   HelpCircle,
@@ -61,6 +62,11 @@ import {
   type ImportDuplicatePolicy,
 } from "@shared/partsTrackerCsvFormat.js";
 import type { SessionUser } from "@shared/types.js";
+import type {
+  AssemblyDrawingLinkResolveResult,
+  PartDrawingFilePayload,
+  PartDrawingLinkInfo,
+} from "@shared/partsTrackerDrawing.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { Card } from "@renderer/components/ui/Card.js";
@@ -77,6 +83,7 @@ import { cn } from "@renderer/lib/cn.js";
 import { PartsTrackerHelpContent } from "@renderer/routes/parts-tracker/PartsTrackerHelpContent.js";
 import { SupplierCombobox } from "@renderer/routes/parts-tracker/SupplierCombobox.js";
 import { WeldingProcessMappingModal } from "@renderer/routes/parts-tracker/WeldingProcessMappingModal.js";
+import { PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
 import {
   countBySourceTab,
   draftFromLine,
@@ -181,6 +188,15 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
   const [weldingMapping, setWeldingMapping] = useState<WeldingProcessTemplateMapping | null>(null);
   const [weldingMappingSubmitting, setWeldingMappingSubmitting] = useState(false);
 
+  const [drawingLinks, setDrawingLinks] = useState<AssemblyDrawingLinkResolveResult | null>(null);
+  const [drawingLinksLoading, setDrawingLinksLoading] = useState(false);
+  const [drawingPreview, setDrawingPreview] = useState<{
+    partNumber: string;
+    link: PartDrawingLinkInfo;
+  } | null>(null);
+  const [drawingPdfDataUrl, setDrawingPdfDataUrl] = useState<string | null>(null);
+  const [drawingPreviewLoading, setDrawingPreviewLoading] = useState(false);
+
   const loadProjects = useCallback(async () => {
     try {
       const [projectList, supplierList] = await Promise.all([
@@ -264,6 +280,72 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
     () => projects.find((p) => p.id === projectId) ?? null,
     [projects, projectId]
   );
+
+  const refreshDrawingLinks = useCallback(
+    async (lineList: ProjectPartLine[], project: PartsTrackerProjectOption | null) => {
+      if (!project || lineList.length === 0) {
+        setDrawingLinks(null);
+        return;
+      }
+      const assembly = project.partNumber?.trim();
+      if (!assembly) {
+        setDrawingLinks({
+          found: false,
+          customerName: project.companyName,
+          model: project.modelType ?? "",
+          assemblyNumber: "",
+          assemblyPartCount: 0,
+          links: {},
+          linkedCount: 0,
+          message: "親番（アセンブリ品番）が未設定のため、図面リンクできません。",
+        });
+        return;
+      }
+      setDrawingLinksLoading(true);
+      try {
+        const partNumbers = [...new Set(lineList.map((l) => l.partNumber.trim()).filter(Boolean))];
+        const res = await invoke<AssemblyDrawingLinkResolveResult>(
+          "parts-tracker:drawing:resolveAssemblyLinks",
+          {
+            customerName: project.companyName,
+            model: project.modelType ?? "",
+            assemblyNumber: assembly,
+            partNumbers,
+          }
+        );
+        setDrawingLinks(res);
+      } catch {
+        setDrawingLinks(null);
+      } finally {
+        setDrawingLinksLoading(false);
+      }
+    },
+    []
+  );
+
+  const handleOpenDrawing = useCallback(
+    async (partNumber: string, link: PartDrawingLinkInfo): Promise<void> => {
+      setDrawingPreview({ partNumber, link });
+      setDrawingPdfDataUrl(null);
+      setDrawingPreviewLoading(true);
+      try {
+        const file = await invoke<PartDrawingFilePayload>("parts-tracker:drawing:readFile", {
+          drawingId: link.drawingId,
+        });
+        setDrawingPdfDataUrl(`data:${file.mime};base64,${file.base64}`);
+      } catch (err) {
+        toast.push("error", err instanceof Error ? err.message : String(err));
+        setDrawingPreview(null);
+      } finally {
+        setDrawingPreviewLoading(false);
+      }
+    },
+    [toast]
+  );
+
+  useEffect(() => {
+    void refreshDrawingLinks(lines, selectedProject);
+  }, [lines, selectedProject, refreshDrawingLinks]);
 
   const isProjectComplete = selectedProject?.status === "done";
   const showCompleteProjectButton =
@@ -1052,6 +1134,35 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
               </div>
             )}
 
+            {lines.length > 0 && (
+              <div className="rounded-lg border border-border-subtle bg-bg-surface/60 px-4 py-2.5 text-sm">
+                {drawingLinksLoading ? (
+                  <p className="text-fg-muted">図面リンクを確認中…</p>
+                ) : drawingLinks?.found ? (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                    <p className="text-fg-primary">
+                      図面リンク（自社発行・現行 Rev）:{" "}
+                      <span className="font-mono text-xs">
+                        {drawingLinks.customerName} / {drawingLinks.model || "—"} /{" "}
+                        {drawingLinks.assemblyNumber}
+                      </span>
+                      {" — "}
+                      <strong>{drawingLinks.linkedCount}</strong> / {lines.length} 行が一致（登録{" "}
+                      {drawingLinks.assemblyPartCount} 部品）
+                    </p>
+                    <p className="text-xs text-fg-muted">
+                      <FileText size={12} className="mr-1 inline text-accent-primary" aria-hidden />
+                      付きの青い品番をクリックで PDF 表示
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-fg-muted">
+                    {drawingLinks?.message ?? "図面リンク情報を取得できませんでした。"}
+                  </p>
+                )}
+              </div>
+            )}
+
             {showWeldingChangeBanner && weldingInfo && (
               <div className="rounded-lg border border-state-warning/40 bg-state-warning/10 px-4 py-3 text-sm text-state-warning">
                 <p>
@@ -1311,6 +1422,8 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                   setHideReason("");
                 }}
                 onDelete={(line) => void handleDelete(line)}
+                drawingLinks={drawingLinks?.links}
+                onOpenDrawing={(pn, link) => void handleOpenDrawing(pn, link)}
                 suppressRiskHighlight={suppressRiskHighlight}
               />
               <div className="shrink-0 border-t border-border-subtle px-4 py-2 text-sm text-fg-muted">
@@ -1323,6 +1436,39 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
           )}
         </div>
     </main>
+
+      <Modal
+        open={drawingPreview != null}
+        title={
+          drawingPreview
+            ? `図面 — ${drawingPreview.partNumber}（Rev ${drawingPreview.link.revision ?? "—"}）`
+            : "図面"
+        }
+        onClose={() => {
+          setDrawingPreview(null);
+          setDrawingPdfDataUrl(null);
+        }}
+        width="full"
+      >
+        <div className="flex min-h-[60vh] flex-col gap-3">
+          {drawingPreviewLoading ? (
+            <p className="py-12 text-center text-sm text-fg-muted">PDF を読み込み中…</p>
+          ) : drawingPdfDataUrl ? (
+            <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border-subtle">
+              <div className="h-[70vh] w-full">
+                <PdfJsViewer dataUrl={drawingPdfDataUrl} fitToContainer />
+              </div>
+            </div>
+          ) : (
+            <p className="py-12 text-center text-sm text-fg-muted">図面を表示できません。</p>
+          )}
+          {drawingPreview && (
+            <p className="text-xs text-fg-muted">
+              自社発行図面（現行 Rev アセンブリ内の部品 PDF）。BOM 行の Rev とは一致しない場合があります。
+            </p>
+          )}
+        </div>
+      </Modal>
 
       <Modal open={helpOpen} title="部材管理のヘルプ" onClose={() => setHelpOpen(false)} width="xl">
         <PartsTrackerHelpContent variant="main" appRole={appRole} />
@@ -1692,6 +1838,7 @@ export function PartsTrackerApp({ session }: Props): JSX.Element {
                   label: projectCascadeLabel({
                     ...c,
                     partNumber: cloneTargetPartNumber,
+                    modelType: null,
                     status: "",
                   }),
                 })),

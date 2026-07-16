@@ -27,6 +27,12 @@ import type {
   SyncRequiredDatesFromWeldingResult,
   WeldingStartDateInfo,
 } from "@shared/partsTracker.js";
+import type {
+  AssemblyDrawingLinkResolveInput,
+  AssemblyDrawingLinkResolveResult,
+  PartDrawingFilePayload,
+  PartDrawingReadFileInput,
+} from "@shared/partsTrackerDrawing.js";
 import { isPartLineStatus, isPartSourceType } from "@shared/partsTracker.js";
 import type {
   BomCsvImportBatchRow,
@@ -56,6 +62,7 @@ import {
 } from "@main/auth-guard.js";
 import { getDb } from "@main/db/connection.js";
 import { getPartsTrackerDbPath } from "@main/db/partsTrackerConnection.js";
+import { ensureDrawingLibrary } from "@main/drawing-library-guard.js";
 import { ensurePartsTracker } from "@main/parts-tracker-guard.js";
 import { ensureSeisanSatellite } from "@main/seisan-guard.js";
 import * as seisanProjects from "@main/seisan/repos/projects.repo.js";
@@ -69,6 +76,7 @@ import type { Project, ProjectStatus } from "@shared/seisan/project.js";
 
 import * as csvImport from "./bom-csv-import.repo.js";
 import * as bomDiff from "./bom-diff.repo.js";
+import * as drawingRef from "./drawing-ref.repo.js";
 import * as history from "./parts-tracker-history.repo.js";
 import * as projectClone from "./project-bom-clone.repo.js";
 import * as expand from "./product-bom-expand.repo.js";
@@ -104,6 +112,7 @@ export function register(ipcMain: IpcMain): void {
         projectNo: p.project_no,
         projectName: p.project_name,
         companyName: p.company_name,
+        modelType: p.model_type ?? null,
         deadline: p.deadline,
         partNumber: p.part_number ?? null,
         lineCount: lineCounts.get(p.id) ?? 0,
@@ -678,6 +687,48 @@ export function register(ipcMain: IpcMain): void {
         ensurePartsTracker();
         const res = bomDiff.diffCurrentVsLatest(data);
         return ok<BomDiffResult | null>(res);
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "parts-tracker:drawing:resolveAssemblyLinks",
+    async (_event, data: AssemblyDrawingLinkResolveInput) => {
+      try {
+        assertCanViewApp("parts-tracker");
+        ensurePartsTracker();
+        ensureDrawingLibrary();
+        const partNumbers = Array.isArray(data?.partNumbers)
+          ? data.partNumbers.filter((p): p is string => typeof p === "string")
+          : [];
+        const result = drawingRef.resolveAssemblyPartLinks(
+          data?.customerName ?? "",
+          data?.model,
+          data?.assemblyNumber ?? "",
+          partNumbers
+        );
+        return ok<AssemblyDrawingLinkResolveResult>(result);
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "parts-tracker:drawing:readFile",
+    async (_event, data: PartDrawingReadFileInput) => {
+      try {
+        assertCanViewApp("parts-tracker");
+        ensurePartsTracker();
+        ensureDrawingLibrary();
+        const drawingId = data?.drawingId;
+        if (!Number.isInteger(drawingId) || drawingId <= 0) {
+          throw new Error("drawingId が不正です。");
+        }
+        const payload = await drawingRef.readWorkDrawingFile(drawingId);
+        return ok<PartDrawingFilePayload>(payload);
       } catch (err) {
         return fail(err);
       }
