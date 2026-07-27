@@ -16,8 +16,15 @@ import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
 import { PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
+import { ProcessConditionPanel } from "@renderer/routes/sheet-metal-support/ProcessConditionPanel.js";
+import { SimulationPanel } from "@renderer/routes/sheet-metal-support/SimulationPanel.js";
+import {
+  ProcessHistoryPanel,
+  RevisionHistoryPanel,
+  TechnicalNotesPanel,
+} from "@renderer/routes/sheet-metal-support/ProcessInfoPanels.js";
 
-type DetailTab = "detail" | "simulation" | "note";
+type DetailTab = "detail" | "condition" | "note" | "history" | "revision" | "simulation";
 
 const EMPTY_OPTION = { value: "", label: "すべて" } as const;
 
@@ -25,7 +32,7 @@ function toSelectOptions(values: string[]): ReadonlyArray<{ value: string; label
   return [EMPTY_OPTION, ...values.map((v) => ({ value: v, label: v }))];
 }
 
-export function PartSearchPage(): JSX.Element {
+export function PartSearchPage({ writable }: { writable: boolean }): JSX.Element {
   const toast = useToast();
 
   const [options, setOptions] = useState<PartSearchCascadeOptions>({
@@ -264,12 +271,15 @@ export function PartSearchPage(): JSX.Element {
             </div>
 
             <div className="border-t border-border-subtle">
-              <nav className="flex gap-1 px-2 pt-2">
+              <nav className="flex flex-wrap gap-1 px-2 pt-2">
                 {(
                   [
                     ["detail", "部品詳細"],
-                    ["simulation", "シミュレーション"],
+                    ["condition", "加工条件"],
                     ["note", "技術ノート"],
+                    ["history", "加工履歴"],
+                    ["revision", "更新履歴"],
+                    ["simulation", "シミュレーション"],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -287,7 +297,7 @@ export function PartSearchPage(): JSX.Element {
                   </button>
                 ))}
               </nav>
-              <div className="px-3 py-3 text-sm">
+              <div className="max-h-[40vh] overflow-y-auto px-3 py-3 text-sm">
                 {tab === "detail" && (
                   <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
                     <DetailField label="品番" value={detail?.partNumber} />
@@ -298,15 +308,39 @@ export function PartSearchPage(): JSX.Element {
                     <DetailField label="図面名" value={detail?.title} />
                   </dl>
                 )}
-                {tab === "simulation" && (
-                  <p className="py-3 text-fg-muted">
-                    シミュレーション機能は後続フェーズで提供予定です（準備中）。
-                  </p>
+                {tab === "condition" && (
+                  <ProcessConditionPanel
+                    key={`condition-${selected.partNumber}`}
+                    partNumber={selected.partNumber}
+                    writable={writable}
+                  />
                 )}
                 {tab === "note" && (
-                  <p className="py-3 text-fg-muted">
-                    技術ノート機能は後続フェーズで提供予定です（準備中）。
-                  </p>
+                  <TechnicalNotesPanel
+                    key={`note-${selected.partNumber}`}
+                    partNumber={selected.partNumber}
+                    writable={writable}
+                  />
+                )}
+                {tab === "history" && (
+                  <ProcessHistoryPanel
+                    key={`history-${selected.partNumber}`}
+                    partNumber={selected.partNumber}
+                    writable={writable}
+                  />
+                )}
+                {tab === "revision" && (
+                  <RevisionHistoryPanel
+                    key={`revision-${selected.partNumber}`}
+                    partNumber={selected.partNumber}
+                  />
+                )}
+                {tab === "simulation" && (
+                  <SimulationPanel
+                    key={`simulation-${selected.partNumber}`}
+                    partNumber={selected.partNumber}
+                    writable={writable}
+                  />
                 )}
               </div>
             </div>

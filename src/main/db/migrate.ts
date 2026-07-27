@@ -81,6 +81,40 @@ function migrateOperatorsToMasterUsers(db: Database.Database): void {
   }
 }
 
+function migrateToV7(db: Database.Database): void {
+  if (!tableExists(db, "m_machines")) {
+    db.exec(`
+      CREATE TABLE m_machines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        name TEXT NOT NULL,
+        note TEXT,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  }
+}
+
+function migrateToV8(db: Database.Database): void {
+  for (const table of ["m_upper_tools", "m_lower_tools"]) {
+    if (!tableExists(db, table)) {
+      db.exec(`
+        CREATE TABLE ${table} (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          name TEXT NOT NULL,
+          note TEXT,
+          isActive INTEGER NOT NULL DEFAULT 1,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `);
+    }
+  }
+}
+
 function migrateToV6(db: Database.Database): void {
   if (!tableExists(db, "m_products")) {
     db.exec(`
@@ -262,6 +296,12 @@ export function migrate(db: Database.Database): void {
   }
   if (currentVersion < 6) {
     migrateToV6(db);
+  }
+  if (currentVersion < 7) {
+    migrateToV7(db);
+  }
+  if (currentVersion < 8) {
+    migrateToV8(db);
   }
 
   if (!row) {

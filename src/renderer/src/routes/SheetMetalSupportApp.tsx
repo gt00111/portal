@@ -18,6 +18,7 @@ interface Props {
 
 export function SheetMetalSupportApp({ session }: Props): JSX.Element {
   const role = getAppRole(session, "sheet-metal-support");
+  const writable = role === "editor" || role === "admin";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-base">
@@ -39,7 +40,7 @@ export function SheetMetalSupportApp({ session }: Props): JSX.Element {
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
-        <PartSearchPage />
+        <PartSearchPage writable={writable} />
       </main>
     </div>
   );

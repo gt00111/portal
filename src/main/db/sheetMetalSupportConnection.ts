@@ -20,6 +20,14 @@ export function getSheetMetalSupportDbPath(): string | null {
   return smsPath;
 }
 
+/** 3Dモデル等のファイル保存ルート: DB ファイルと同じディレクトリ */
+export function getSheetMetalSupportDataDir(): string {
+  if (!smsPath) {
+    throw new Error("板金製造支援 DB パスが無効です。");
+  }
+  return dirname(smsPath);
+}
+
 export function isSheetMetalSupportOpen(): boolean {
   return smsDb !== null;
 }

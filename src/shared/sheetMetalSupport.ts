@@ -56,3 +56,166 @@ export interface DrawingFilePayload {
 export interface SheetMetalSupportStatus {
   ready: boolean;
 }
+
+/* ============================================================
+ * Phase 2: 加工情報管理（技術ノート・加工履歴・更新履歴）
+ * ============================================================ */
+
+/** 技術ノートの種別 */
+export const TECHNICAL_NOTE_TYPES = ["改善案", "設計メモ", "現場メモ", "注意事項"] as const;
+export type TechnicalNoteType = (typeof TECHNICAL_NOTE_TYPES)[number];
+
+/** 機械マスタ選択肢（master.db `m_machines` の read-only 参照） */
+export interface MachineOption {
+  id: number;
+  code: string;
+  name: string;
+}
+
+/** 技術ノート（`technical_notes`） */
+export interface TechnicalNote {
+  id: number;
+  partNumber: string;
+  noteType: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: number | null;
+  updatedBy: number | null;
+  createdByName: string | null;
+  updatedByName: string | null;
+}
+
+export interface TechnicalNoteCreateInput {
+  partNumber: string;
+  noteType?: string | null;
+  body: string;
+}
+
+export interface TechnicalNoteUpdateInput {
+  id: number;
+  noteType?: string | null;
+  body: string;
+}
+
+/** 加工履歴（`process_histories`）。テスト加工も本テーブルで管理する。 */
+export interface ProcessHistory {
+  id: number;
+  partNumber: string;
+  processedAt: string | null;
+  machineId: number | null;
+  machineName: string | null;
+  isTest: boolean;
+  comment: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: number | null;
+  createdByName: string | null;
+}
+
+export interface ProcessHistoryCreateInput {
+  partNumber: string;
+  processedAt?: string | null;
+  machineId?: number | null;
+  isTest?: boolean;
+  comment?: string | null;
+}
+
+/** 更新履歴（`revision_histories`・監査ログ・削除不可）。Service が自動記録する。 */
+export interface RevisionHistory {
+  id: number;
+  targetTable: string;
+  targetId: number;
+  partNumber: string | null;
+  fieldName: string;
+  oldValue: string | null;
+  newValue: string | null;
+  changedBy: number | null;
+  changedByName: string | null;
+  changedAt: string;
+}
+
+/** 金型マスタ選択肢（master.db `m_upper_tools` / `m_lower_tools` の read-only 参照） */
+export interface ToolOption {
+  id: number;
+  code: string;
+  name: string;
+}
+
+/** 加工条件の曲げ順ステップ（`process_condition_bends`） */
+export interface ProcessConditionBend {
+  id: number | null;
+  bendSequence: number;
+  upperToolId: number | null;
+  lowerToolId: number | null;
+  machineId: number | null;
+  backGauge: number | null;
+  angle: number | null;
+  bendRadius: number | null;
+  note: string | null;
+  upperToolName: string | null;
+  lowerToolName: string | null;
+  machineName: string | null;
+}
+
+/** 加工条件（`process_conditions`）＋曲げ順。品番ごとに 1 件。 */
+export interface ProcessCondition {
+  id: number;
+  partNumber: string;
+  material: string | null;
+  thickness: number | null;
+  processScore: number | null;
+  workDirection: string | null;
+  note: string | null;
+  bends: ProcessConditionBend[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy: number | null;
+  updatedBy: number | null;
+  createdByName: string | null;
+  updatedByName: string | null;
+}
+
+export interface ProcessConditionBendInput {
+  bendSequence: number;
+  upperToolId?: number | null;
+  lowerToolId?: number | null;
+  machineId?: number | null;
+  backGauge?: number | null;
+  angle?: number | null;
+  bendRadius?: number | null;
+  note?: string | null;
+}
+
+export interface ProcessConditionInput {
+  partNumber: string;
+  material?: string | null;
+  thickness?: number | null;
+  processScore?: number | null;
+  workDirection?: string | null;
+  note?: string | null;
+  bends: ProcessConditionBendInput[];
+}
+
+/* ============================================================
+ * Phase 3: 3Dシミュレーション基盤（STEP 表示）
+ * ============================================================ */
+
+/** STEP 3Dモデル（`simulations`）。品番ごとに 1 件。 */
+export interface SimulationModel {
+  id: number;
+  partNumber: string;
+  /** データルートからの相対パス（未登録は null） */
+  modelFilePath: string | null;
+  /** 表示用ファイル名（modelFilePath の basename） */
+  fileName: string | null;
+  status: string;
+  updatedAt: string;
+  updatedByName: string | null;
+}
+
+/** STEP ファイルのバイト内容（base64） */
+export interface SimulationModelFilePayload {
+  fileName: string;
+  base64: string;
+}

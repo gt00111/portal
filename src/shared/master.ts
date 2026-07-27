@@ -7,6 +7,9 @@ export const MASTER_TABLES = [
   "m_user_names",
   "m_suppliers",
   "m_categories",
+  "m_machines",
+  "m_upper_tools",
+  "m_lower_tools",
 ] as const;
 
 export type MasterTable = (typeof MASTER_TABLES)[number];
@@ -20,6 +23,9 @@ export const MASTER_TABLE_LABELS: Record<MasterTable, string> = {
   m_user_names: "ユーザー",
   m_suppliers: "商社",
   m_categories: "カテゴリ",
+  m_machines: "機械",
+  m_upper_tools: "上型（パンチ）",
+  m_lower_tools: "下型（ダイ）",
 };
 
 /** scope を持つマスタ（scope 単位で値を分離する） */

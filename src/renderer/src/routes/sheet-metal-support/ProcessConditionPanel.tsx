@@ -1,0 +1,383 @@
+import { Plus, Save, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+
+import type {
+  MachineOption,
+  ProcessCondition,
+  ProcessConditionInput,
+  ToolOption,
+} from "@shared/sheetMetalSupport.js";
+
+import { Button } from "@renderer/components/ui/Button.js";
+import { useToast } from "@renderer/components/ui/Toast.js";
+import { invoke } from "@renderer/lib/api.js";
+
+const INPUT_CLASS =
+  "h-9 w-full rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg-primary placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary disabled:opacity-60";
+const SELECT_CLASS =
+  "h-9 w-full rounded-lg border border-border-strong bg-bg-surface px-2 text-sm text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary disabled:opacity-60";
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+interface BendRow {
+  key: string;
+  upperToolId: string;
+  lowerToolId: string;
+  machineId: string;
+  backGauge: string;
+  angle: string;
+  bendRadius: string;
+  note: string;
+}
+
+let bendKeySeq = 0;
+function newBendRow(): BendRow {
+  bendKeySeq += 1;
+  return {
+    key: `bend-${bendKeySeq}`,
+    upperToolId: "",
+    lowerToolId: "",
+    machineId: "",
+    backGauge: "",
+    angle: "",
+    bendRadius: "",
+    note: "",
+  };
+}
+
+function numOrNull(value: string): number | null {
+  const t = value.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+function idOrNull(value: string): number | null {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+export function ProcessConditionPanel({
+  partNumber,
+  writable,
+}: {
+  partNumber: string;
+  writable: boolean;
+}): JSX.Element {
+  const toast = useToast();
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [machines, setMachines] = useState<MachineOption[]>([]);
+  const [upperTools, setUpperTools] = useState<ToolOption[]>([]);
+  const [lowerTools, setLowerTools] = useState<ToolOption[]>([]);
+
+  const [material, setMaterial] = useState("");
+  const [thickness, setThickness] = useState("");
+  const [workDirection, setWorkDirection] = useState("");
+  const [processScore, setProcessScore] = useState("");
+  const [note, setNote] = useState("");
+  const [bends, setBends] = useState<BendRow[]>([]);
+  const [meta, setMeta] = useState<{ updatedByName: string | null; updatedAt: string } | null>(
+    null
+  );
+
+  const applyCondition = useCallback((c: ProcessCondition | null) => {
+    setMaterial(c?.material ?? "");
+    setThickness(c?.thickness != null ? String(c.thickness) : "");
+    setWorkDirection(c?.workDirection ?? "");
+    setProcessScore(c?.processScore != null ? String(c.processScore) : "");
+    setNote(c?.note ?? "");
+    setMeta(c ? { updatedByName: c.updatedByName, updatedAt: c.updatedAt } : null);
+    setBends(
+      (c?.bends ?? []).map((b) => {
+        bendKeySeq += 1;
+        return {
+          key: `bend-${bendKeySeq}`,
+          upperToolId: b.upperToolId != null ? String(b.upperToolId) : "",
+          lowerToolId: b.lowerToolId != null ? String(b.lowerToolId) : "",
+          machineId: b.machineId != null ? String(b.machineId) : "",
+          backGauge: b.backGauge != null ? String(b.backGauge) : "",
+          angle: b.angle != null ? String(b.angle) : "",
+          bendRadius: b.bendRadius != null ? String(b.bendRadius) : "",
+          note: b.note ?? "",
+        };
+      })
+    );
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [condition, tools, machineList] = await Promise.all([
+        invoke<ProcessCondition | null>("smsupport:processCondition:getByPart", { partNumber }),
+        invoke<{ upper: ToolOption[]; lower: ToolOption[] }>("smsupport:listTools", {}),
+        invoke<MachineOption[]>("smsupport:listMachines", {}),
+      ]);
+      setUpperTools(tools.upper);
+      setLowerTools(tools.lower);
+      setMachines(machineList);
+      applyCondition(condition);
+    } catch (err) {
+      toast.push("error", errMsg(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [partNumber, applyCondition, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  function updateBend(key: string, patch: Partial<BendRow>): void {
+    setBends((prev) => prev.map((b) => (b.key === key ? { ...b, ...patch } : b)));
+  }
+
+  function removeBend(key: string): void {
+    setBends((prev) => prev.filter((b) => b.key !== key));
+  }
+
+  async function handleSave(): Promise<void> {
+    setSaving(true);
+    try {
+      const input: ProcessConditionInput = {
+        partNumber,
+        material: material.trim() || null,
+        thickness: numOrNull(thickness),
+        processScore: numOrNull(processScore),
+        workDirection: workDirection.trim() || null,
+        note: note.trim() || null,
+        bends: bends.map((b, index) => ({
+          bendSequence: index + 1,
+          upperToolId: idOrNull(b.upperToolId),
+          lowerToolId: idOrNull(b.lowerToolId),
+          machineId: idOrNull(b.machineId),
+          backGauge: numOrNull(b.backGauge),
+          angle: numOrNull(b.angle),
+          bendRadius: numOrNull(b.bendRadius),
+          note: b.note.trim() || null,
+        })),
+      };
+      const saved = await invoke<ProcessCondition>("smsupport:processCondition:save", input);
+      applyCondition(saved);
+      toast.push("success", "加工条件を保存しました。");
+    } catch (err) {
+      toast.push("error", errMsg(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="py-4 text-center text-sm text-fg-muted">読み込み中...</p>;
+  }
+
+  const toolOptions = (list: ToolOption[]): JSX.Element[] => [
+    <option key="" value="">
+      —
+    </option>,
+    ...list.map((t) => (
+      <option key={t.id} value={String(t.id)}>
+        {t.name}
+      </option>
+    )),
+  ];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <label className="flex flex-col gap-1 text-xs text-fg-muted">
+          材質
+          <input
+            className={INPUT_CLASS}
+            value={material}
+            disabled={!writable}
+            onChange={(e) => setMaterial(e.target.value)}
+            placeholder="SPCC 等"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-fg-muted">
+          板厚(mm)
+          <input
+            className={INPUT_CLASS}
+            type="number"
+            step="0.1"
+            value={thickness}
+            disabled={!writable}
+            onChange={(e) => setThickness(e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-fg-muted">
+          ワーク向き
+          <input
+            className={INPUT_CLASS}
+            value={workDirection}
+            disabled={!writable}
+            onChange={(e) => setWorkDirection(e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-fg-muted">
+          加工性評価(0-100)
+          <input
+            className={INPUT_CLASS}
+            type="number"
+            min="0"
+            max="100"
+            value={processScore}
+            disabled={!writable}
+            onChange={(e) => setProcessScore(e.target.value)}
+          />
+        </label>
+      </div>
+
+      <label className="flex flex-col gap-1 text-xs text-fg-muted">
+        注意事項
+        <textarea
+          className="min-h-[56px] w-full rounded-lg border border-border-strong bg-bg-surface px-3 py-2 text-sm text-fg-primary placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary disabled:opacity-60"
+          value={note}
+          disabled={!writable}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </label>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-fg-primary">曲げ順</span>
+          {writable && (
+            <Button type="button" variant="secondary" size="sm" onClick={() => setBends((p) => [...p, newBendRow()])}>
+              <Plus className="h-4 w-4" aria-hidden />
+              <span>曲げ追加</span>
+            </Button>
+          )}
+        </div>
+
+        {bends.length === 0 ? (
+          <p className="rounded-lg border border-border-subtle bg-bg-surface/50 py-3 text-center text-xs text-fg-muted">
+            曲げ順は未登録です。
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {bends.map((b, index) => (
+              <div
+                key={b.key}
+                className="rounded-xl border border-border-subtle bg-bg-surface/50 p-2.5"
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="rounded-md bg-accent-primary/15 px-2 py-0.5 text-xs font-semibold text-accent-primary">
+                    曲げ {index + 1}
+                  </span>
+                  {writable && (
+                    <button
+                      type="button"
+                      onClick={() => removeBend(b.key)}
+                      title="この曲げを削除"
+                      className="rounded p-1 text-fg-muted hover:bg-state-danger/15 hover:text-state-danger"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
+                    上型
+                    <select
+                      className={SELECT_CLASS}
+                      value={b.upperToolId}
+                      disabled={!writable}
+                      onChange={(e) => updateBend(b.key, { upperToolId: e.target.value })}
+                    >
+                      {toolOptions(upperTools)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
+                    下型
+                    <select
+                      className={SELECT_CLASS}
+                      value={b.lowerToolId}
+                      disabled={!writable}
+                      onChange={(e) => updateBend(b.key, { lowerToolId: e.target.value })}
+                    >
+                      {toolOptions(lowerTools)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
+                    機械
+                    <select
+                      className={SELECT_CLASS}
+                      value={b.machineId}
+                      disabled={!writable}
+                      onChange={(e) => updateBend(b.key, { machineId: e.target.value })}
+                    >
+                      <option value="">—</option>
+                      {machines.map((m) => (
+                        <option key={m.id} value={String(m.id)}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
+                    バックゲージ(mm)
+                    <input
+                      className={INPUT_CLASS}
+                      type="number"
+                      step="0.1"
+                      value={b.backGauge}
+                      disabled={!writable}
+                      onChange={(e) => updateBend(b.key, { backGauge: e.target.value })}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
+                    角度(°)
+                    <input
+                      className={INPUT_CLASS}
+                      type="number"
+                      step="0.1"
+                      value={b.angle}
+                      disabled={!writable}
+                      onChange={(e) => updateBend(b.key, { angle: e.target.value })}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
+                    曲げR(mm)
+                    <input
+                      className={INPUT_CLASS}
+                      type="number"
+                      step="0.1"
+                      value={b.bendRadius}
+                      disabled={!writable}
+                      onChange={(e) => updateBend(b.key, { bendRadius: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <label className="mt-2 flex flex-col gap-1 text-[11px] text-fg-muted">
+                  メモ
+                  <input
+                    className={INPUT_CLASS}
+                    value={b.note}
+                    disabled={!writable}
+                    onChange={(e) => updateBend(b.key, { note: e.target.value })}
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {writable && (
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-fg-subtle">
+            {meta ? `最終更新 ${meta.updatedByName ? `${meta.updatedByName} ・ ` : ""}${meta.updatedAt}` : "未登録"}
+          </span>
+          <Button type="button" size="sm" disabled={saving} onClick={() => void handleSave()}>
+            <Save className="h-4 w-4" aria-hidden />
+            <span>加工条件を保存</span>
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -73,6 +73,24 @@ export const HELP_TAB_CONTENT: Record<string, TabHelp> = {
     registers: "商社コード・商社名",
     usedBy: "部材管理の商社プルダウン、標準 LT の紐づけ",
   },
+  m_machines: {
+    title: "機械",
+    tagline: "曲げ加工などで使用する機械（ベンダー等）を登録します。",
+    registers: "機械コード・機械名",
+    usedBy: "板金製造支援の加工履歴・加工条件の「機械」選択肢",
+  },
+  m_upper_tools: {
+    title: "上型（パンチ）",
+    tagline: "曲げ加工で使用する上型（パンチ）を登録します。",
+    registers: "上型コード・上型名",
+    usedBy: "板金製造支援の加工条件（曲げ順）の「上型」選択肢",
+  },
+  m_lower_tools: {
+    title: "下型（ダイ）",
+    tagline: "曲げ加工で使用する下型（ダイ）を登録します。",
+    registers: "下型コード・下型名",
+    usedBy: "板金製造支援の加工条件（曲げ順）の「下型」選択肢",
+  },
   m_categories: {
     title: "カテゴリ",
     tagline: "図面の分類を scope 別に登録します。",
