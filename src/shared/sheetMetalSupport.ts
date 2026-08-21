@@ -519,10 +519,75 @@ export interface PressForceCheck {
   machineCapacity: number | null;
   /** 加圧能力に対する使用率（1.0 で能力ちょうど） */
   usageRatio: number | null;
-  /** 金型耐圧（kN / 曲げ長さ 1m） */
+  /** 金型・ホルダーを含めたスタックの実質耐圧（kN / 曲げ長さ 1m） */
   toolMaxLoad: number | null;
+  /** 耐圧のボトルネックになった金型・ホルダー名 */
+  toolMaxLoadName: string | null;
   message: string;
 }
+
+/** 開口高さの判定レベル */
+export type OpeningHeightLevel = "ok" | "caution" | "over" | "unknown";
+
+export const OPENING_HEIGHT_LABELS: Record<OpeningHeightLevel, string> = {
+  ok: "開口内",
+  caution: "余裕が少ない",
+  over: "開口不足",
+  unknown: "判定不可",
+};
+
+/**
+ * 開口高さの判定（部品全体）。
+ * 機械の開口から上下の金型・ホルダー合計を引き、立ち上がったフランジが抜けるかを見る。
+ */
+export interface OpeningHeightCheck {
+  level: OpeningHeightLevel;
+  /** 上側（中間板＋パンチ）の高さ合計（mm）。欠けがある場合は判明分のみ */
+  upperHeight: number | null;
+  /** 下側（ダイホルダー＋ダイ）の高さ合計（mm） */
+  lowerHeight: number | null;
+  /** 上下合計（mm） */
+  combinedHeight: number | null;
+  /** 機械の開口高さ（mm） */
+  openHeight: number | null;
+  /** 開口から金型合計を引いた残り（mm） */
+  remaining: number | null;
+  /** 判定に使った立ち上がり高さ（mm） */
+  maxFlangeHeight: number | null;
+  /** ストローク（mm） */
+  strokeLength: number | null;
+  machineName: string | null;
+  /** 型高さが未登録のため合計に含められなかったもの */
+  missingHeights: string[];
+  message: string;
+}
+
+/** 工程ごとの金型スタック合計高さ（段替え要否の判定） */
+export type StackHeightLevel = "ok" | "change" | "unknown";
+
+export interface StackHeightByBend {
+  bendSequence: number;
+  upperHeight: number | null;
+  lowerHeight: number | null;
+  combinedHeight: number | null;
+}
+
+export interface StackHeightCheck {
+  level: StackHeightLevel;
+  /** 工程ごとの合計高さ */
+  byBend: StackHeightByBend[];
+  /** 最大 − 最小（mm）。判明分のみ */
+  spread: number | null;
+  /** 型高さ未登録で確定できない工程 */
+  missingHeights: string[];
+  message: string;
+}
+
+export const STACK_HEIGHT_LABELS: Record<StackHeightLevel, string> = {
+  ok: "段替え不要",
+  change: "段替え要",
+  unknown: "判定不可",
+};
 
 /** 総合判定レベル（加工性評価の点数帯から決定） */
 export type JudgementLevel = "good" | "ok" | "caution" | "difficult";
@@ -595,6 +660,10 @@ export interface SimulationResult {
   interference: InterferenceCheck | null;
   /** 必要加圧力と機械能力の突き合わせ */
   pressForce: PressForceCheck | null;
+  /** 開口高さと金型スタック合計の突き合わせ */
+  openingHeight: OpeningHeightCheck | null;
+  /** 工程間の金型スタック高さ差（段替え要否） */
+  stackHeight: StackHeightCheck | null;
   evaluatedAt: string;
   evaluatedByName: string | null;
 }

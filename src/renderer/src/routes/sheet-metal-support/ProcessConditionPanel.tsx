@@ -5,9 +5,16 @@ import type {
   MachineOption,
   ProcessCondition,
   ProcessConditionInput,
+  ToolHolderOption,
   ToolOption,
+  ToolStackSide,
 } from "@shared/sheetMetalSupport.js";
-import { isToolUsableOnMachine } from "@shared/sheetMetalSupport.js";
+import {
+  HOLDER_TYPE_LABELS,
+  HOLDER_TYPE_SIDES,
+  isToolUsableOnMachine,
+  TOOL_STACK_SIDE_LABELS,
+} from "@shared/sheetMetalSupport.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
@@ -60,6 +67,17 @@ function idOrNull(value: string): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+interface StackRow {
+  key: string;
+  holderId: string;
+}
+
+let stackKeySeq = 0;
+function newStackRow(holderId = ""): StackRow {
+  stackKeySeq += 1;
+  return { key: `stack-${stackKeySeq}`, holderId };
+}
+
 export function ProcessConditionPanel({
   partNumber,
   writable,
@@ -74,6 +92,7 @@ export function ProcessConditionPanel({
   const [machines, setMachines] = useState<MachineOption[]>([]);
   const [upperTools, setUpperTools] = useState<ToolOption[]>([]);
   const [lowerTools, setLowerTools] = useState<ToolOption[]>([]);
+  const [holders, setHolders] = useState<ToolHolderOption[]>([]);
 
   const [material, setMaterial] = useState("");
   const [thickness, setThickness] = useState("");
@@ -81,6 +100,8 @@ export function ProcessConditionPanel({
   const [processScore, setProcessScore] = useState("");
   const [note, setNote] = useState("");
   const [bends, setBends] = useState<BendRow[]>([]);
+  const [upperStack, setUpperStack] = useState<StackRow[]>([]);
+  const [lowerStack, setLowerStack] = useState<StackRow[]>([]);
   const [meta, setMeta] = useState<{ updatedByName: string | null; updatedAt: string } | null>(
     null
   );
@@ -107,6 +128,8 @@ export function ProcessConditionPanel({
         };
       })
     );
+    setUpperStack((c?.stack.upper ?? []).map((item) => newStackRow(String(item.holderId))));
+    setLowerStack((c?.stack.lower ?? []).map((item) => newStackRow(String(item.holderId))));
   }, []);
 
   const load = useCallback(async () => {
@@ -114,11 +137,15 @@ export function ProcessConditionPanel({
     try {
       const [condition, tools, machineList] = await Promise.all([
         invoke<ProcessCondition | null>("smsupport:processCondition:getByPart", { partNumber }),
-        invoke<{ upper: ToolOption[]; lower: ToolOption[] }>("smsupport:listTools", {}),
+        invoke<{ upper: ToolOption[]; lower: ToolOption[]; holders: ToolHolderOption[] }>(
+          "smsupport:listTools",
+          {}
+        ),
         invoke<MachineOption[]>("smsupport:listMachines", {}),
       ]);
       setUpperTools(tools.upper);
       setLowerTools(tools.lower);
+      setHolders(tools.holders ?? []);
       setMachines(machineList);
       applyCondition(condition);
     } catch (err) {
@@ -160,6 +187,10 @@ export function ProcessConditionPanel({
           bendRadius: numOrNull(b.bendRadius),
           note: b.note.trim() || null,
         })),
+        stack: {
+          upper: upperStack.map((row) => idOrNull(row.holderId)).filter((id): id is number => id != null),
+          lower: lowerStack.map((row) => idOrNull(row.holderId)).filter((id): id is number => id != null),
+        },
       };
       const saved = await invoke<ProcessCondition>("smsupport:processCondition:save", input);
       applyCondition(saved);
@@ -197,6 +228,10 @@ export function ProcessConditionPanel({
       )),
     ];
   };
+
+  const selectedMachineIds = [
+    ...new Set(bends.map((b) => idOrNull(b.machineId)).filter((id): id is number => id != null)),
+  ];
 
   return (
     <div className="flex flex-col gap-4">
@@ -254,6 +289,31 @@ export function ProcessConditionPanel({
           onChange={(e) => setNote(e.target.value)}
         />
       </label>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-fg-primary">金型スタック（品番共通）</span>
+        <p className="text-[11px] text-fg-subtle">
+          上型・下型は曲げごとに選び、ホルダーと中間板はこの品番で共通です。並びは機械側から順です。同じホルダーを複数段積むこともできます。
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <StackSideEditor
+            side="upper"
+            rows={upperStack}
+            holders={holders}
+            machineIds={selectedMachineIds}
+            writable={writable}
+            onChange={setUpperStack}
+          />
+          <StackSideEditor
+            side="lower"
+            rows={lowerStack}
+            holders={holders}
+            machineIds={selectedMachineIds}
+            writable={writable}
+            onChange={setLowerStack}
+          />
+        </div>
+      </div>
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -390,6 +450,136 @@ export function ProcessConditionPanel({
             <span>加工条件を保存</span>
           </Button>
         </div>
+      )}
+    </div>
+  );
+}
+
+function holderFitsSide(holder: ToolHolderOption, side: ToolStackSide): boolean {
+  if (holder.holderType == null) return true;
+  return HOLDER_TYPE_SIDES[holder.holderType] === side;
+}
+
+function stackHeightMm(rows: StackRow[], holders: ToolHolderOption[]): number | null {
+  let sum = 0;
+  for (const row of rows) {
+    const id = idOrNull(row.holderId);
+    if (id == null) continue;
+    const holder = holders.find((h) => h.id === id);
+    if (holder?.toolHeight == null) return null;
+    sum += holder.toolHeight;
+  }
+  return sum;
+}
+
+function StackSideEditor({
+  side,
+  rows,
+  holders,
+  machineIds,
+  writable,
+  onChange,
+}: {
+  side: ToolStackSide;
+  rows: StackRow[];
+  holders: ToolHolderOption[];
+  machineIds: number[];
+  writable: boolean;
+  onChange: (rows: StackRow[]) => void;
+}): JSX.Element {
+  const from = side === "upper" ? "ラム" : "テーブル";
+  const to = side === "upper" ? "パンチ" : "ダイ";
+  const height = stackHeightMm(rows, holders);
+
+  function options(selectedId: string): JSX.Element[] {
+    const usable = holders.filter(
+      (h) =>
+        String(h.id) === selectedId ||
+        (holderFitsSide(h, side) &&
+          (machineIds.length === 0 || machineIds.every((id) => isToolUsableOnMachine(h, id))))
+    );
+    return [
+      <option key="" value="">
+        —
+      </option>,
+      ...usable.map((h) => {
+        const unusable =
+          machineIds.length > 0 && machineIds.some((id) => !isToolUsableOnMachine(h, id));
+        const typeNote =
+          h.holderType == null
+            ? "種別未登録"
+            : !holderFitsSide(h, side)
+              ? HOLDER_TYPE_LABELS[h.holderType]
+              : null;
+        const extra = [h.toolHeight != null ? `${h.toolHeight}mm` : null, typeNote, unusable ? "この機械には付きません" : null]
+          .filter(Boolean)
+          .join("・");
+        return (
+          <option key={h.id} value={String(h.id)}>
+            {h.name}
+            {extra ? `（${extra}）` : ""}
+          </option>
+        );
+      }),
+    ];
+  }
+
+  function updateRow(key: string, holderId: string): void {
+    onChange(rows.map((row) => (row.key === key ? { ...row, holderId } : row)));
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border-subtle bg-bg-surface/50 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-fg-primary">{TOOL_STACK_SIDE_LABELS[side]}</span>
+        {height != null && height > 0 && (
+          <span className="text-[11px] tabular-nums text-fg-subtle">合計 {height}mm</span>
+        )}
+      </div>
+      <p className="text-[11px] text-fg-subtle">
+        {from} → 下の順に積む → {to}
+      </p>
+      {holders.length === 0 && (
+        <p className="text-[11px] text-fg-muted">
+          ホルダー・中間板マスタが未登録です。マスターデータベースから登録してください。
+        </p>
+      )}
+      {rows.length === 0 ? (
+        <p className="text-[11px] text-fg-muted">未登録（{from}に{to}を直接取り付け）</p>
+      ) : (
+        <ol className="flex flex-col gap-1.5">
+          {rows.map((row, index) => (
+            <li key={row.key} className="flex items-center gap-1.5">
+              <span className="w-5 shrink-0 text-center text-[11px] tabular-nums text-fg-subtle">
+                {index + 1}
+              </span>
+              <select
+                className={SELECT_CLASS}
+                value={row.holderId}
+                disabled={!writable}
+                onChange={(e) => updateRow(row.key, e.target.value)}
+              >
+                {options(row.holderId)}
+              </select>
+              {writable && (
+                <button
+                  type="button"
+                  onClick={() => onChange(rows.filter((r) => r.key !== row.key))}
+                  title="この段を削除"
+                  className="rounded p-1 text-fg-muted hover:bg-state-danger/15 hover:text-state-danger"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+      {writable && (
+        <Button type="button" variant="secondary" size="sm" onClick={() => onChange([...rows, newStackRow()])}>
+          <Plus className="h-4 w-4" aria-hidden />
+          <span>段を追加</span>
+        </Button>
       )}
     </div>
   );

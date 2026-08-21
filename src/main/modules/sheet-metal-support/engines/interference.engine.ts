@@ -3,7 +3,16 @@ import type {
   InterferenceCheck,
   InterferenceItem,
   ModelAnalysis,
+  ToolHolderOption,
 } from "@shared/sheetMetalSupport.js";
+
+import {
+  checkDieClearance,
+  describeDieHit,
+  findHolderWithLessOffset,
+  hasDieClearanceDimensions,
+  type DieStackProfile,
+} from "./die-profile.js";
 
 import { axisDistance, isParallel, round1 } from "./geometry.js";
 import {
@@ -29,6 +38,8 @@ import {
 const TALL_FLANGE_MM = 150;
 /** 立ち上がりとみなす曲げ角度（度） */
 const UPRIGHT_ANGLE_DEG = 60;
+/** 下向きフランジとみなす曲げ角度（度）。鈍角曲げでテーブル側へ倒れる */
+const DOWNWARD_ANGLE_DEG = 100;
 
 export interface InterferenceContext {
   /** 金型選定エンジンが算出した最小フランジ長（mm） */
@@ -39,6 +50,12 @@ export interface InterferenceContext {
   punchByOrder: Map<number, PunchProfile>;
   /** 代替パンチを提案するための候補（その機械に付くものだけ） */
   punchCandidates: readonly PunchProfile[];
+  /** 下型スタック（ダイホルダー）の干渉判定用 */
+  dieProfile: DieStackProfile;
+  /** 張り出しの小さいダイホルダー候補 */
+  holderCandidates: readonly ToolHolderOption[];
+  /** 現在積んでいるホルダー ID（代替案の除外用） */
+  stackedHolderIds: readonly number[];
 }
 
 export function evaluateInterference(
@@ -60,6 +77,9 @@ export function evaluateInterference(
   let skippedForMissingDimensions = 0;
   /** パンチ断面での当たり判定を実施できた回数 */
   let concreteChecks = 0;
+  /** ダイホルダー張り出しでの当たり判定を実施できた回数 */
+  let dieChecks = 0;
+  let skippedDieForMissingDimensions = 0;
 
   for (const step of plan.steps) {
     if (ctx.minFlangeLength != null && step.flangeLengthMm != null) {
@@ -87,7 +107,7 @@ export function evaluateInterference(
       if (earlier.order >= step.order) continue;
       const other = bendByIndex.get(earlier.detectedIndex);
       if (!other) continue;
-      if (earlier.angleDeg < UPRIGHT_ANGLE_DEG) continue;
+      if (earlier.angleDeg < UPRIGHT_ANGLE_DEG && earlier.angleDeg < DOWNWARD_ANGLE_DEG) continue;
       // 平行でない曲げ線どうしは交差しうるため、線間距離では干渉を判断できない
       if (!isParallel(current, other)) continue;
 
@@ -121,6 +141,40 @@ export function evaluateInterference(
               order: step.order,
               severity: "warn",
               message: `曲げ ${other.index} の立ち上がり ${round1(height)}mm はパンチ「${punch.toolName}」の逃げにぎりぎり収まっています（余裕 ${result.marginMm}mm）。板厚や曲げ R のばらつきで当たる恐れがあります。`,
+            });
+          }
+        }
+      }
+
+      // ダイホルダー上面張り出しでの当たり判定
+      const extent = height;
+      const downward = earlier.angleDeg >= DOWNWARD_ANGLE_DEG;
+      const upright = earlier.angleDeg >= UPRIGHT_ANGLE_DEG;
+      if (extent != null && (upright || downward)) {
+        if (!hasDieClearanceDimensions(ctx.dieProfile)) {
+          skippedDieForMissingDimensions += 1;
+        } else {
+          dieChecks += 1;
+          const dieResult = checkDieClearance(ctx.dieProfile, distance, extent);
+          if (dieResult.verdict === "hit") {
+            const alternative = findHolderWithLessOffset(
+              ctx.holderCandidates,
+              distance,
+              ctx.stackedHolderIds
+            );
+            const remedy = alternative
+              ? `張り出しの小さい「${alternative.name}」（${alternative.topOffset}mm）への変更、またはダイホルダーの段数を見直してください。`
+              : "テーブル干渉を逃がすには、張り出しの小さいダイホルダーへの変更か、曲げ順の入れ替えを検討してください。";
+            items.push({
+              order: step.order,
+              severity: "error",
+              message: `曲げ ${other.index} のフランジがダイホルダーと干渉します。${describeDieHit(ctx.dieProfile, dieResult, distance, extent, downward)}${remedy}`,
+            });
+          } else if (dieResult.marginMm != null && dieResult.marginMm < 3) {
+            items.push({
+              order: step.order,
+              severity: "warn",
+              message: `曲げ ${other.index} のフランジはダイホルダー（${ctx.dieProfile.label}）の張り出し ${dieResult.requiredDistanceMm}mm にぎりぎりです（余裕 ${dieResult.marginMm}mm）。`,
             });
           }
         }
@@ -182,6 +236,22 @@ export function evaluateInterference(
       severity: "info",
       message:
         "選択したパンチの本体張り出しが未登録のため、当たり判定を実施していません。金型マスタに型式・本体張り出し・逃げ寸法を登録してください。",
+    });
+  }
+
+  if (ctx.dieProfile.topOffset == null && ctx.stackedHolderIds.length > 0) {
+    items.push({
+      order: plan.steps[0].order,
+      severity: "info",
+      message:
+        "ダイホルダーの上面張り出しが未登録のため、ホルダーとの干渉判定を実施していません。ホルダーマスタに上面張り出しを登録してください。",
+    });
+  } else if (skippedDieForMissingDimensions > 0 && dieChecks === 0) {
+    items.push({
+      order: plan.steps[0].order,
+      severity: "info",
+      message:
+        "ダイホルダーの上面張り出しが未登録のため、ホルダーとの当たり判定を実施していません。",
     });
   }
 

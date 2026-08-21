@@ -102,8 +102,9 @@ function pressForceItems(ctx: RecommendContext): string[] {
       );
     }
     if (press.toolMaxLoad != null && press.forcePerMeter != null && press.forcePerMeter > press.toolMaxLoad) {
+      const target = press.toolMaxLoadName ? `「${press.toolMaxLoadName}」` : "金型";
       items.push(
-        `曲げ荷重 ${press.forcePerMeter}kN/m が金型の耐圧 ${press.toolMaxLoad}kN/m を超えます。耐圧の高い金型へ変更してください。`
+        `曲げ荷重 ${press.forcePerMeter}kN/m が${target}の耐圧 ${press.toolMaxLoad}kN/m を超えます。耐圧の高い金型・ホルダーへ変更するか、V 幅を大きくしてください。`
       );
     }
   } else if (press.level === "caution" && press.requiredForce != null) {
@@ -126,6 +127,61 @@ function pressForceItems(ctx: RecommendContext): string[] {
     items.push(
       "下型マスタに V 幅（mm）を登録すると、金型選定と曲げ荷重の計算精度が上がります（現在は名称・推奨値から推定しています）。"
     );
+  }
+  return items;
+}
+
+function dieInterferenceItems(ctx: RecommendContext): string[] {
+  const dieErrors =
+    ctx.interference?.items.filter(
+      (item) => item.severity === "error" && item.message.includes("ダイホルダー")
+    ) ?? [];
+  if (dieErrors.length === 0) return [];
+  return [
+    "ダイホルダーとの干渉があります。張り出しの小さいホルダーへ変更する、ホルダーの段数を減らす、曲げ順を入れ替える、のいずれかを検討してください。",
+  ];
+}
+
+function stackHeightItems(ctx: RecommendContext): string[] {
+  const stack = ctx.stackHeight;
+  if (!stack) return [];
+  const items: string[] = [];
+
+  if (stack.level === "change" && stack.spread != null) {
+    items.push(
+      `工程間で金型合計高さが ${stack.spread}mm 異なります。中間板の厚みを変えて上側を揃える、同じ型高さの金型に統一する、工程ごとに段替え時間を見込む、のいずれかを検討してください。`
+    );
+  } else if (stack.level === "unknown" && stack.missingHeights.length > 0) {
+    items.push(
+      `型高さが未登録です（${stack.missingHeights.join("・")}）。登録すると工程間の段替え要否を確定できます。`
+    );
+  }
+  return items;
+}
+
+function openingHeightItems(ctx: RecommendContext): string[] {
+  const opening = ctx.openingHeight;
+  if (!opening) return [];
+  const items: string[] = [];
+
+  if (opening.level === "over") {
+    items.push(
+      "金型スタックの合計が高すぎます。ダイホルダーの段数を減らす、中間板を外す、型高さの低い金型へ替える、開口の大きい機械へ替える、のいずれかを検討してください。"
+    );
+  } else if (opening.level === "caution") {
+    items.push(
+      "開口の余裕が少ないため、ホルダーの段数を減らすか、開口の大きい機械を検討してください。"
+    );
+  } else if (opening.level === "unknown") {
+    if (opening.openHeight == null) {
+      items.push(
+        "機械マスタに開口高さを登録すると、金型・ホルダーを積んだ状態でワークが抜けるかを判定できます。"
+      );
+    } else if (opening.missingHeights.length > 0) {
+      items.push(
+        `型高さが未登録です（${opening.missingHeights.join("・")}）。金型マスタとホルダーマスタに型高さを入れると開口判定が確定します。`
+      );
+    }
   }
   return items;
 }
@@ -223,6 +279,9 @@ export function recommend(ctx: RecommendContext): string[] {
 
   items.push(...toolCompatibilityItems(ctx));
   items.push(...pressForceItems(ctx));
+  items.push(...openingHeightItems(ctx));
+  items.push(...stackHeightItems(ctx));
+  items.push(...dieInterferenceItems(ctx));
   items.push(...geometryItems(ctx));
 
   if (items.length === 0) {

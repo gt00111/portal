@@ -28,6 +28,9 @@ export interface PressForceInput {
   lowerToolMap: Map<number, ToolOption>;
   machineMap: Map<number, MachineOption>;
   analysis: ModelAnalysis | null;
+  /** 金型・ホルダーを含めた実質耐圧。未算出ならダイ単体の耐圧で代用する */
+  stackMaxLoad?: number | null;
+  stackMaxLoadName?: string | null;
 }
 
 interface GoverningTool {
@@ -89,6 +92,8 @@ function longestBendLength(analysis: ModelAnalysis | null): number | null {
 
 export function evaluatePressForce(input: PressForceInput): PressForceCheck {
   const tool = governingTool(input);
+  const stackLoad = input.stackMaxLoad ?? tool.maxLoad;
+  const stackLoadName = input.stackMaxLoadName ?? null;
   const forcePerMeter = calcBendForcePerMeter(
     input.tensileStrength,
     input.thickness,
@@ -104,7 +109,8 @@ export function evaluatePressForce(input: PressForceInput): PressForceCheck {
     bendLengthMm,
     machineName: machine ? machine.name : null,
     machineCapacity: machine?.pressCapacity ?? null,
-    toolMaxLoad: tool.maxLoad,
+    toolMaxLoad: stackLoad,
+    toolMaxLoadName: stackLoadName,
   };
 
   if (forcePerMeter == null) {
@@ -128,7 +134,8 @@ export function evaluatePressForce(input: PressForceInput): PressForceCheck {
   }
 
   const requiredForce = round1((forcePerMeter * bendLengthMm) / 1000);
-  const toolOverload = tool.maxLoad != null && forcePerMeter > tool.maxLoad;
+  const toolOverload = stackLoad != null && forcePerMeter > stackLoad;
+  const loadLabel = stackLoadName ? `「${stackLoadName}」の耐圧` : "金型の耐圧";
 
   if (machine == null || machine.pressCapacity == null) {
     return {
@@ -137,7 +144,7 @@ export function evaluatePressForce(input: PressForceInput): PressForceCheck {
       requiredForce,
       usageRatio: null,
       message: toolOverload
-        ? `曲げ荷重 ${forcePerMeter} kN/m が金型の耐圧 ${tool.maxLoad} kN/m を超えています。`
+        ? `曲げ荷重 ${forcePerMeter} kN/m が${loadLabel} ${stackLoad} kN/m を超えています。`
         : `曲げ長さ ${bendLengthMm} mm では必要加圧力は ${requiredForce} kN です。機械の加圧能力が未登録のため能力判定はできません（機械マスタに加圧能力を登録してください）。`,
     };
   }
@@ -148,7 +155,7 @@ export function evaluatePressForce(input: PressForceInput): PressForceCheck {
 
   if (usageRatio > 1 || toolOverload) {
     const reason = toolOverload
-      ? `${detail}。さらに曲げ荷重 ${forcePerMeter} kN/m が金型の耐圧 ${tool.maxLoad} kN/m を超えています`
+      ? `${detail}。さらに曲げ荷重 ${forcePerMeter} kN/m が${loadLabel} ${stackLoad} kN/m を超えています`
       : detail;
     return { ...base, level: "over", requiredForce, usageRatio, message: `${reason}。` };
   }

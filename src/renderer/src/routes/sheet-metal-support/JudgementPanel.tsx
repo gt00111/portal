@@ -8,11 +8,15 @@ import type {
   JudgementLevel,
   JudgementReason,
   JudgementSeverity,
+  OpeningHeightCheck,
+  OpeningHeightLevel,
   PressForceCheck,
   PressForceLevel,
   SimulationResult,
+  StackHeightCheck,
+  StackHeightLevel,
 } from "@shared/sheetMetalSupport.js";
-import { PRESS_FORCE_LABELS } from "@shared/sheetMetalSupport.js";
+import { OPENING_HEIGHT_LABELS, PRESS_FORCE_LABELS, STACK_HEIGHT_LABELS } from "@shared/sheetMetalSupport.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
@@ -165,6 +169,10 @@ export function JudgementPanel({
 
           <PressForceSection pressForce={result.pressForce} detailMode={detailMode} />
 
+          <OpeningHeightSection openingHeight={result.openingHeight} detailMode={detailMode} />
+
+          <StackHeightSection stackHeight={result.stackHeight} detailMode={detailMode} />
+
           <InterferenceSection interference={result.interference} />
 
           <BendPlanSection plan={result.plan} detailMode={detailMode} />
@@ -247,6 +255,19 @@ const PRESS_FORCE_STYLE: Record<PressForceLevel, string> = {
   unknown: "text-fg-muted",
 };
 
+const OPENING_HEIGHT_STYLE: Record<OpeningHeightLevel, string> = {
+  ok: "text-state-success",
+  caution: "text-state-warning",
+  over: "text-state-danger",
+  unknown: "text-fg-muted",
+};
+
+const STACK_HEIGHT_STYLE: Record<StackHeightLevel, string> = {
+  ok: "text-state-success",
+  change: "text-state-warning",
+  unknown: "text-fg-muted",
+};
+
 function PressForceSection({
   pressForce,
   detailMode,
@@ -295,7 +316,10 @@ function PressForceSection({
           />
           <Metric label="必要加圧力" value={fmt(pressForce.requiredForce, " kN")} />
           <Metric label="機械能力" value={fmt(pressForce.machineCapacity, " kN")} />
-          <Metric label="金型耐圧" value={fmt(pressForce.toolMaxLoad, " kN/m")} />
+          <Metric
+            label="耐圧"
+            value={`${fmt(pressForce.toolMaxLoad, " kN/m")}${pressForce.toolMaxLoadName ? `（${pressForce.toolMaxLoadName}）` : ""}`}
+          />
         </dl>
       )}
     </section>
@@ -308,6 +332,71 @@ function Metric({ label, value }: { label: string; value: string }): JSX.Element
       <dt className="text-fg-subtle">{label}</dt>
       <dd className="tabular-nums text-fg-muted">{value}</dd>
     </div>
+  );
+}
+
+function OpeningHeightSection({
+  openingHeight,
+  detailMode,
+}: {
+  openingHeight: OpeningHeightCheck | null;
+  detailMode: boolean;
+}): JSX.Element | null {
+  if (!openingHeight) return null;
+  return (
+    <section className="rounded-xl border border-border-subtle bg-bg-surface/40 p-3">
+      <h4 className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-fg-primary">
+        開口高さ
+        <span className={cn("rounded bg-bg-elevated px-1.5 py-0.5 text-[10px]", OPENING_HEIGHT_STYLE[openingHeight.level])}>
+          {OPENING_HEIGHT_LABELS[openingHeight.level]}
+        </span>
+      </h4>
+      <p className="text-xs text-fg-muted">{openingHeight.message}</p>
+      {detailMode && (
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-border-subtle pt-2 text-[11px] sm:grid-cols-3">
+          <Metric label="上側合計" value={fmt(openingHeight.upperHeight, " mm")} />
+          <Metric label="下側合計" value={fmt(openingHeight.lowerHeight, " mm")} />
+          <Metric label="金型合計" value={fmt(openingHeight.combinedHeight, " mm")} />
+          <Metric label="開口高さ" value={fmt(openingHeight.openHeight, " mm")} />
+          <Metric label="残り" value={fmt(openingHeight.remaining, " mm")} />
+          <Metric label="立ち上がり" value={fmt(openingHeight.maxFlangeHeight, " mm")} />
+          <Metric label="ストローク" value={fmt(openingHeight.strokeLength, " mm")} />
+        </dl>
+      )}
+    </section>
+  );
+}
+
+function StackHeightSection({
+  stackHeight,
+  detailMode,
+}: {
+  stackHeight: StackHeightCheck | null;
+  detailMode: boolean;
+}): JSX.Element | null {
+  if (!stackHeight) return null;
+  return (
+    <section className="rounded-xl border border-border-subtle bg-bg-surface/40 p-3">
+      <h4 className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-fg-primary">
+        段替え（金型高さ）
+        <span className={cn("rounded bg-bg-elevated px-1.5 py-0.5 text-[10px]", STACK_HEIGHT_STYLE[stackHeight.level])}>
+          {STACK_HEIGHT_LABELS[stackHeight.level]}
+        </span>
+      </h4>
+      <p className="text-xs text-fg-muted">{stackHeight.message}</p>
+      {detailMode && stackHeight.byBend.length > 0 && (
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-border-subtle pt-2 text-[11px] sm:grid-cols-3">
+          {stackHeight.byBend.map((row) => (
+            <Metric
+              key={row.bendSequence}
+              label={`No.${row.bendSequence} 合計`}
+              value={fmt(row.combinedHeight, " mm")}
+            />
+          ))}
+          <Metric label="工程間差" value={fmt(stackHeight.spread, " mm")} />
+        </dl>
+      )}
+    </section>
   );
 }
 

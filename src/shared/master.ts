@@ -102,12 +102,12 @@ export function isChoiceField(field: MasterExtraField): field is MasterChoiceFie
 }
 
 export function isTextField(field: MasterExtraField): field is MasterTextField {
-  return field.kind === "text" || (!("unit" in field) && !("options" in field));
+  return field.kind === "text";
 }
 
-/** 数値項目（`unit` を持つ。kind 省略時の既定） */
+/** 数値項目（kind 省略時の既定） */
 export function isNumberField(field: MasterExtraField): field is MasterNumberField {
-  return "unit" in field && field.kind !== "choice" && field.kind !== "text";
+  return !isChoiceField(field) && !isTextField(field);
 }
 
 export const MASTER_EXTRA_FIELDS: Partial<Record<MasterTable, readonly MasterExtraField[]>> = {
@@ -126,7 +126,7 @@ export const MASTER_EXTRA_FIELDS: Partial<Record<MasterTable, readonly MasterExt
       inList: true,
       hint: "加工できる最大曲げ長さの目安。",
     },
-    { key: "openHeight", label: "開口高さ", unit: "mm", hint: "ダイ上面からパンチ先端までの最大開き量。" },
+    { key: "openHeight", label: "開口高さ", unit: "mm", hint: "ラム下面からテーブル上面までの最大開き。金型・ホルダーの高さ合計を引いて、ワークが抜けるかを判定します。" },
     { key: "strokeLength", label: "ストローク", unit: "mm" },
   ],
   m_upper_tools: [

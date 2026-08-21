@@ -23,6 +23,7 @@ import type {
   TechnicalNote,
   TechnicalNoteCreateInput,
   TechnicalNoteUpdateInput,
+  ToolHolderOption,
   ToolOption,
 } from "@shared/sheetMetalSupport.js";
 
@@ -110,9 +111,10 @@ export function register(ipcMain: IpcMain): void {
   ipcMain.handle("smsupport:listTools", async () => {
     try {
       assertCanViewApp(APP_ID);
-      return ok<{ upper: ToolOption[]; lower: ToolOption[] }>({
+      return ok<{ upper: ToolOption[]; lower: ToolOption[]; holders: ToolHolderOption[] }>({
         upper: processInfo.listUpperTools(),
         lower: processInfo.listLowerTools(),
+        holders: processInfo.listToolHolders(),
       });
     } catch (err) {
       return fail(err);

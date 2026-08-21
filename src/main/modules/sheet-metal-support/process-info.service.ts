@@ -10,8 +10,13 @@ import type {
   TechnicalNote,
   TechnicalNoteCreateInput,
   TechnicalNoteUpdateInput,
+  ToolHolderOption,
   ToolOption,
+  ToolStack,
+  ToolStackInput,
+  ToolStackSide,
 } from "@shared/sheetMetalSupport.js";
+import { HOLDER_TYPE_SIDES, TOOL_STACK_SIDE_LABELS } from "@shared/sheetMetalSupport.js";
 
 import * as masterRef from "./master-ref.repo.js";
 import * as modelStorage from "./model-storage.js";
@@ -48,6 +53,10 @@ export function listUpperTools(): ToolOption[] {
 
 export function listLowerTools(): ToolOption[] {
   return masterRef.listLowerTools();
+}
+
+export function listToolHolders(): ToolHolderOption[] {
+  return masterRef.listToolHolders();
 }
 
 /* -------------------- 技術ノート -------------------- */
@@ -224,6 +233,7 @@ function resolveConditionNames(condition: ProcessCondition): ProcessCondition {
   const upperMap = masterRef.buildUpperToolNameMap();
   const lowerMap = masterRef.buildLowerToolNameMap();
   const machineMap = masterRef.buildMachineNameMap();
+  const holderMap = masterRef.buildToolHolderNameMap();
   return {
     ...condition,
     createdByName: resolveUser(userMap, condition.createdBy),
@@ -234,6 +244,16 @@ function resolveConditionNames(condition: ProcessCondition): ProcessCondition {
       lowerToolName: b.lowerToolId != null ? lowerMap.get(b.lowerToolId) ?? null : null,
       machineName: b.machineId != null ? machineMap.get(b.machineId) ?? null : null,
     })),
+    stack: {
+      upper: condition.stack.upper.map((item) => ({
+        ...item,
+        holderName: holderMap.get(item.holderId) ?? null,
+      })),
+      lower: condition.stack.lower.map((item) => ({
+        ...item,
+        holderName: holderMap.get(item.holderId) ?? null,
+      })),
+    },
   };
 }
 
@@ -272,6 +292,8 @@ export function saveProcessCondition(
     }))
     .sort((a, b) => a.bendSequence - b.bendSequence);
 
+  const stack = normalizeStack(input.stack);
+
   const saved = processConditionRepo.save({
     partNumber,
     material,
@@ -280,6 +302,7 @@ export function saveProcessCondition(
     workDirection,
     note,
     bends,
+    stack,
     userNameId,
   });
 
@@ -323,6 +346,7 @@ function recordConditionChanges(
     push("ワーク向き", before.workDirection, after.workDirection);
     push("注意事項", before.note, after.note);
     push("曲げ順ステップ数", String(before.bends.length), String(after.bends.length));
+    push("金型スタック", describeStack(before.stack), describeStack(after.stack));
   }
 
   if (entries.length > 0) revisionHistoryRepo.recordMany(entries);
@@ -330,6 +354,53 @@ function recordConditionChanges(
 
 function numToStr(value: number | null): string | null {
   return value == null ? null : String(value);
+}
+
+function describeStack(stack: ToolStack): string {
+  const fmt = (items: ToolStack["upper"]): string =>
+    items.length === 0 ? "なし" : items.map((item) => item.holderName ?? `#${item.holderId}`).join(" → ");
+  return `上 ${fmt(stack.upper)} ／ 下 ${fmt(stack.lower)}`;
+}
+
+/**
+ * スタック入力を正規化する。
+ * 種別が側と合わないホルダー、最大段数を超える積みは保存させない。
+ */
+function normalizeStack(input: ToolStackInput | undefined): ToolStackInput {
+  const holders = masterRef.buildToolHolderMap();
+  return {
+    upper: normalizeStackSide("upper", input?.upper, holders),
+    lower: normalizeStackSide("lower", input?.lower, holders),
+  };
+}
+
+function normalizeStackSide(
+  side: ToolStackSide,
+  ids: readonly number[] | undefined,
+  holders: Map<number, ToolHolderOption>
+): number[] {
+  const counts = new Map<number, number>();
+  const result: number[] = [];
+  for (const raw of ids ?? []) {
+    const holderId = normalizeId(raw);
+    if (holderId == null) continue;
+    const holder = holders.get(holderId);
+    if (!holder) throw new Error("選択したホルダー・中間板がマスタにありません。");
+    if (holder.holderType != null && HOLDER_TYPE_SIDES[holder.holderType] !== side) {
+      throw new Error(
+        `「${holder.name}」は${TOOL_STACK_SIDE_LABELS[side]}には使えません。`
+      );
+    }
+    const used = (counts.get(holderId) ?? 0) + 1;
+    counts.set(holderId, used);
+    if (holder.maxStack != null && used > holder.maxStack) {
+      throw new Error(
+        `「${holder.name}」は最大 ${holder.maxStack} 段までです。`
+      );
+    }
+    result.push(holderId);
+  }
+  return result;
 }
 
 /* -------------------- 3Dモデル（シミュレーション） -------------------- */

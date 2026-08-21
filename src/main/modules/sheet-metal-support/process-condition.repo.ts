@@ -3,8 +3,11 @@ import type {
   ProcessConditionBend,
   ProcessConditionBendInput,
   ToolStack,
+  ToolStackInput,
+  ToolStackItem,
   ToolStackSide,
 } from "@shared/sheetMetalSupport.js";
+import { isToolStackSide } from "@shared/sheetMetalSupport.js";
 
 import { getSheetMetalSupportDb } from "@main/db/sheetMetalSupportConnection.js";
 
@@ -74,6 +77,41 @@ function listBends(processConditionId: number): ProcessConditionBend[] {
   return rows.map(toBend);
 }
 
+interface RawStack {
+  side: string;
+  position: number;
+  holder_id: number;
+}
+
+function emptyStack(): ToolStack {
+  return { upper: [], lower: [] };
+}
+
+function toStackItem(raw: RawStack): ToolStackItem {
+  return {
+    position: raw.position,
+    holderId: raw.holder_id,
+    holderName: null,
+  };
+}
+
+function listStack(processConditionId: number): ToolStack {
+  const rows = getSheetMetalSupportDb()
+    .prepare(
+      `SELECT side, position, holder_id
+       FROM process_condition_stacks
+       WHERE process_condition_id = ? AND is_active = 1
+       ORDER BY side ASC, position ASC, id ASC`
+    )
+    .all(processConditionId) as RawStack[];
+  const stack = emptyStack();
+  for (const row of rows) {
+    if (!isToolStackSide(row.side)) continue;
+    stack[row.side].push(toStackItem(row));
+  }
+  return stack;
+}
+
 function toCondition(raw: RawCondition): ProcessCondition {
   return {
     id: raw.id,
@@ -84,6 +122,7 @@ function toCondition(raw: RawCondition): ProcessCondition {
     workDirection: raw.work_direction,
     note: raw.note,
     bends: listBends(raw.id),
+    stack: listStack(raw.id),
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
     createdBy: raw.created_by,
@@ -125,6 +164,7 @@ export interface ProcessConditionSaveFields {
   workDirection: string | null;
   note: string | null;
   bends: ProcessConditionBendInput[];
+  stack: ToolStackInput;
   userNameId: number | null;
 }
 
@@ -160,7 +200,30 @@ function replaceBends(
   });
 }
 
-/** 品番ごとに upsert（既存があれば更新、なければ作成）。曲げ順は全置換。 */
+function replaceStack(
+  processConditionId: number,
+  stack: ToolStackInput,
+  userNameId: number | null
+): void {
+  const db = getSheetMetalSupportDb();
+  db.prepare(`DELETE FROM process_condition_stacks WHERE process_condition_id = ?`).run(
+    processConditionId
+  );
+  const insertRow = db.prepare(
+    `INSERT INTO process_condition_stacks
+       (process_condition_id, side, position, holder_id, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  );
+  const sides: ToolStackSide[] = ["upper", "lower"];
+  for (const side of sides) {
+    const ids = stack[side] ?? [];
+    ids.forEach((holderId, index) => {
+      insertRow.run(processConditionId, side, index + 1, holderId, userNameId, userNameId);
+    });
+  }
+}
+
+/** 品番ごとに upsert（既存があれば更新、なければ作成）。曲げ順とスタックは全置換。 */
 export function save(fields: ProcessConditionSaveFields): ProcessCondition {
   const db = getSheetMetalSupportDb();
   const tx = db.transaction((f: ProcessConditionSaveFields) => {
@@ -202,6 +265,7 @@ export function save(fields: ProcessConditionSaveFields): ProcessCondition {
       conditionId = Number(info.lastInsertRowid);
     }
     replaceBends(conditionId, f.bends, f.userNameId);
+    replaceStack(conditionId, f.stack, f.userNameId);
     return conditionId;
   });
   const id = tx(fields);

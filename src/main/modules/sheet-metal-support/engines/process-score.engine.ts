@@ -5,8 +5,10 @@ import type {
   JudgementSeverity,
   MachineOption,
   ModelAnalysis,
+  OpeningHeightCheck,
   PressForceCheck,
   ProcessConditionBend,
+  StackHeightCheck,
   ToolOption,
 } from "@shared/sheetMetalSupport.js";
 import { isToolUsableOnMachine } from "@shared/sheetMetalSupport.js";
@@ -52,6 +54,10 @@ export interface ScoreInput {
   interference: InterferenceCheck | null;
   /** 必要加圧力と機械能力の突き合わせ */
   pressForce: PressForceCheck | null;
+  /** 開口高さと金型スタック合計の突き合わせ */
+  openingHeight: OpeningHeightCheck | null;
+  /** 工程間の金型スタック高さ差 */
+  stackHeight: StackHeightCheck | null;
   /** 選択済み金型・機械の解決用（無効化済みも含む全件） */
   upperToolMap: Map<number, ToolOption>;
   lowerToolMap: Map<number, ToolOption>;
@@ -302,6 +308,26 @@ export function evaluate(input: ScoreInput): ScoreOutput {
       push("加圧力", press.message, "warn", 8);
     } else if (press.level === "unknown" && press.requiredForce != null) {
       push("加圧力", press.message, "info", 0);
+    }
+  }
+
+  if (input.openingHeight) {
+    const opening = input.openingHeight;
+    if (opening.level === "over") {
+      push("開口", opening.message, "error", 20);
+    } else if (opening.level === "caution") {
+      push("開口", opening.message, "warn", 8);
+    } else if (opening.level === "unknown" && opening.combinedHeight != null) {
+      push("開口", opening.message, "info", 0);
+    }
+  }
+
+  if (input.stackHeight) {
+    const stack = input.stackHeight;
+    if (stack.level === "change") {
+      push("段替え", stack.message, "warn", 10);
+    } else if (stack.level === "unknown" && stack.byBend.some((row) => row.combinedHeight != null)) {
+      push("段替え", stack.message, "info", 0);
     }
   }
 

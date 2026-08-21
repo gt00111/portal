@@ -6,22 +6,28 @@ import type {
   JudgementReason,
   ModelAnalysis,
   ModelAnalysisRecord,
+  OpeningHeightCheck,
   PressForceCheck,
   ProcessCondition,
   ProcessConditionBend,
   SimulationResult,
+  StackHeightCheck,
+  ToolHolderOption,
   ToolOption,
+  ToolStack,
 } from "@shared/sheetMetalSupport.js";
 import { isToolUsableOnMachine, JUDGEMENT_LABELS } from "@shared/sheetMetalSupport.js";
 
 import { planSequence } from "./engines/bend-sequence.engine.js";
 import { evaluateInterference } from "./engines/interference.engine.js";
+import { buildDieStackProfile } from "./engines/die-profile.js";
 import { lookupMaterial } from "./engines/materials.js";
 import { evaluatePressForce } from "./engines/press-force.engine.js";
 import { generateBendCondition } from "./engines/process-condition.engine.js";
 import { evaluate } from "./engines/process-score.engine.js";
 import { toPunchProfile, type PunchProfile } from "./engines/punch-profile.js";
 import { recommend } from "./engines/recommendation.engine.js";
+import { evaluateOpeningHeight, evaluateStackHeights, stackMaxLoad } from "./engines/tool-stack.js";
 import { minFlangeLength, recommendVWidth } from "./engines/tool-selection.engine.js";
 import * as masterRef from "./master-ref.repo.js";
 import * as modelAnalysisRepo from "./model-analysis.repo.js";
@@ -49,6 +55,8 @@ interface StoredDetail {
   plan: BendSequencePlan | null;
   interference: InterferenceCheck | null;
   pressForce: PressForceCheck | null;
+  openingHeight: OpeningHeightCheck | null;
+  stackHeight: StackHeightCheck | null;
 }
 
 function parseJson<T>(raw: string | null, fallback: T): T {
@@ -101,6 +109,33 @@ function buildPunchContext(
   return { punchByOrder, punchCandidates: candidates };
 }
 
+/** 干渉判定に渡すダイホルダー情報を組み立てる */
+function buildDieContext(
+  stack: ToolStack,
+  bends: readonly ProcessConditionBend[],
+  holderMap: Map<number, ToolHolderOption>
+): {
+  dieProfile: ReturnType<typeof buildDieStackProfile>;
+  holderCandidates: ToolHolderOption[];
+  stackedHolderIds: number[];
+} {
+  const stackedHolderIds = stack.lower.map((item) => item.holderId);
+  const machineIds = [...new Set(bends.map((b) => b.machineId).filter((id) => id != null))];
+  const holderCandidates = masterRef
+    .listToolHolders()
+    .filter(
+      (holder) =>
+        holder.holderType === "dieHolder" &&
+        machineIds.every((id) => holder.machineIds.length === 0 || holder.machineIds.includes(id))
+    );
+
+  return {
+    dieProfile: buildDieStackProfile(stack.lower, holderMap),
+    holderCandidates,
+    stackedHolderIds,
+  };
+}
+
 /** 判断エンジンを実行し、結果を保存して返す。 */
 export function run(partNumber: string, userNameId: number | null): SimulationResult {
   const pn = partNumber?.trim();
@@ -127,6 +162,9 @@ export function run(partNumber: string, userNameId: number | null): SimulationRe
   const upperToolMap = masterRef.buildUpperToolMap();
   const lowerToolMap = masterRef.buildLowerToolMap();
   const machineMap = masterRef.buildMachineMap();
+  const holderMap = masterRef.buildToolHolderMap();
+  const stack = condition.stack ?? { upper: [], lower: [] };
+  const loadLimit = stackMaxLoad(stack, bends, holderMap, upperToolMap, lowerToolMap);
 
   // 形状解析があれば曲げ順を生成し、その順序で干渉を評価する
   const analysis = readAnalysis(pn);
@@ -138,6 +176,7 @@ export function run(partNumber: string, userNameId: number | null): SimulationRe
           minFlangeLength: minFlangeLength(vWidth),
           recommendedVWidth: vWidth,
           ...buildPunchContext(bends, upperToolMap),
+          ...buildDieContext(stack, bends, holderMap),
         })
       : null;
 
@@ -150,6 +189,27 @@ export function run(partNumber: string, userNameId: number | null): SimulationRe
     lowerToolMap,
     machineMap,
     analysis,
+    stackMaxLoad: loadLimit.maxLoad,
+    stackMaxLoadName: loadLimit.name,
+  });
+
+  const openingHeight = evaluateOpeningHeight({
+    stack,
+    bends,
+    holderMap,
+    upperToolMap,
+    lowerToolMap,
+    machineMap,
+    analysis,
+    plan,
+  });
+
+  const stackHeight = evaluateStackHeights({
+    stack,
+    bends,
+    holderMap,
+    upperToolMap,
+    lowerToolMap,
   });
 
   const scoreInput = {
@@ -162,6 +222,8 @@ export function run(partNumber: string, userNameId: number | null): SimulationRe
     analysis,
     interference,
     pressForce,
+    openingHeight,
+    stackHeight,
     upperToolMap,
     lowerToolMap,
     machineMap,
@@ -196,6 +258,8 @@ export function run(partNumber: string, userNameId: number | null): SimulationRe
     plan,
     interference,
     pressForce,
+    openingHeight,
+    stackHeight,
   };
 
   const simulationId = simulationRepo.ensureSimulation(pn, userNameId);
@@ -228,6 +292,8 @@ export function run(partNumber: string, userNameId: number | null): SimulationRe
     plan,
     interference,
     pressForce,
+    openingHeight,
+    stackHeight,
     evaluatedAt: saved.updated_at,
     evaluatedByName: resolveUserName(saved.updated_by),
   };
@@ -254,6 +320,8 @@ export function getResult(partNumber: string): SimulationResult | null {
     plan: null,
     interference: null,
     pressForce: null,
+    openingHeight: null,
+    stackHeight: null,
   });
 
   return {
@@ -274,6 +342,8 @@ export function getResult(partNumber: string): SimulationResult | null {
     plan: detail.plan ?? null,
     interference: detail.interference ?? null,
     pressForce: detail.pressForce ?? null,
+    openingHeight: detail.openingHeight ?? null,
+    stackHeight: detail.stackHeight ?? null,
     evaluatedAt: row.updated_at,
     evaluatedByName: resolveUserName(row.updated_by),
   };
