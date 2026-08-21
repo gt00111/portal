@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 13;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -172,6 +172,10 @@ CREATE TABLE IF NOT EXISTS m_machines (
   code TEXT NOT NULL UNIQUE COLLATE NOCASE,
   name TEXT NOT NULL,
   note TEXT,
+  pressCapacity REAL,
+  tableLength REAL,
+  openHeight REAL,
+  strokeLength REAL,
   isActive INTEGER NOT NULL DEFAULT 1,
   createdAt TEXT NOT NULL DEFAULT (datetime('now')),
   updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
@@ -182,6 +186,15 @@ CREATE TABLE IF NOT EXISTS m_upper_tools (
   code TEXT NOT NULL UNIQUE COLLATE NOCASE,
   name TEXT NOT NULL,
   note TEXT,
+  punchType TEXT,
+  tipRadius REAL,
+  tipAngle REAL,
+  bodyOffset REAL,
+  reliefHeight REAL,
+  reliefDepth REAL,
+  toolHeight REAL,
+  maxLoad REAL,
+  mountStandard TEXT,
   isActive INTEGER NOT NULL DEFAULT 1,
   createdAt TEXT NOT NULL DEFAULT (datetime('now')),
   updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
@@ -192,10 +205,62 @@ CREATE TABLE IF NOT EXISTS m_lower_tools (
   code TEXT NOT NULL UNIQUE COLLATE NOCASE,
   name TEXT NOT NULL,
   note TEXT,
+  vWidth REAL,
+  dieAngle REAL,
+  shoulderRadius REAL,
+  toolHeight REAL,
+  maxLoad REAL,
+  mountStandard TEXT,
   isActive INTEGER NOT NULL DEFAULT 1,
   createdAt TEXT NOT NULL DEFAULT (datetime('now')),
   updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ダイホルダー・中間板。段積みは同じホルダーを複数段として積んで表現する。
+CREATE TABLE IF NOT EXISTS m_tool_holders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  note TEXT,
+  holderType TEXT,
+  toolHeight REAL,
+  maxLoad REAL,
+  topOffset REAL,
+  maxStack REAL,
+  mountStandard TEXT,
+  isActive INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 機械に付く金型の対応表。行が無い金型は全機械で共用とみなす。
+CREATE TABLE IF NOT EXISTS m_upper_tool_machines (
+  upperToolId INTEGER NOT NULL REFERENCES m_upper_tools(id) ON DELETE CASCADE,
+  machineId INTEGER NOT NULL REFERENCES m_machines(id) ON DELETE CASCADE,
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (upperToolId, machineId)
+);
+
+CREATE TABLE IF NOT EXISTS m_lower_tool_machines (
+  lowerToolId INTEGER NOT NULL REFERENCES m_lower_tools(id) ON DELETE CASCADE,
+  machineId INTEGER NOT NULL REFERENCES m_machines(id) ON DELETE CASCADE,
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (lowerToolId, machineId)
+);
+
+CREATE TABLE IF NOT EXISTS m_tool_holder_machines (
+  holderId INTEGER NOT NULL REFERENCES m_tool_holders(id) ON DELETE CASCADE,
+  machineId INTEGER NOT NULL REFERENCES m_machines(id) ON DELETE CASCADE,
+  createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (holderId, machineId)
+);
+
+CREATE INDEX IF NOT EXISTS idx_m_upper_tool_machines_machine
+  ON m_upper_tool_machines(machineId);
+CREATE INDEX IF NOT EXISTS idx_m_lower_tool_machines_machine
+  ON m_lower_tool_machines(machineId);
+CREATE INDEX IF NOT EXISTS idx_m_tool_holder_machines_machine
+  ON m_tool_holder_machines(machineId);
 
 CREATE TABLE IF NOT EXISTS m_procurement_lead_times (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

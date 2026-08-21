@@ -74,6 +74,22 @@ export function setModelPath(
   return saved;
 }
 
+/**
+ * 判断エンジン実行用にシミュレーション行を確保する。
+ * STEP モデル未登録でも加工条件だけで判定できるよう、無ければ空行を作成する。
+ */
+export function ensureSimulation(partNumber: string, userNameId: number | null): number {
+  const existing = getRawByPart(partNumber);
+  if (existing) return existing.id;
+  const info = getSheetMetalSupportDb()
+    .prepare(
+      `INSERT INTO simulations (part_number, model_file_path, status, created_by, updated_by)
+       VALUES (?, NULL, 'draft', ?, ?)`
+    )
+    .run(partNumber, userNameId, userNameId);
+  return Number(info.lastInsertRowid);
+}
+
 /** STEP モデルを取り外す（論理削除）。旧相対パスを返す。 */
 export function clearModel(partNumber: string, userNameId: number | null): string | null {
   const db = getSheetMetalSupportDb();

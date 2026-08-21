@@ -52,6 +52,23 @@ export function initSheetMetalSupportSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_pc_bends_parent
       ON process_condition_bends (process_condition_id, bend_sequence);
 
+    -- ホルダー・中間板の段構成。position は機械側から数えた並び順（1 始まり）。
+    -- 同じホルダーを複数段に積めるよう、holder_id の重複を許す。
+    CREATE TABLE IF NOT EXISTS process_condition_stacks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      process_condition_id INTEGER NOT NULL REFERENCES process_conditions(id) ON DELETE CASCADE,
+      side TEXT NOT NULL CHECK (side IN ('upper', 'lower')),
+      position INTEGER NOT NULL,
+      holder_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_by INTEGER,
+      updated_by INTEGER,
+      is_active INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_pc_stacks_parent
+      ON process_condition_stacks (process_condition_id, side, position);
+
     CREATE TABLE IF NOT EXISTS simulations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       part_number TEXT NOT NULL,
@@ -83,6 +100,22 @@ export function initSheetMetalSupportSchema(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_sim_results_sim
       ON simulation_results (simulation_id);
+
+    CREATE TABLE IF NOT EXISTS model_analyses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      simulation_id INTEGER NOT NULL REFERENCES simulations(id) ON DELETE CASCADE,
+      part_number TEXT NOT NULL,
+      thickness REAL,
+      bend_count INTEGER NOT NULL DEFAULT 0,
+      detail TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_by INTEGER,
+      updated_by INTEGER,
+      is_active INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_model_analyses_part
+      ON model_analyses (part_number);
 
     CREATE TABLE IF NOT EXISTS technical_notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

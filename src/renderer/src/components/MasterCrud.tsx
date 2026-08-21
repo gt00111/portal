@@ -2,11 +2,18 @@ import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import {
+  type MasterExtraField,
+  type MasterExtraValues,
   type MasterRow,
   type MasterTable,
   type MasterUpsertInput,
   MASTER_TABLE_LABELS,
+  isChoiceField,
+  isMachineLinkedMasterTable,
+  isNumberField,
   isScopedMasterTable,
+  isTextField,
+  masterExtraFields,
 } from "@shared/master.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
@@ -34,6 +41,9 @@ interface Props {
 export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JSX.Element {
   const toast = useToast();
   const scoped = isScopedMasterTable(table);
+  const extraFields = masterExtraFields(table);
+  const machineLinked = isMachineLinkedMasterTable(table);
+  const [machines, setMachines] = useState<MasterRow[]>([]);
   const [rows, setRows] = useState<MasterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -63,6 +73,27 @@ export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JS
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // 対応機械の選択肢（機械紐付けマスタのみ）
+  useEffect(() => {
+    if (!machineLinked) {
+      setMachines([]);
+      return;
+    }
+    void (async () => {
+      try {
+        setMachines(await invoke<MasterRow[]>("master:list", { table: "m_machines" }));
+      } catch (err) {
+        toast.push("error", err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, [machineLinked, toast]);
+
+  const machineNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const m of machines) map.set(m.id, m.name);
+    return map;
+  }, [machines]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -110,6 +141,47 @@ export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JS
       : []),
     { key: "code", header: "コード", width: "180px", render: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { key: "name", header: "名称", render: (r) => r.name },
+    ...extraFields
+      .filter((f) => f.inList)
+      .map(
+        (f) =>
+          ({
+            key: f.key,
+            header: isNumberField(f) ? `${f.label}(${f.unit})` : f.label,
+            width: "110px",
+            align: isNumberField(f) ? "right" : "left",
+            render: (r: MasterRow) => {
+              const value = r.extra?.[f.key];
+              if (value == null) return <span className="text-fg-subtle">—</span>;
+              if (isChoiceField(f)) {
+                const option = f.options.find((o) => o.value === value);
+                return <span className="text-xs">{option?.label ?? String(value)}</span>;
+              }
+              if (!isNumberField(f)) return <span className="text-xs">{String(value)}</span>;
+              return <span className="font-mono text-xs">{value}</span>;
+            },
+          }) satisfies Column<MasterRow>
+      ),
+    ...(machineLinked
+      ? [
+          {
+            key: "machines",
+            header: "対応機械",
+            width: "200px",
+            render: (r: MasterRow) => {
+              const ids = r.machineIds ?? [];
+              if (ids.length === 0) {
+                return <span className="text-xs text-fg-muted">すべて（共用）</span>;
+              }
+              return (
+                <span className="text-xs text-fg-primary">
+                  {ids.map((id) => machineNameById.get(id) ?? `#${id}`).join("・")}
+                </span>
+              );
+            },
+          } satisfies Column<MasterRow>,
+        ]
+      : []),
     { key: "note", header: "備考", render: (r) => <span className="text-fg-muted">{r.note ?? "—"}</span> },
     {
       key: "isActive",
@@ -208,6 +280,8 @@ export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JS
         title={editing ? `${MASTER_TABLE_LABELS[table]} を編集` : `${MASTER_TABLE_LABELS[table]} を追加`}
         initial={editing}
         scoped={scoped}
+        extraFields={extraFields}
+        machines={machineLinked ? machines : null}
         scopes={scopes ?? []}
         defaultScope={scope || defaultScope || (scopes?.[0]?.value ?? "")}
         onClose={() => {
@@ -240,6 +314,9 @@ interface UpsertProps {
   title: string;
   initial: MasterRow | null;
   scoped: boolean;
+  extraFields: readonly MasterExtraField[];
+  /** 対応機械の選択肢。null は機械紐付けを持たないマスタ。 */
+  machines: MasterRow[] | null;
   scopes: ScopeChoice[];
   defaultScope: string;
   onClose: () => void;
@@ -251,6 +328,8 @@ function UpsertModal({
   title,
   initial,
   scoped,
+  extraFields,
+  machines,
   scopes,
   defaultScope,
   onClose,
@@ -261,6 +340,8 @@ function UpsertModal({
   const [note, setNote] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [scope, setScope] = useState<string>("");
+  const [extra, setExtra] = useState<Record<string, string>>({});
+  const [machineIds, setMachineIds] = useState<number[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -270,9 +351,16 @@ function UpsertModal({
       setNote(initial?.note ?? "");
       setIsActive(initial?.isActive ?? true);
       setScope(initial?.scope ?? defaultScope ?? "");
+      const values: Record<string, string> = {};
+      for (const field of extraFields) {
+        const value = initial?.extra?.[field.key];
+        values[field.key] = value == null ? "" : String(value);
+      }
+      setExtra(values);
+      setMachineIds(initial?.machineIds ?? []);
       setSubmitting(false);
     }
-  }, [open, initial, defaultScope]);
+  }, [open, initial, defaultScope, extraFields]);
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -280,8 +368,28 @@ function UpsertModal({
       window.alert("用途（scope）を選択してください。");
       return;
     }
+    let extraValues: MasterExtraValues | undefined;
+    if (extraFields.length > 0) {
+      extraValues = {};
+      for (const field of extraFields) {
+        const raw = extra[field.key]?.trim() ?? "";
+        if (raw === "") {
+          extraValues[field.key] = null;
+        } else {
+          extraValues[field.key] = isNumberField(field) ? Number(raw) : raw;
+        }
+      }
+    }
     setSubmitting(true);
-    await onSubmit({ code, name, note, isActive, scope: scoped ? scope : undefined });
+    await onSubmit({
+      code,
+      name,
+      note,
+      isActive,
+      scope: scoped ? scope : undefined,
+      extra: extraValues,
+      machineIds: machines ? machineIds : undefined,
+    });
     setSubmitting(false);
   }
 
@@ -319,6 +427,103 @@ function UpsertModal({
           onChange={(e) => setName(e.target.value)}
           required
         />
+        {machines && (
+          <div className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-bg-elevated/50 p-3">
+            <p className="text-xs text-fg-muted">
+              対応機械（1 台も選ばない場合は「すべての機械で共用」として扱います）
+            </p>
+            {machines.length === 0 ? (
+              <p className="text-xs text-fg-subtle">
+                機械マスタが未登録です。「機械」タブで登録してください。
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {machines.map((machine) => (
+                  <label
+                    key={machine.id}
+                    className="flex cursor-pointer items-center gap-1.5 text-sm text-fg-primary"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={machineIds.includes(machine.id)}
+                      onChange={(e) =>
+                        setMachineIds((prev) =>
+                          e.target.checked
+                            ? [...prev, machine.id]
+                            : prev.filter((id) => id !== machine.id)
+                        )
+                      }
+                      className="h-4 w-4 rounded border-border-strong"
+                    />
+                    {machine.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            {machineIds.length === 0 && machines.length > 0 && (
+              <p className="text-xs text-fg-subtle">
+                現在の設定：すべての機械で使用できる金型として扱われます。
+              </p>
+            )}
+          </div>
+        )}
+        {extraFields.length > 0 && (
+          <div className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-bg-elevated/50 p-3">
+            <p className="text-xs text-fg-muted">
+              型式・寸法・能力（未入力の項目は判定に使用されません）
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {extraFields.map((field) => (
+                <label key={field.key} className="flex flex-col gap-1 text-sm">
+                  <span className="text-fg-muted">
+                    {field.label}
+                    {isNumberField(field) && (
+                      <span className="ml-1 text-xs text-fg-subtle">({field.unit})</span>
+                    )}
+                  </span>
+                  {isChoiceField(field) ? (
+                    <select
+                      value={extra[field.key] ?? ""}
+                      onChange={(e) =>
+                        setExtra((prev) => ({ ...prev, [field.key]: e.target.value }))
+                      }
+                      className="h-[38px] rounded-lg border border-border-strong bg-bg-surface px-2 text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                    >
+                      <option value="">—</option>
+                      {field.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : isTextField(field) ? (
+                    <input
+                      type="text"
+                      placeholder={field.placeholder}
+                      value={extra[field.key] ?? ""}
+                      onChange={(e) =>
+                        setExtra((prev) => ({ ...prev, [field.key]: e.target.value }))
+                      }
+                      className="rounded-lg border border-border-strong bg-bg-surface p-2 text-fg-primary placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      min={0}
+                      step={field.step ?? 1}
+                      value={extra[field.key] ?? ""}
+                      onChange={(e) =>
+                        setExtra((prev) => ({ ...prev, [field.key]: e.target.value }))
+                      }
+                      className="rounded-lg border border-border-strong bg-bg-surface p-2 text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                    />
+                  )}
+                  {field.hint && <span className="text-xs text-fg-subtle">{field.hint}</span>}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <label className="flex flex-col gap-1.5 text-sm">
           <span className="text-fg-muted">備考</span>
           <textarea

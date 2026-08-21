@@ -4,6 +4,8 @@ import { fail, ok } from "@shared/ipcResponse.js";
 import type {
   DrawingFilePayload,
   MachineOption,
+  ModelAnalysis,
+  ModelAnalysisRecord,
   PartDetail,
   PartSearchCascadeOptions,
   PartSearchCascadeParams,
@@ -17,6 +19,7 @@ import type {
   SheetMetalSupportStatus,
   SimulationModel,
   SimulationModelFilePayload,
+  SimulationResult,
   TechnicalNote,
   TechnicalNoteCreateInput,
   TechnicalNoteUpdateInput,
@@ -28,6 +31,7 @@ import { ensureDrawingLibraryForSheetMetalSupport } from "@main/sheet-metal-supp
 import { isSheetMetalSupportOpen } from "@main/db/sheetMetalSupportConnection.js";
 import { isDrawingLibraryOpen } from "@main/db/drawingLibraryConnection.js";
 
+import * as judgement from "./judgement.service.js";
 import * as partSearch from "./part-search.service.js";
 import * as processInfo from "./process-info.service.js";
 
@@ -260,4 +264,50 @@ export function register(ipcMain: IpcMain): void {
       return fail(err);
     }
   });
+
+  // -------- Phase 4: 加工判断エンジン --------
+
+  ipcMain.handle("smsupport:simulation:run", async (_event, data: { partNumber: string }) => {
+    try {
+      const session = assertCanWriteApp(APP_ID);
+      return ok<SimulationResult>(judgement.run(data?.partNumber ?? "", session.userNameId));
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle("smsupport:simulation:getResult", async (_event, data: { partNumber: string }) => {
+    try {
+      assertCanViewApp(APP_ID);
+      return ok<SimulationResult | null>(judgement.getResult(data?.partNumber ?? ""));
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle(
+    "smsupport:simulation:saveAnalysis",
+    async (_event, data: { partNumber: string; analysis: ModelAnalysis }) => {
+      try {
+        const session = assertCanWriteApp(APP_ID);
+        return ok<ModelAnalysisRecord>(
+          judgement.saveAnalysis(data?.partNumber ?? "", data?.analysis, session.userNameId)
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "smsupport:simulation:getAnalysis",
+    async (_event, data: { partNumber: string }) => {
+      try {
+        assertCanViewApp(APP_ID);
+        return ok<ModelAnalysisRecord | null>(judgement.getAnalysis(data?.partNumber ?? ""));
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
 }

@@ -7,6 +7,7 @@ import type {
   ProcessConditionInput,
   ToolOption,
 } from "@shared/sheetMetalSupport.js";
+import { isToolUsableOnMachine } from "@shared/sheetMetalSupport.js";
 
 import { Button } from "@renderer/components/ui/Button.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
@@ -174,16 +175,28 @@ export function ProcessConditionPanel({
     return <p className="py-4 text-center text-sm text-fg-muted">読み込み中...</p>;
   }
 
-  const toolOptions = (list: ToolOption[]): JSX.Element[] => [
-    <option key="" value="">
-      —
-    </option>,
-    ...list.map((t) => (
-      <option key={t.id} value={String(t.id)}>
-        {t.name}
-      </option>
-    )),
-  ];
+  /**
+   * 金型の選択肢。機械を選んでいる場合はその機械に付く金型だけを出す。
+   * すでに選ばれている金型は、機械に付かなくても選択肢から消さず注記を付ける
+   * （消すと保存済みの内容が黙って書き換わってしまうため）。
+   */
+  const toolOptions = (list: ToolOption[], machineId: string, selectedId: string): JSX.Element[] => {
+    const machine = idOrNull(machineId);
+    const usable = list.filter(
+      (t) => isToolUsableOnMachine(t, machine) || String(t.id) === selectedId
+    );
+    return [
+      <option key="" value="">
+        —
+      </option>,
+      ...usable.map((t) => (
+        <option key={t.id} value={String(t.id)}>
+          {t.name}
+          {machine != null && !isToolUsableOnMachine(t, machine) ? "（この機械には付きません）" : ""}
+        </option>
+      )),
+    ];
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -288,7 +301,7 @@ export function ProcessConditionPanel({
                       disabled={!writable}
                       onChange={(e) => updateBend(b.key, { upperToolId: e.target.value })}
                     >
-                      {toolOptions(upperTools)}
+                      {toolOptions(upperTools, b.machineId, b.upperToolId)}
                     </select>
                   </label>
                   <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
@@ -299,7 +312,7 @@ export function ProcessConditionPanel({
                       disabled={!writable}
                       onChange={(e) => updateBend(b.key, { lowerToolId: e.target.value })}
                     >
-                      {toolOptions(lowerTools)}
+                      {toolOptions(lowerTools, b.machineId, b.lowerToolId)}
                     </select>
                   </label>
                   <label className="flex flex-col gap-1 text-[11px] text-fg-muted">

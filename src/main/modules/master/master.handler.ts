@@ -1,7 +1,8 @@
 import type { IpcMain } from "electron";
 
 import { fail, ok } from "@shared/ipcResponse.js";
-import type { MasterRow, MasterUpsertInput } from "@shared/master.js";
+import type { MasterExtraValues, MasterRow, MasterUpsertInput } from "@shared/master.js";
+import { isChoiceField, isMasterTable, isTextField, masterExtraFields } from "@shared/master.js";
 
 import { appendAuditEntry } from "@main/audit/audit.repo.js";
 import { assertLoggedIn, assertPortalAdmin } from "@main/auth-guard.js";
@@ -27,7 +28,60 @@ import { insert, listAll, remove, update } from "./master.repo.js";
 import * as leadTimes from "./procurement-lead-time.repo.js";
 import * as productBom from "./product-bom.repo.js";
 
-function normalizeInput(data: unknown): MasterUpsertInput {
+/**
+ * 追加項目を検証する。
+ * 数値項目は非負の数値、選択項目は定義済みの選択肢、文字項目はトリムした文字列を受け付ける。
+ * 空欄は未入力（null）として扱う。
+ */
+function normalizeExtra(table: unknown, value: unknown): MasterExtraValues | undefined {
+  if (value == null || typeof value !== "object") return undefined;
+  const fields = isMasterTable(table) ? masterExtraFields(table) : [];
+  const fieldByKey = new Map(fields.map((f) => [f.key, f]));
+  const extra: MasterExtraValues = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const field = fieldByKey.get(key);
+    if (!field) continue;
+    if (raw == null || raw === "") {
+      extra[key] = null;
+      continue;
+    }
+    if (isChoiceField(field)) {
+      const text = String(raw).trim();
+      if (!field.options.some((o) => o.value === text)) {
+        throw new Error(`${field.label} の選択値が不正です。`);
+      }
+      extra[key] = text;
+      continue;
+    }
+    if (isTextField(field)) {
+      const text = String(raw).trim();
+      extra[key] = text.length > 0 ? text : null;
+      continue;
+    }
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num < 0) {
+      throw new Error(`${field.label} は 0 以上の数値で入力してください。`);
+    }
+    extra[key] = num;
+  }
+  return extra;
+}
+
+/** 対応機械の ID 配列。未指定（undefined）は「変更しない」を意味する。 */
+function normalizeMachineIds(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids: number[] = [];
+  for (const raw of value) {
+    const num = Number(raw);
+    if (!Number.isInteger(num) || num <= 0) {
+      throw new Error("対応機械の指定が不正です。");
+    }
+    ids.push(num);
+  }
+  return [...new Set(ids)];
+}
+
+function normalizeInput(table: unknown, data: unknown): MasterUpsertInput {
   const obj = (data ?? {}) as Partial<MasterUpsertInput>;
   const code = (obj.code ?? "").toString().trim();
   const name = (obj.name ?? "").toString().trim();
@@ -40,6 +94,8 @@ function normalizeInput(data: unknown): MasterUpsertInput {
     note: obj.note?.toString() ?? null,
     isActive: obj.isActive !== false,
     scope: scopeRaw && scopeRaw.length > 0 ? scopeRaw : null,
+    extra: normalizeExtra(table, obj.extra),
+    machineIds: normalizeMachineIds(obj.machineIds),
   };
 }
 
@@ -67,7 +123,7 @@ export function register(ipcMain: IpcMain): void {
     async (_event, data: { table: string; input: MasterUpsertInput }) => {
       try {
         assertPortalAdmin();
-        const row = insert(data?.table, normalizeInput(data?.input));
+        const row = insert(data?.table, normalizeInput(data?.table, data?.input));
         appendAuditEntry({
           channel: "master:create",
           action: "create",
@@ -100,7 +156,7 @@ export function register(ipcMain: IpcMain): void {
         assertPortalAdmin();
         const id = Number(data?.id);
         if (!Number.isFinite(id) || id <= 0) throw new Error("不正な ID です。");
-        const row = update(data?.table, id, normalizeInput(data?.input));
+        const row = update(data?.table, id, normalizeInput(data?.table, data?.input));
         appendAuditEntry({
           channel: "master:update",
           action: "update",

@@ -2,13 +2,16 @@ import type {
   ProcessCondition,
   ProcessConditionBend,
   ProcessConditionBendInput,
+  ToolStack,
+  ToolStackSide,
 } from "@shared/sheetMetalSupport.js";
 
 import { getSheetMetalSupportDb } from "@main/db/sheetMetalSupportConnection.js";
 
 /**
- * 加工条件（`process_conditions`）＋曲げ順（`process_condition_bends`）の CRUD。
- * 品番ごとに 1 件（is_active=1）。曲げ順は保存時に全置換する。
+ * 加工条件（`process_conditions`）＋曲げ順（`process_condition_bends`）＋
+ * 金型スタック（`process_condition_stacks`）の CRUD。
+ * 品番ごとに 1 件（is_active=1）。曲げ順とスタックは保存時に全置換する。
  */
 
 interface RawCondition {

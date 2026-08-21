@@ -3,6 +3,13 @@ declare module "occt-import-js" {
     array: number[];
   }
 
+  /** 元の BREP 面と三角形範囲の対応（first/last は三角形インデックス・両端含む） */
+  export interface OcctBrepFace {
+    first: number;
+    last: number;
+    color?: [number, number, number];
+  }
+
   export interface OcctMesh {
     name?: string;
     attributes: {
@@ -11,6 +18,7 @@ declare module "occt-import-js" {
     };
     index: OcctAttributeArray;
     color?: [number, number, number];
+    brep_faces?: OcctBrepFace[];
   }
 
   export interface OcctReadResult {

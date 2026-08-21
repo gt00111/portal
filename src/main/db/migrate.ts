@@ -115,6 +115,135 @@ function migrateToV8(db: Database.Database): void {
   }
 }
 
+/** 既存テーブルに不足しているカラムのみ追加する */
+function addColumns(
+  db: Database.Database,
+  table: string,
+  columns: Record<string, "REAL" | "TEXT" | "INTEGER">
+): void {
+  if (!tableExists(db, table)) return;
+  const existing = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
+  );
+  for (const [column, type] of Object.entries(columns)) {
+    if (existing.has(column)) continue;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
+/** 機械・金型マスタに寸法／能力カラムを追加する（板金製造支援の金型選定・荷重判定で参照） */
+function migrateToV9(db: Database.Database): void {
+  const extraColumns: Record<string, readonly string[]> = {
+    m_machines: ["pressCapacity", "tableLength", "openHeight", "strokeLength"],
+    m_upper_tools: ["tipRadius", "tipAngle", "toolHeight", "maxLoad"],
+    m_lower_tools: ["vWidth", "dieAngle", "shoulderRadius", "toolHeight", "maxLoad"],
+  };
+  for (const [table, columns] of Object.entries(extraColumns)) {
+    addColumns(
+      db,
+      table,
+      Object.fromEntries(columns.map((c) => [c, "REAL" as const]))
+    );
+  }
+}
+
+/** 上型マスタに型式と逃げ寸法を追加する（干渉判定をパンチ断面ベースで行うため） */
+function migrateToV11(db: Database.Database): void {
+  addColumns(db, "m_upper_tools", {
+    punchType: "TEXT",
+    bodyOffset: "REAL",
+    reliefHeight: "REAL",
+    reliefDepth: "REAL",
+  });
+}
+
+/**
+ * パンチ本体の寸法を「全幅」から「片側の張り出し」に改める。
+ * 非対称なパンチ（グースネック等）では全幅の半分が当たり判定の距離にならないため。
+ * 既存の入力値は意味が変わらないよう半分にして引き継ぐ。
+ */
+function migrateToV12(db: Database.Database): void {
+  if (!tableExists(db, "m_upper_tools")) return;
+  const columns = new Set(
+    (db.prepare("PRAGMA table_info(m_upper_tools)").all() as { name: string }[]).map((c) => c.name)
+  );
+  if (columns.has("bodyOffset") || !columns.has("bodyWidth")) {
+    addColumns(db, "m_upper_tools", { bodyOffset: "REAL" });
+    return;
+  }
+  db.exec("ALTER TABLE m_upper_tools RENAME COLUMN bodyWidth TO bodyOffset");
+  db.exec("UPDATE m_upper_tools SET bodyOffset = bodyOffset / 2.0 WHERE bodyOffset IS NOT NULL");
+}
+
+/**
+ * ダイホルダー・中間板のマスタを追加する。
+ * 金型は単体ではなく機械側から積み上げたスタックとして扱うため、
+ * 各段の型高さ・耐圧・上面の張り出しを保持する。
+ */
+function migrateToV13(db: Database.Database): void {
+  if (!tableExists(db, "m_tool_holders")) {
+    db.exec(`
+      CREATE TABLE m_tool_holders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        name TEXT NOT NULL,
+        note TEXT,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  }
+  if (!tableExists(db, "m_tool_holder_machines")) {
+    db.exec(`
+      CREATE TABLE m_tool_holder_machines (
+        holderId INTEGER NOT NULL REFERENCES m_tool_holders(id) ON DELETE CASCADE,
+        machineId INTEGER NOT NULL REFERENCES m_machines(id) ON DELETE CASCADE,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (holderId, machineId)
+      );
+      CREATE INDEX idx_m_tool_holder_machines_machine ON m_tool_holder_machines(machineId);
+    `);
+  }
+  addColumns(db, "m_tool_holders", {
+    holderType: "TEXT",
+    toolHeight: "REAL",
+    maxLoad: "REAL",
+    topOffset: "REAL",
+    maxStack: "REAL",
+    mountStandard: "TEXT",
+  });
+  // 金型とホルダーの規格が食い違う組み合わせを検出できるようにする
+  addColumns(db, "m_upper_tools", { mountStandard: "TEXT" });
+  addColumns(db, "m_lower_tools", { mountStandard: "TEXT" });
+}
+
+/** 機械に付く金型の対応表を追加する（行が無い金型は全機械で共用） */
+function migrateToV10(db: Database.Database): void {
+  if (!tableExists(db, "m_upper_tool_machines")) {
+    db.exec(`
+      CREATE TABLE m_upper_tool_machines (
+        upperToolId INTEGER NOT NULL REFERENCES m_upper_tools(id) ON DELETE CASCADE,
+        machineId INTEGER NOT NULL REFERENCES m_machines(id) ON DELETE CASCADE,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (upperToolId, machineId)
+      );
+      CREATE INDEX idx_m_upper_tool_machines_machine ON m_upper_tool_machines(machineId);
+    `);
+  }
+  if (!tableExists(db, "m_lower_tool_machines")) {
+    db.exec(`
+      CREATE TABLE m_lower_tool_machines (
+        lowerToolId INTEGER NOT NULL REFERENCES m_lower_tools(id) ON DELETE CASCADE,
+        machineId INTEGER NOT NULL REFERENCES m_machines(id) ON DELETE CASCADE,
+        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (lowerToolId, machineId)
+      );
+      CREATE INDEX idx_m_lower_tool_machines_machine ON m_lower_tool_machines(machineId);
+    `);
+  }
+}
+
 function migrateToV6(db: Database.Database): void {
   if (!tableExists(db, "m_products")) {
     db.exec(`
@@ -302,6 +431,21 @@ export function migrate(db: Database.Database): void {
   }
   if (currentVersion < 8) {
     migrateToV8(db);
+  }
+  if (currentVersion < 9) {
+    migrateToV9(db);
+  }
+  if (currentVersion < 10) {
+    migrateToV10(db);
+  }
+  if (currentVersion < 11) {
+    migrateToV11(db);
+  }
+  if (currentVersion < 12) {
+    migrateToV12(db);
+  }
+  if (currentVersion < 13) {
+    migrateToV13(db);
   }
 
   if (!row) {

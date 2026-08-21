@@ -16,6 +16,7 @@ import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
 import { PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
+import { JudgementPanel } from "@renderer/routes/sheet-metal-support/JudgementPanel.js";
 import { ProcessConditionPanel } from "@renderer/routes/sheet-metal-support/ProcessConditionPanel.js";
 import { SimulationPanel } from "@renderer/routes/sheet-metal-support/SimulationPanel.js";
 import {
@@ -24,7 +25,14 @@ import {
   TechnicalNotesPanel,
 } from "@renderer/routes/sheet-metal-support/ProcessInfoPanels.js";
 
-type DetailTab = "detail" | "condition" | "note" | "history" | "revision" | "simulation";
+type DetailTab =
+  | "detail"
+  | "condition"
+  | "judgement"
+  | "note"
+  | "history"
+  | "revision"
+  | "simulation";
 
 const EMPTY_OPTION = { value: "", label: "すべて" } as const;
 
@@ -262,55 +270,64 @@ export function PartSearchPage({ writable }: { writable: boolean }): JSX.Element
               </Button>
             </header>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              {detailLoading ? (
-                <p className="py-8 text-center text-sm text-fg-muted">読み込み中...</p>
-              ) : (
-                <PdfJsViewer dataUrl={pdfDataUrl} />
-              )}
-            </div>
+            <nav className="flex flex-wrap gap-1 border-b border-border-subtle px-2 pt-2">
+              {(
+                [
+                  ["detail", "部品詳細"],
+                  ["condition", "加工条件"],
+                  ["judgement", "加工判定"],
+                  ["note", "技術ノート"],
+                  ["history", "加工履歴"],
+                  ["revision", "更新履歴"],
+                  ["simulation", "シミュレーション"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTab(id)}
+                  className={cn(
+                    "rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    tab === id
+                      ? "bg-accent-primary text-bg-base"
+                      : "text-fg-muted hover:bg-bg-elevated hover:text-fg-primary"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
 
-            <div className="border-t border-border-subtle">
-              <nav className="flex flex-wrap gap-1 px-2 pt-2">
-                {(
-                  [
-                    ["detail", "部品詳細"],
-                    ["condition", "加工条件"],
-                    ["note", "技術ノート"],
-                    ["history", "加工履歴"],
-                    ["revision", "更新履歴"],
-                    ["simulation", "シミュレーション"],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setTab(id)}
-                    className={cn(
-                      "rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors",
-                      tab === id
-                        ? "bg-accent-primary text-bg-base"
-                        : "text-fg-muted hover:bg-bg-elevated hover:text-fg-primary"
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </nav>
-              <div className="max-h-[40vh] overflow-y-auto px-3 py-3 text-sm">
-                {tab === "detail" && (
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
-                    <DetailField label="品番" value={detail?.partNumber} />
-                    <DetailField label="図番" value={detail?.drawingNumber} />
-                    <DetailField label="Rev" value={detail?.revision} />
-                    <DetailField label="客先" value={detail?.customerName} />
-                    <DetailField label="機種" value={detail?.model} />
-                    <DetailField label="図面名" value={detail?.title} />
-                  </dl>
-                )}
+            {tab === "detail" ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3 lg:grid-cols-6">
+                  <DetailField label="品番" value={detail?.partNumber} />
+                  <DetailField label="図番" value={detail?.drawingNumber} />
+                  <DetailField label="Rev" value={detail?.revision} />
+                  <DetailField label="客先" value={detail?.customerName} />
+                  <DetailField label="機種" value={detail?.model} />
+                  <DetailField label="図面名" value={detail?.title} />
+                </dl>
+                <div className="min-h-0 flex-1">
+                  {detailLoading ? (
+                    <p className="py-8 text-center text-sm text-fg-muted">読み込み中...</p>
+                  ) : (
+                    <PdfJsViewer dataUrl={pdfDataUrl} fitToContainer />
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-sm">
                 {tab === "condition" && (
                   <ProcessConditionPanel
                     key={`condition-${selected.partNumber}`}
+                    partNumber={selected.partNumber}
+                    writable={writable}
+                  />
+                )}
+                {tab === "judgement" && (
+                  <JudgementPanel
+                    key={`judgement-${selected.partNumber}`}
                     partNumber={selected.partNumber}
                     writable={writable}
                   />
@@ -343,7 +360,7 @@ export function PartSearchPage({ writable }: { writable: boolean }): JSX.Element
                   />
                 )}
               </div>
-            </div>
+            )}
           </div>
         )}
       </section>
