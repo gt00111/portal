@@ -161,4 +161,18 @@ export function initSheetMetalSupportSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_revision_histories_target
       ON revision_histories (target_table, target_id);
   `);
+
+  migrateSheetMetalSupportSchema(db);
+}
+
+function columnExists(db: Database.Database, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === column);
+}
+
+/** 既存 DB への列追加（CREATE IF NOT EXISTS だけでは足りない変更） */
+function migrateSheetMetalSupportSchema(db: Database.Database): void {
+  if (!columnExists(db, "process_condition_bends", "detected_bend_index")) {
+    db.exec(`ALTER TABLE process_condition_bends ADD COLUMN detected_bend_index INTEGER`);
+  }
 }

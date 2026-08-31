@@ -1,7 +1,8 @@
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type {
+  ApplyAutoSelectResult,
   MachineOption,
   ProcessCondition,
   ProcessConditionInput,
@@ -31,6 +32,7 @@ function errMsg(err: unknown): string {
 
 interface BendRow {
   key: string;
+  detectedBendIndex: string;
   upperToolId: string;
   lowerToolId: string;
   machineId: string;
@@ -45,6 +47,7 @@ function newBendRow(): BendRow {
   bendKeySeq += 1;
   return {
     key: `bend-${bendKeySeq}`,
+    detectedBendIndex: "",
     upperToolId: "",
     lowerToolId: "",
     machineId: "",
@@ -88,6 +91,7 @@ export function ProcessConditionPanel({
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [autoSelectBusy, setAutoSelectBusy] = useState(false);
 
   const [machines, setMachines] = useState<MachineOption[]>([]);
   const [upperTools, setUpperTools] = useState<ToolOption[]>([]);
@@ -118,6 +122,8 @@ export function ProcessConditionPanel({
         bendKeySeq += 1;
         return {
           key: `bend-${bendKeySeq}`,
+          detectedBendIndex:
+            b.detectedBendIndex != null ? String(b.detectedBendIndex) : "",
           upperToolId: b.upperToolId != null ? String(b.upperToolId) : "",
           lowerToolId: b.lowerToolId != null ? String(b.lowerToolId) : "",
           machineId: b.machineId != null ? String(b.machineId) : "",
@@ -179,6 +185,7 @@ export function ProcessConditionPanel({
         note: note.trim() || null,
         bends: bends.map((b, index) => ({
           bendSequence: index + 1,
+          detectedBendIndex: idOrNull(b.detectedBendIndex),
           upperToolId: idOrNull(b.upperToolId),
           lowerToolId: idOrNull(b.lowerToolId),
           machineId: idOrNull(b.machineId),
@@ -199,6 +206,33 @@ export function ProcessConditionPanel({
       toast.push("error", errMsg(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleAutoSelect(): Promise<void> {
+    if (
+      !window.confirm(
+        "形状解析と推奨曲げ順から、板厚・曲げ順・金型・スタックを自動選定して上書きします。よろしいですか？"
+      )
+    ) {
+      return;
+    }
+    setAutoSelectBusy(true);
+    try {
+      const result = await invoke<ApplyAutoSelectResult>("smsupport:processCondition:applyAutoSelect", {
+        partNumber,
+        preserveMaterial: Boolean(material.trim()),
+      });
+      applyCondition(result.condition);
+      if (result.preview.warnings.length > 0) {
+        toast.push("info", result.preview.warnings.join(" "));
+      } else {
+        toast.push("success", "加工条件を自動選定しました。");
+      }
+    } catch (err) {
+      toast.push("error", errMsg(err));
+    } finally {
+      setAutoSelectBusy(false);
     }
   }
 
@@ -235,6 +269,20 @@ export function ProcessConditionPanel({
 
   return (
     <div className="flex flex-col gap-4">
+      {writable && (
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={autoSelectBusy}
+            onClick={() => void handleAutoSelect()}
+          >
+            <Sparkles className="h-4 w-4" aria-hidden />
+            <span>{autoSelectBusy ? "選定中…" : "形状から自動選定"}</span>
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <label className="flex flex-col gap-1 text-xs text-fg-muted">
           材質

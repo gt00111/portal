@@ -1,4 +1,7 @@
 import type {
+  ApplyAutoSelectInput,
+  ApplyAutoSelectResult,
+  AutoSelectPreview,
   MachineOption,
   ProcessCondition,
   ProcessConditionInput,
@@ -18,6 +21,8 @@ import type {
 } from "@shared/sheetMetalSupport.js";
 import { HOLDER_TYPE_SIDES, TOOL_STACK_SIDE_LABELS } from "@shared/sheetMetalSupport.js";
 
+import { buildAutoSelect } from "./engines/process-auto-select.engine.js";
+import { getAnalysis } from "./judgement.service.js";
 import * as masterRef from "./master-ref.repo.js";
 import * as modelStorage from "./model-storage.js";
 import * as processConditionRepo from "./process-condition.repo.js";
@@ -282,6 +287,7 @@ export function saveProcessCondition(
   const bends = (input.bends ?? [])
     .map((b, index) => ({
       bendSequence: Number.isInteger(b.bendSequence) ? b.bendSequence : index + 1,
+      detectedBendIndex: normalizeId(b.detectedBendIndex),
       upperToolId: normalizeId(b.upperToolId),
       lowerToolId: normalizeId(b.lowerToolId),
       machineId: normalizeId(b.machineId),
@@ -308,6 +314,60 @@ export function saveProcessCondition(
 
   recordConditionChanges(before, saved, userNameId);
   return resolveConditionNames(saved);
+}
+
+/** 自動選定のプレビュー（保存しない） */
+export function previewAutoSelect(
+  input: ApplyAutoSelectInput
+): AutoSelectPreview {
+  const pn = input.partNumber?.trim();
+  if (!pn) throw new Error("品番を指定してください。");
+
+  const record = getAnalysis(pn);
+  if (!record?.analysis) {
+    throw new Error("形状解析が未保存です。「シミュレーション」タブで STEP を表示し、解析が完了するまでお待ちください。");
+  }
+
+  const existing = processConditionRepo.getByPart(pn);
+  const preview = buildAutoSelect(
+    record.analysis,
+    masterRef.listLowerTools(),
+    masterRef.listUpperTools(),
+    masterRef.listToolHolders(),
+    masterRef.listMachines(),
+    {
+      existingMaterial: existing?.material ?? null,
+      material: input.material,
+      machineId: input.machineId,
+      preserveMaterial: input.preserveMaterial,
+    }
+  );
+  return preview;
+}
+
+/** 形状解析・推奨曲げ順・金型マスタから加工条件を自動生成して保存する */
+export function applyAutoSelect(
+  input: ApplyAutoSelectInput,
+  userNameId: number | null
+): ApplyAutoSelectResult {
+  const preview = previewAutoSelect(input);
+  const existing = processConditionRepo.getByPart(input.partNumber.trim());
+
+  const saved = saveProcessCondition(
+    {
+      partNumber: input.partNumber.trim(),
+      material: preview.material,
+      thickness: preview.thickness,
+      processScore: existing?.processScore ?? null,
+      workDirection: existing?.workDirection ?? null,
+      note: existing?.note ?? null,
+      bends: preview.bends,
+      stack: preview.stack,
+    },
+    userNameId
+  );
+
+  return { condition: saved, preview };
 }
 
 function recordConditionChanges(

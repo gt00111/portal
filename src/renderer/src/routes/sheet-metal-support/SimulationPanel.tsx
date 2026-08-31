@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
+  ApplyAutoSelectResult,
   ModelAnalysis,
   ModelAnalysisRecord,
   ProcessCondition,
@@ -24,6 +25,7 @@ import { Button } from "@renderer/components/ui/Button.js";
 import { useToast } from "@renderer/components/ui/Toast.js";
 import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
+import { buildPlaybackHighlight } from "@renderer/routes/sheet-metal-support/bendPlayback.js";
 import {
   StepViewer,
   type DisplayMode,
@@ -113,6 +115,7 @@ export function SimulationPanel({
   const [displayMode, setDisplayMode] = useState<DisplayMode>("shaded");
   const [analysis, setAnalysis] = useState<ModelAnalysis | null>(null);
   const [analysisSaved, setAnalysisSaved] = useState(false);
+  const [autoSelectBusy, setAutoSelectBusy] = useState(false);
 
   /** 0 = 完成形、1..N = 各曲げステップ */
   const [stepIndex, setStepIndex] = useState(0);
@@ -124,6 +127,11 @@ export function SimulationPanel({
   );
   const bendCount = bends.length;
   const currentBend = stepIndex > 0 ? bends[stepIndex - 1] : null;
+
+  const playbackHighlight = useMemo(
+    () => buildPlaybackHighlight(stepIndex, bends, analysis),
+    [stepIndex, bends, analysis]
+  );
 
   const loadModelBytes = useCallback(async () => {
     try {
@@ -141,12 +149,17 @@ export function SimulationPanel({
     setLoading(true);
     setBytes(null);
     try {
-      const [m, c] = await Promise.all([
+      const [m, c, analysisRecord] = await Promise.all([
         invoke<SimulationModel | null>("smsupport:simulation:getByPart", { partNumber }),
         invoke<ProcessCondition | null>("smsupport:processCondition:getByPart", { partNumber }),
+        invoke<ModelAnalysisRecord | null>("smsupport:simulation:getAnalysis", { partNumber }),
       ]);
       setModel(m);
       setCondition(c);
+      if (analysisRecord?.analysis) {
+        setAnalysis(analysisRecord.analysis);
+        setAnalysisSaved(true);
+      }
       if (m?.modelFilePath) {
         await loadModelBytes();
       }
@@ -193,6 +206,34 @@ export function SimulationPanel({
   useEffect(() => {
     if (playing && stepIndex >= bendCount) setPlaying(false);
   }, [playing, stepIndex, bendCount]);
+
+  async function handleApplyAutoSelect(): Promise<void> {
+    if (
+      !window.confirm(
+        "形状解析と推奨曲げ順から、板厚・曲げ順・金型・スタックを自動選定して加工条件を上書きします。よろしいですか？"
+      )
+    ) {
+      return;
+    }
+    setAutoSelectBusy(true);
+    try {
+      const result = await invoke<ApplyAutoSelectResult>("smsupport:processCondition:applyAutoSelect", {
+        partNumber,
+        preserveMaterial: Boolean(condition?.material?.trim()),
+      });
+      setCondition(result.condition);
+      if (result.preview.warnings.length > 0) {
+        toast.push("info", result.preview.warnings.join(" "));
+      } else {
+        toast.push("success", "加工条件を自動選定しました。");
+      }
+      setStepIndex(0);
+    } catch (err) {
+      toast.push("error", errMsg(err));
+    } finally {
+      setAutoSelectBusy(false);
+    }
+  }
 
   async function handleUpload(): Promise<void> {
     setBusy(true);
@@ -323,6 +364,7 @@ export function SimulationPanel({
           displayMode={displayMode}
           showBendLines={showBendLines}
           thicknessHint={condition?.thickness ?? null}
+          playbackHighlight={playbackHighlight}
           onAnalyzed={handleAnalyzed}
         />
       ) : (
@@ -336,7 +378,14 @@ export function SimulationPanel({
       )}
 
       {bytes && (
-        <BendDetectionSection analysis={analysis} condition={condition} saved={analysisSaved} />
+        <BendDetectionSection
+          analysis={analysis}
+          condition={condition}
+          saved={analysisSaved}
+          writable={writable}
+          autoSelectBusy={autoSelectBusy}
+          onApplyAutoSelect={() => void handleApplyAutoSelect()}
+        />
       )}
 
       {/* 曲げ工程のステップ再生（加工条件の曲げ順と連動） */}
@@ -434,6 +483,16 @@ export function SimulationPanel({
 
             {currentBend && (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-3">
+                <StepField
+                  label="検出 No."
+                  value={
+                    currentBend.detectedBendIndex != null
+                      ? String(currentBend.detectedBendIndex)
+                      : playbackHighlight?.active != null
+                        ? String(playbackHighlight.active)
+                        : null
+                  }
+                />
                 <StepField label="上型" value={currentBend.upperToolName} />
                 <StepField label="下型" value={currentBend.lowerToolName} />
                 <StepField label="機械" value={currentBend.machineName} />
@@ -447,6 +506,15 @@ export function SimulationPanel({
                   </div>
                 )}
               </dl>
+            )}
+
+            {playbackHighlight && (
+              <p className="text-[10px] text-fg-subtle">
+                3D 曲げ線:{" "}
+                <span className="text-red-500">赤＝加工中</span> ／{" "}
+                <span className="text-green-600">緑＝完了</span> ／{" "}
+                <span className="text-slate-400">灰＝未加工</span>
+              </p>
             )}
           </>
         )}
@@ -467,10 +535,16 @@ function BendDetectionSection({
   analysis,
   condition,
   saved,
+  writable,
+  autoSelectBusy,
+  onApplyAutoSelect,
 }: {
   analysis: ModelAnalysis | null;
   condition: ProcessCondition | null;
   saved: boolean;
+  writable: boolean;
+  autoSelectBusy: boolean;
+  onApplyAutoSelect: () => void;
 }): JSX.Element {
   if (!analysis) {
     return (
@@ -534,10 +608,23 @@ function BendDetectionSection({
     <div className="flex flex-col gap-2 rounded-xl border border-border-subtle bg-bg-surface/40 p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-medium text-fg-primary">曲げ線検出（形状解析）</span>
-        <span className="text-[11px] text-fg-subtle">
-          円筒面 {analysis.cylinderCount} ／ 曲げ {detected.length} 箇所 ／ 推定板厚{" "}
-          {fmt(analysis.thickness, " mm")}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {writable && saved && analysis && analysis.bends.length > 0 && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={autoSelectBusy}
+              onClick={onApplyAutoSelect}
+            >
+              {autoSelectBusy ? "選定中…" : "加工条件を自動選定"}
+            </Button>
+          )}
+          <span className="text-[11px] text-fg-subtle">
+            円筒面 {analysis?.cylinderCount ?? "—"} ／ 曲げ {detected.length} 箇所 ／ 推定板厚{" "}
+            {fmt(analysis?.thickness ?? null, " mm")}
+          </span>
+        </div>
       </div>
 
       {excluded && (

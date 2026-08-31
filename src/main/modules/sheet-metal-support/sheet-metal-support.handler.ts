@@ -2,6 +2,9 @@ import { BrowserWindow, dialog, type IpcMain } from "electron";
 
 import { fail, ok } from "@shared/ipcResponse.js";
 import type {
+  ApplyAutoSelectInput,
+  ApplyAutoSelectResult,
+  AutoSelectPreview,
   DrawingFilePayload,
   MachineOption,
   ModelAnalysis,
@@ -140,6 +143,32 @@ export function register(ipcMain: IpcMain): void {
       return fail(err);
     }
   });
+
+  ipcMain.handle(
+    "smsupport:processCondition:previewAutoSelect",
+    async (_event, data: ApplyAutoSelectInput) => {
+      try {
+        assertCanViewApp(APP_ID);
+        return ok<AutoSelectPreview>(processInfo.previewAutoSelect(data));
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "smsupport:processCondition:applyAutoSelect",
+    async (_event, data: ApplyAutoSelectInput) => {
+      try {
+        const session = assertCanWriteApp(APP_ID);
+        return ok<ApplyAutoSelectResult>(
+          processInfo.applyAutoSelect(data, session.userNameId)
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
 
   // -------- Phase 2: 技術ノート --------
 

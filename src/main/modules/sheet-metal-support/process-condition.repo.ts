@@ -35,6 +35,7 @@ interface RawBend {
   id: number;
   process_condition_id: number;
   bend_sequence: number;
+  detected_bend_index: number | null;
   upper_tool_id: number | null;
   lower_tool_id: number | null;
   machine_id: number | null;
@@ -51,6 +52,7 @@ function toBend(raw: RawBend): ProcessConditionBend {
   return {
     id: raw.id,
     bendSequence: raw.bend_sequence,
+    detectedBendIndex: raw.detected_bend_index,
     upperToolId: raw.upper_tool_id,
     lowerToolId: raw.lower_tool_id,
     machineId: raw.machine_id,
@@ -67,7 +69,7 @@ function toBend(raw: RawBend): ProcessConditionBend {
 function listBends(processConditionId: number): ProcessConditionBend[] {
   const rows = getSheetMetalSupportDb()
     .prepare(
-      `SELECT id, process_condition_id, bend_sequence, upper_tool_id, lower_tool_id,
+      `SELECT id, process_condition_id, bend_sequence, detected_bend_index, upper_tool_id, lower_tool_id,
               machine_id, back_gauge, angle, bend_radius, note
        FROM process_condition_bends
        WHERE process_condition_id = ? AND is_active = 1
@@ -179,14 +181,15 @@ function replaceBends(
   );
   const insertBend = db.prepare(
     `INSERT INTO process_condition_bends
-       (process_condition_id, bend_sequence, upper_tool_id, lower_tool_id, machine_id,
+       (process_condition_id, bend_sequence, detected_bend_index, upper_tool_id, lower_tool_id, machine_id,
         back_gauge, angle, bend_radius, note, created_by, updated_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   bends.forEach((b, index) => {
     insertBend.run(
       processConditionId,
       Number.isInteger(b.bendSequence) ? b.bendSequence : index + 1,
+      b.detectedBendIndex ?? null,
       b.upperToolId ?? null,
       b.lowerToolId ?? null,
       b.machineId ?? null,

@@ -28,6 +28,12 @@ const FOV_DEG = 45;
 export type DisplayMode = "shaded" | "wireframe" | "transparent";
 export type ViewName = "iso" | "front" | "back" | "top" | "bottom" | "left" | "right";
 
+/** 曲げ工程再生時の 3D 曲げ線ハイライト */
+export interface BendPlaybackHighlight {
+  completed: number[];
+  active: number | null;
+}
+
 export interface StepViewerHandle {
   setView: (view: ViewName) => void;
   fit: () => void;
@@ -51,24 +57,27 @@ interface BuiltModel {
   group: THREE.Group;
   edges: THREE.LineSegments[];
   materials: THREE.MeshStandardMaterial[];
-  bendLines: THREE.Object3D[];
+  bendLines: THREE.Line[];
   analysis: ModelAnalysis;
 }
 
 /** 検出した曲げ軸を描く。材料内部にあるため深度テストを外して透視表示する。 */
-function buildBendLines(analysis: ModelAnalysis): THREE.Object3D[] {
-  const material = new THREE.LineBasicMaterial({
-    color: 0xff7a1a,
-    depthTest: false,
-    transparent: true,
-  });
+function buildBendLines(analysis: ModelAnalysis): THREE.Line[] {
   return analysis.bends.map((bend) => {
+    const material = new THREE.LineBasicMaterial({
+      color: 0xff7a1a,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.85,
+      linewidth: 1,
+    });
     const geometry = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(...bend.axisStart),
       new THREE.Vector3(...bend.axisEnd),
     ]);
     const line = new THREE.Line(geometry, material);
     line.renderOrder = 10;
+    line.userData = { bendIndex: bend.index, material };
     return line;
   });
 }
@@ -163,6 +172,8 @@ export const StepViewer = forwardRef<
     showBendLines?: boolean;
     /** 加工条件に登録された板厚（mm）。円筒面の分類基準として解析に渡す。 */
     thicknessHint?: number | null;
+    /** 曲げ工程再生と連動した曲げ線ハイライト */
+    playbackHighlight?: BendPlaybackHighlight | null;
     onAnalyzed?: (analysis: ModelAnalysis) => void;
   }
 >(function StepViewer(
@@ -172,13 +183,14 @@ export const StepViewer = forwardRef<
     displayMode = "shaded",
     showBendLines = true,
     thicknessHint = null,
+    playbackHighlight = null,
     onAnalyzed,
   },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const edgesRef = useRef<THREE.LineSegments[]>([]);
-  const bendLinesRef = useRef<THREE.Object3D[]>([]);
+  const bendLinesRef = useRef<THREE.Line[]>([]);
   // 解析完了コールバックは再描画のトリガにしない
   const onAnalyzedRef = useRef(onAnalyzed);
   onAnalyzedRef.current = onAnalyzed;
@@ -347,6 +359,28 @@ export const StepViewer = forwardRef<
   useEffect(() => {
     for (const line of bendLinesRef.current) line.visible = showBendLines;
   }, [showBendLines]);
+
+  useEffect(() => {
+    for (const line of bendLinesRef.current) {
+      const bendIndex = line.userData.bendIndex as number;
+      const material = line.userData.material as THREE.LineBasicMaterial;
+      if (!playbackHighlight) {
+        material.color.setHex(0xff7a1a);
+        material.opacity = 0.85;
+        continue;
+      }
+      if (playbackHighlight.active === bendIndex) {
+        material.color.setHex(0xff2222);
+        material.opacity = 1;
+      } else if (playbackHighlight.completed.includes(bendIndex)) {
+        material.color.setHex(0x22c55e);
+        material.opacity = 0.95;
+      } else {
+        material.color.setHex(0x94a3b8);
+        material.opacity = 0.35;
+      }
+    }
+  }, [playbackHighlight]);
 
   return (
     <div className="relative h-[52vh] min-h-[320px] w-full overflow-hidden rounded-xl border border-border-subtle bg-[#cdd0d7]">

@@ -292,6 +292,8 @@ export function isToolUsableOnMachine(
 export interface ProcessConditionBend {
   id: number | null;
   bendSequence: number;
+  /** 形状解析で検出した曲げ No.（3D 再生との対応付け） */
+  detectedBendIndex: number | null;
   upperToolId: number | null;
   lowerToolId: number | null;
   machineId: number | null;
@@ -326,6 +328,7 @@ export interface ProcessCondition {
 
 export interface ProcessConditionBendInput {
   bendSequence: number;
+  detectedBendIndex?: number | null;
   upperToolId?: number | null;
   lowerToolId?: number | null;
   machineId?: number | null;
@@ -333,6 +336,30 @@ export interface ProcessConditionBendInput {
   angle?: number | null;
   bendRadius?: number | null;
   note?: string | null;
+}
+
+/** 自動選定の結果（加工条件への反映前プレビューにも使用） */
+export interface AutoSelectPreview {
+  plan: BendSequencePlan;
+  material: string | null;
+  thickness: number | null;
+  bends: ProcessConditionBendInput[];
+  stack: ToolStackInput;
+  warnings: string[];
+}
+
+export interface ApplyAutoSelectInput {
+  partNumber: string;
+  /** 使用機械（未指定ならマスタから自動） */
+  machineId?: number | null;
+  material?: string | null;
+  /** true なら登録済み材質を維持 */
+  preserveMaterial?: boolean;
+}
+
+export interface ApplyAutoSelectResult {
+  condition: ProcessCondition;
+  preview: AutoSelectPreview;
 }
 
 export interface ProcessConditionInput {
