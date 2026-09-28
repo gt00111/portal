@@ -17,6 +17,7 @@ import { Bootstrap } from "@renderer/routes/Bootstrap.js";
 import { DrawingLibraryApp } from "@renderer/routes/DrawingLibraryApp.js";
 import { Home } from "@renderer/routes/Home.js";
 import { Login } from "@renderer/routes/Login.js";
+import { MBendApp } from "@renderer/routes/MBendApp.js";
 import { MasterTableRoute } from "@renderer/routes/MasterDatabase.js";
 import { NotFound } from "@renderer/routes/NotFound.js";
 import { PixoConverterApp } from "@renderer/routes/PixoConverterApp.js";
@@ -198,6 +199,14 @@ function AppRoutes(): JSX.Element {
               element={
                 <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base text-fg-primary">
                   <ProcessManagementApp session={session} />
+                </div>
+              }
+            />
+            <Route
+              path="/apps/m-bend"
+              element={
+                <div className="portal-app-calm-shell flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-bg-base text-fg-primary">
+                  <MBendApp session={session} />
                 </div>
               }
             />

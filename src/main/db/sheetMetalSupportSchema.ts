@@ -117,6 +117,24 @@ export function initSheetMetalSupportSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_model_analyses_part
       ON model_analyses (part_number);
 
+    -- 外部板金CAM（M-BEND）から受け取った解析結果。
+    CREATE TABLE IF NOT EXISTS cam_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      part_number TEXT NOT NULL,
+      status TEXT NOT NULL,
+      level TEXT,
+      summary TEXT,
+      simulated_at TEXT,
+      collision_count INTEGER NOT NULL DEFAULT 0,
+      warning_count INTEGER NOT NULL DEFAULT 0,
+      source_files TEXT NOT NULL,
+      result_detail TEXT NOT NULL,
+      imported_at TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_cam_results_part
+      ON cam_results (part_number, id DESC);
+
     CREATE TABLE IF NOT EXISTS technical_notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       part_number TEXT NOT NULL,

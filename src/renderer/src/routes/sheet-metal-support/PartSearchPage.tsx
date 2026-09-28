@@ -17,6 +17,7 @@ import { invoke } from "@renderer/lib/api.js";
 import { cn } from "@renderer/lib/cn.js";
 import { PdfJsViewer } from "@renderer/routes/drawing-library/PdfJsViewer.js";
 import { JudgementPanel } from "@renderer/routes/sheet-metal-support/JudgementPanel.js";
+import { CamIntegrationPanel } from "@renderer/routes/sheet-metal-support/CamIntegrationPanel.js";
 import { ProcessConditionPanel } from "@renderer/routes/sheet-metal-support/ProcessConditionPanel.js";
 import { SimulationPanel } from "@renderer/routes/sheet-metal-support/SimulationPanel.js";
 import {
@@ -32,7 +33,8 @@ type DetailTab =
   | "note"
   | "history"
   | "revision"
-  | "simulation";
+  | "simulation"
+  | "cam";
 
 const EMPTY_OPTION = { value: "", label: "すべて" } as const;
 
@@ -274,7 +276,8 @@ export function PartSearchPage({ writable }: { writable: boolean }): JSX.Element
               {(
                 [
                   ["detail", "部品詳細"],
-                  ["condition", "加工条件"],
+                  ["cam", "M-BEND加工条件"],
+                  ["condition", "手動加工条件"],
                   ["judgement", "加工判定"],
                   ["note", "技術ノート"],
                   ["history", "加工履歴"],
@@ -355,6 +358,13 @@ export function PartSearchPage({ writable }: { writable: boolean }): JSX.Element
                 {tab === "simulation" && (
                   <SimulationPanel
                     key={`simulation-${selected.partNumber}`}
+                    partNumber={selected.partNumber}
+                    writable={writable}
+                  />
+                )}
+                {tab === "cam" && (
+                  <CamIntegrationPanel
+                    key={`cam-${selected.partNumber}`}
                     partNumber={selected.partNumber}
                     writable={writable}
                   />

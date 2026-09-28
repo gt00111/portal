@@ -218,6 +218,17 @@ function migrateToV13(db: Database.Database): void {
   addColumns(db, "m_lower_tools", { mountStandard: "TEXT" });
 }
 
+/** M-BENDを独立アプリとして追加し、既存の板金支援権限を初期権限として引き継ぐ。 */
+function migrateToV14(db: Database.Database): void {
+  db.exec(`
+    INSERT INTO m_user_app_grants (userNameId, appId, appRole, processView, updatedAt)
+    SELECT userNameId, 'm-bend', appRole, NULL, datetime('now')
+    FROM m_user_app_grants
+    WHERE appId = 'sheet-metal-support'
+    ON CONFLICT(userNameId, appId) DO NOTHING;
+  `);
+}
+
 /** 機械に付く金型の対応表を追加する（行が無い金型は全機械で共用） */
 function migrateToV10(db: Database.Database): void {
   if (!tableExists(db, "m_upper_tool_machines")) {
@@ -446,6 +457,9 @@ export function migrate(db: Database.Database): void {
   }
   if (currentVersion < 13) {
     migrateToV13(db);
+  }
+  if (currentVersion < 14) {
+    migrateToV14(db);
   }
 
   if (!row) {

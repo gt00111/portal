@@ -29,6 +29,12 @@ import type {
   ToolHolderOption,
   ToolOption,
 } from "@shared/sheetMetalSupport.js";
+import type {
+  SheetMetalCamMasterExport,
+  SheetMetalCamLaunchResult,
+  SheetMetalCamResult,
+  SheetMetalCamStatus,
+} from "@shared/sheetMetalCam.js";
 
 import { assertCanViewApp, assertCanWriteApp } from "@main/auth-guard.js";
 import { ensureDrawingLibraryForSheetMetalSupport } from "@main/sheet-metal-support-guard.js";
@@ -36,6 +42,7 @@ import { isSheetMetalSupportOpen } from "@main/db/sheetMetalSupportConnection.js
 import { isDrawingLibraryOpen } from "@main/db/drawingLibraryConnection.js";
 
 import * as judgement from "./judgement.service.js";
+import * as camIntegration from "./cam-integration.service.js";
 import * as partSearch from "./part-search.service.js";
 import * as processInfo from "./process-info.service.js";
 
@@ -341,4 +348,75 @@ export function register(ipcMain: IpcMain): void {
       }
     }
   );
+
+  // -------- 外部板金CAM（M-BEND）連携 --------
+
+  ipcMain.handle("smsupport:cam:status", async () => {
+    try {
+      assertCanViewApp(APP_ID);
+      return ok<SheetMetalCamStatus>(camIntegration.getCamStatus());
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle(
+    "smsupport:cam:selectFolder",
+    async (_event, data: { target: "mbend" | "import" }) => {
+      try {
+        assertCanWriteApp(APP_ID);
+        const options: Electron.OpenDialogOptions = { properties: ["openDirectory"] };
+        const parent = dialogParent();
+        const result = parent
+          ? await dialog.showOpenDialog(parent, options)
+          : await dialog.showOpenDialog(options);
+        const selectedPath = result.filePaths[0];
+        if (result.canceled || !selectedPath) return ok<SheetMetalCamStatus>(camIntegration.getCamStatus());
+        if (data?.target === "mbend") camIntegration.setMbendRoot(selectedPath);
+        else if (data?.target === "import") camIntegration.setImportRoot(selectedPath);
+        else throw new Error("設定対象が不正です。");
+        return ok<SheetMetalCamStatus>(camIntegration.getCamStatus());
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  ipcMain.handle("smsupport:cam:exportMasters", async () => {
+    try {
+      assertCanWriteApp(APP_ID);
+      return ok<SheetMetalCamMasterExport>(camIntegration.exportCamMasters());
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle("smsupport:cam:launch", async () => {
+    try {
+      assertCanWriteApp(APP_ID);
+      return ok<SheetMetalCamLaunchResult>(await camIntegration.launchMbend());
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle("smsupport:cam:importResult", async (_event, data: { partNumber: string }) => {
+    try {
+      assertCanWriteApp(APP_ID);
+      return ok<SheetMetalCamResult>(camIntegration.importCamResult(data?.partNumber ?? ""));
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+  ipcMain.handle("smsupport:cam:getLatestResult", async (_event, data: { partNumber: string }) => {
+    try {
+      assertCanViewApp(APP_ID);
+      return ok<SheetMetalCamResult | null>(
+        camIntegration.getLatestCamResult(data?.partNumber ?? "")
+      );
+    } catch (err) {
+      return fail(err);
+    }
+  });
 }

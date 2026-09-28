@@ -32,13 +32,14 @@ interface ScopeChoice {
 interface Props {
   table: MasterTable;
   canWrite: boolean;
+  channelPrefix?: "master" | "mbend:master";
   /** scope 付きマスタで利用する scope リスト（空なら自動で「すべて」のみ） */
   scopes?: ScopeChoice[];
   /** 既定の scope（フィルタおよび新規作成のデフォルト） */
   defaultScope?: string;
 }
 
-export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JSX.Element {
+export function MasterCrud({ table, canWrite, channelPrefix = "master", scopes, defaultScope }: Props): JSX.Element {
   const toast = useToast();
   const scoped = isScopedMasterTable(table);
   const extraFields = masterExtraFields(table);
@@ -58,7 +59,7 @@ export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JS
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await invoke<MasterRow[]>("master:list", {
+      const list = await invoke<MasterRow[]>(`${channelPrefix}:list`, {
         table,
         scope: scoped && scope ? scope : null,
       });
@@ -68,7 +69,7 @@ export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JS
     } finally {
       setLoading(false);
     }
-  }, [table, toast, scoped, scope]);
+  }, [table, toast, scoped, scope, channelPrefix]);
 
   useEffect(() => {
     void refresh();
@@ -82,12 +83,12 @@ export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JS
     }
     void (async () => {
       try {
-        setMachines(await invoke<MasterRow[]>("master:list", { table: "m_machines" }));
+        setMachines(await invoke<MasterRow[]>(`${channelPrefix}:list`, { table: "m_machines" }));
       } catch (err) {
         toast.push("error", err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [machineLinked, toast]);
+  }, [machineLinked, toast, channelPrefix]);
 
   const machineNameById = useMemo(() => {
     const map = new Map<number, string>();
@@ -109,7 +110,7 @@ export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JS
   async function handleDelete(row: MasterRow): Promise<void> {
     if (!window.confirm(`「${row.code} : ${row.name}」を削除します。よろしいですか？`)) return;
     try {
-      await invoke<null>("master:delete", { table, id: row.id });
+      await invoke<null>(`${channelPrefix}:delete`, { table, id: row.id });
       toast.push("success", "削除しました。");
       await refresh();
     } catch (err) {
@@ -291,10 +292,10 @@ export function MasterCrud({ table, canWrite, scopes, defaultScope }: Props): JS
         onSubmit={async (input) => {
           try {
             if (editing) {
-              await invoke<MasterRow>("master:update", { table, id: editing.id, input });
+              await invoke<MasterRow>(`${channelPrefix}:update`, { table, id: editing.id, input });
               toast.push("success", "更新しました。");
             } else {
-              await invoke<MasterRow>("master:create", { table, input });
+              await invoke<MasterRow>(`${channelPrefix}:create`, { table, input });
               toast.push("success", "追加しました。");
             }
             setEditing(null);

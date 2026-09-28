@@ -20,6 +20,9 @@ export const SEISAN_BOARD_DB_FILE_NAME = "seisan-board.db";
 /** 中央 DB と同じフォルダに置く板金製造支援用サテライト DB */
 export const SHEET_METAL_SUPPORT_DB_FILE_NAME = "sheet-metal-support.db";
 
+/** M-BEND専用の機械・金型・CAMプロファイルDB */
+export const M_BEND_DB_FILE_NAME = "m-bend.db";
+
 /** データ根配下のポータル共通静的アセット */
 export const PORTAL_ASSETS_DIR = "assets";
 
@@ -113,6 +116,15 @@ export const APP_CATALOG = [
     section: "progress" as const,
     description:
       "生産技術が使い、生産ボードでは見にくい「設計」と「レーザーデータ作成」の進捗だけを、部内で細かく追えるようにしたアプリです。SolidWorks や CADMAC など、担当する作業に合わせた見え方に切り替えられ、今どこまで進んでいるかがひと目で分かります。品番全体の日程や納期は生産ボード、技術部門の中の進み具合は工程管理、という使い分けをイメージしてください。部内の進捗共有や、次に手を付ける作業の整理に向いています。",
+    kind: "internal" as const,
+    ready: true,
+  },
+  {
+    id: "m-bend",
+    displayName: "M-BEND",
+    section: "progress" as const,
+    description:
+      "板金CAMとして、機械・金型・ホルダー・3Dモデルを管理し、曲げ順序、金型条件、干渉確認、加工シミュレーションを作成します。解析結果は品番単位で板金製造支援へ渡します。",
     kind: "internal" as const,
     ready: true,
   },

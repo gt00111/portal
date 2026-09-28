@@ -5,6 +5,7 @@ export const GRANTABLE_APP_IDS = [
   "drawing-library",
   "parts-tracker",
   "process-management",
+  "m-bend",
   "sheet-metal-support",
   "pixo-converter",
 ] as const;

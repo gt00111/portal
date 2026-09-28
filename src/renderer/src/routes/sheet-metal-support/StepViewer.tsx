@@ -8,6 +8,7 @@ import type { OcctModule } from "occt-import-js";
 
 import type { ModelAnalysis } from "@renderer/routes/sheet-metal-support/bendDetection.js";
 import { analyzeMeshes } from "@renderer/routes/sheet-metal-support/bendDetection.js";
+import { placementMatrix, type ToolPlacement } from "@shared/mBendGeometry.js";
 
 /** OpenCascade WASM は初回のみ初期化してキャッシュする。 */
 let occtPromise: Promise<OcctModule> | null = null;
@@ -58,7 +59,7 @@ interface BuiltModel {
   edges: THREE.LineSegments[];
   materials: THREE.MeshStandardMaterial[];
   bendLines: THREE.Line[];
-  analysis: ModelAnalysis;
+  analysis: ModelAnalysis | null;
 }
 
 /** 検出した曲げ軸を描く。材料内部にあるため深度テストを外して透視表示する。 */
@@ -85,7 +86,8 @@ function buildBendLines(analysis: ModelAnalysis): THREE.Line[] {
 function buildGroupFromStep(
   occt: OcctModule,
   bytes: Uint8Array,
-  thicknessHint: number | null
+  thicknessHint: number | null,
+  detectBends: boolean
 ): BuiltModel {
   const result = occt.ReadStepFile(bytes, null);
   if (!result.success || result.meshes.length === 0) {
@@ -133,8 +135,8 @@ function buildGroupFromStep(
     edges.push(lines);
   }
 
-  const analysis = analyzeMeshes(result.meshes, { thicknessHint });
-  const bendLines = buildBendLines(analysis);
+  const analysis = detectBends ? analyzeMeshes(result.meshes, { thicknessHint }) : null;
+  const bendLines = analysis ? buildBendLines(analysis) : [];
   for (const line of bendLines) group.add(line);
 
   return { group, edges, materials, bendLines, analysis };
@@ -167,6 +169,8 @@ export const StepViewer = forwardRef<
   StepViewerHandle,
   {
     bytes: Uint8Array | null;
+    placement?: ToolPlacement;
+    detectBends?: boolean;
     showEdges?: boolean;
     displayMode?: DisplayMode;
     showBendLines?: boolean;
@@ -179,6 +183,8 @@ export const StepViewer = forwardRef<
 >(function StepViewer(
   {
     bytes,
+    placement,
+    detectBends = true,
     showEdges = true,
     displayMode = "shaded",
     showBendLines = true,
@@ -241,7 +247,7 @@ export const StepViewer = forwardRef<
       try {
         const occt = await getOcct();
         if (disposed) return;
-        const built = buildGroupFromStep(occt, bytes, thicknessHint);
+        const built = buildGroupFromStep(occt, bytes, thicknessHint, detectBends);
         group = built.group;
         edgesRef.current = built.edges;
         materialsRef.current = built.materials;
@@ -249,7 +255,19 @@ export const StepViewer = forwardRef<
         for (const line of built.edges) line.visible = showEdges;
         for (const line of built.bendLines) line.visible = showBendLines;
         applyDisplayMode(built.materials, displayMode);
-        onAnalyzedRef.current?.(built.analysis);
+        if (built.analysis) onAnalyzedRef.current?.(built.analysis);
+        if (placement) {
+          const model = group;
+          const matrix = new THREE.Matrix4().fromArray(placementMatrix(placement));
+          model.applyMatrix4(matrix);
+          const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).length() || 10;
+          group = new THREE.Group();
+          group.add(model);
+          group.add(new THREE.AxesHelper(size * 0.35));
+          const point = new THREE.Vector3(...placement.mountPoint).applyMatrix4(matrix);
+          const normal = new THREE.Vector3(...placement.mountNormal).transformDirection(matrix);
+          group.add(new THREE.ArrowHelper(normal, point, size * 0.2, 0xa020c0));
+        }
 
         const width = container.clientWidth || 640;
         const height = container.clientHeight || 420;
@@ -264,7 +282,9 @@ export const StepViewer = forwardRef<
         scene.add(group);
 
         const radius = box.getSize(new THREE.Vector3()).length() / 2 || 1;
-        const distance = (radius / Math.sin((FOV_DEG / 2) * THREE.MathUtils.DEG2RAD)) * 1.1;
+        const halfFov = (FOV_DEG / 2) * THREE.MathUtils.DEG2RAD;
+        const fitDistance = (aspect: number): number => radius / Math.sin(Math.min(halfFov, Math.atan(Math.tan(halfFov) * aspect))) * 1.1;
+        const distance = fitDistance(width / height);
         distanceRef.current = distance;
 
         const camera = new THREE.PerspectiveCamera(
@@ -311,6 +331,7 @@ export const StepViewer = forwardRef<
           const w = container.clientWidth || width;
           const h = container.clientHeight || height;
           camera.aspect = w / h;
+          distanceRef.current = fitDistance(camera.aspect);
           camera.updateProjectionMatrix();
           renderer.setSize(w, h);
         });
@@ -346,7 +367,7 @@ export const StepViewer = forwardRef<
     // showEdges / displayMode は再構築せず下の effect で反映する。
     // 板厚は分類基準なので、後から届いた場合は解析をやり直す。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bytes, thicknessHint]);
+  }, [bytes, thicknessHint, placement, detectBends]);
 
   useEffect(() => {
     for (const line of edgesRef.current) line.visible = showEdges;
